@@ -1128,10 +1128,10 @@ export function DashboardOverview() {
               </CardHeader>
               <CardContent className="p-0">
                 <ScrollArea className="max-h-[420px]">
-                  <div className="px-6 pb-4 space-y-4">
+                  <div className="px-6 pb-4 space-y-5">
                     {dashboardData.trendingGaps.map((gap, i) => (
                       <div key={i}>
-                        <div className="py-3 space-y-4">
+                        <div className="py-3 space-y-5 overflow-hidden">
                           {/* Header: severity badge + title */}
                           <div className="flex items-start gap-2.5">
                             <Badge variant="outline" className={`shrink-0 mt-0.5 ${severityColor(gap.severity)}`}>
@@ -1155,7 +1155,7 @@ export function DashboardOverview() {
 
                           {/* Combined badges row: Sub-Niche + Verdict + Quadrant */}
                           {(gap.subNiche?.name || gap.marketQuadrant?.quadrant || gap.falseOpportunity?.verdict) && (
-                            <div className="flex flex-wrap items-center gap-2">
+                            <div className="flex flex-wrap items-center gap-1.5 gap-y-2 max-w-full overflow-hidden">
                               {gap.subNiche?.name && (
                                 <Badge className="text-xs bg-green-100 text-green-800 dark:bg-green-950/40 dark:text-green-400 gap-1 shrink-0 whitespace-nowrap">
                                   <CircleDot className="h-3 w-3" />
@@ -1182,9 +1182,9 @@ export function DashboardOverview() {
 
                           {/* Underserved Audience — compact badges */}
                           {gap.underservedUsers && gap.underservedUsers.length > 0 && (
-                            <div className="flex items-center gap-2 flex-wrap">
+                            <div className="flex items-center gap-1.5 gap-y-2 flex-wrap max-w-full overflow-hidden">
                               <Users className="h-3 w-3 shrink-0 text-purple-500" />
-                              <span className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">Underserved:</span>
+                              <span className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider shrink-0">Underserved:</span>
                               {gap.underservedUsers.slice(0, 3).map((user, j) => (
                                 <Badge
                                   key={j}
@@ -1205,8 +1205,8 @@ export function DashboardOverview() {
 
                           {/* Affected Products — name badges with pricing */}
                           {gap.affectedProducts && gap.affectedProducts.length > 0 && (
-                            <div className="flex flex-wrap gap-2">
-                              <span className="text-xs text-muted-foreground self-center mr-0.5">Affected:</span>
+                            <div className="flex flex-wrap gap-1.5 gap-y-2 max-w-full overflow-hidden">
+                              <span className="text-xs text-muted-foreground self-center mr-0.5 shrink-0">Affected:</span>
                               {gap.affectedProducts.slice(0, 4).map((p, j) => (
                                 <Tooltip key={j}>
                                   <TooltipTrigger asChild>
@@ -1235,7 +1235,7 @@ export function DashboardOverview() {
 
                           {/* Inline meta: Execution + Why Now + Sources — combined compact row */}
                           {(gap.executionDifficulty || gap.whyNow || gap.sourceTransparency?.sourcePlatforms) && (
-                            <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-muted-foreground">
+                            <div className="flex flex-wrap items-center gap-x-3 gap-y-2 text-[11px] text-muted-foreground overflow-hidden max-w-full">
                               {gap.executionDifficulty && (
                                 <span className="inline-flex items-center gap-1">
                                   <Gauge className="h-3 w-3 shrink-0" />
@@ -1466,7 +1466,7 @@ export function DashboardOverview() {
         </div>
 
         {/* ═══ 3. Professional Complaint Clustering + Fastest Growing + 6. Underserved Users ═══ */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 overflow-hidden">
 
           {/* Complaint Trends — professional clustering */}
           {dashboardData.complaintTrends.length > 0 && (
@@ -1476,7 +1476,7 @@ export function DashboardOverview() {
               transition={{ duration: 0.4, delay: 0.35 }}
               className="min-w-0"
             >
-              <Card className="h-full">
+              <Card className="h-full overflow-hidden">
                 <CardHeader>
                   <div className="flex items-center gap-2">
                     <AlertTriangle className="h-5 w-5 text-red-500" />
@@ -1564,7 +1564,7 @@ export function DashboardOverview() {
               transition={{ duration: 0.4, delay: 0.4 }}
               className="min-w-0"
             >
-              <Card className="h-full">
+              <Card className="h-full overflow-hidden">
                 <CardHeader>
                   <div className="flex items-center gap-2">
                     <TrendingUp className="h-5 w-5 text-green-500" />
@@ -1609,7 +1609,7 @@ export function DashboardOverview() {
               transition={{ duration: 0.4, delay: 0.45 }}
               className="min-w-0"
             >
-              <Card className="h-full">
+              <Card className="h-full overflow-hidden">
                 <CardHeader>
                   <div className="flex items-center gap-2.5">
                     <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-purple-100 dark:bg-purple-950/40">

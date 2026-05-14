@@ -626,11 +626,11 @@ export function FeasibilitySummaryBlock({ executionDifficulty, opportunityScore,
   const comp = executionDifficulty ? getCompetitionLevel(executionDifficulty.competitionLevel) : null
 
   return (
-    <div className="grid grid-cols-3 gap-2">
+    <div className="grid grid-cols-3 gap-2 overflow-hidden">
       <div className="rounded-md border bg-muted/20 p-2 text-center min-w-0 overflow-hidden">
         <p className="text-[9px] text-muted-foreground uppercase tracking-wider mb-0.5">Opportunity</p>
         {opp ? (
-          <Badge variant="outline" className={`text-[9px] h-4 px-1 whitespace-nowrap ${opp.color}`}>{opp.label}</Badge>
+          <Badge variant="outline" className={`text-[9px] h-4 px-1 whitespace-nowrap truncate max-w-full ${opp.color}`}>{opp.label}</Badge>
         ) : (
           <span className="text-[10px] text-muted-foreground">—</span>
         )}
@@ -638,7 +638,7 @@ export function FeasibilitySummaryBlock({ executionDifficulty, opportunityScore,
       <div className="rounded-md border bg-muted/20 p-2 text-center min-w-0 overflow-hidden">
         <p className="text-[9px] text-muted-foreground uppercase tracking-wider mb-0.5">Difficulty</p>
         {diff ? (
-          <Badge variant="outline" className={`text-[9px] h-4 px-1 whitespace-nowrap ${diff.color}`}>{diff.label}</Badge>
+          <Badge variant="outline" className={`text-[9px] h-4 px-1 whitespace-nowrap truncate max-w-full ${diff.color}`}>{diff.label}</Badge>
         ) : (
           <span className="text-[10px] text-muted-foreground">—</span>
         )}
@@ -646,7 +646,7 @@ export function FeasibilitySummaryBlock({ executionDifficulty, opportunityScore,
       <div className="rounded-md border bg-muted/20 p-2 text-center min-w-0 overflow-hidden">
         <p className="text-[9px] text-muted-foreground uppercase tracking-wider mb-0.5">Competition</p>
         {comp ? (
-          <Badge variant="outline" className={`text-[9px] h-4 px-1 whitespace-nowrap ${comp.color}`}>{comp.label}</Badge>
+          <Badge variant="outline" className={`text-[9px] h-4 px-1 whitespace-nowrap truncate max-w-full ${comp.color}`}>{comp.label}</Badge>
         ) : (
           <span className="text-[10px] text-muted-foreground">—</span>
         )}
@@ -764,8 +764,8 @@ export function TrendComparisonBlock({ comparisons, trendDirection, summary }: {
 
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
         {comparisons.map((comp, i) => (
-          <div key={i} className="rounded-md border bg-muted/20 p-2.5 space-y-2 overflow-hidden">
-            <Badge variant="outline" className="text-[10px] h-5 shrink-0 whitespace-nowrap">{periodLabel(comp.period)}</Badge>
+          <div key={i} className="rounded-md border bg-muted/20 p-2.5 space-y-2 overflow-hidden min-w-0">
+            <Badge variant="outline" className="text-[10px] h-5 shrink-0 whitespace-nowrap truncate max-w-full">{periodLabel(comp.period)}</Badge>
 
             <div className="space-y-2 text-xs">
               <div className="flex justify-between">
@@ -778,7 +778,7 @@ export function TrendComparisonBlock({ comparisons, trendDirection, summary }: {
               </div>
               <div className="flex justify-between items-center">
                 <span className="text-muted-foreground">Avg Score</span>
-                <Badge variant="outline" className={`text-[10px] h-4 px-1.5 shrink-0 whitespace-nowrap ${getScoreBadge(comp.avgOpportunityScore)}`}>
+                <Badge variant="outline" className={`text-[10px] h-4 px-1.5 shrink-0 whitespace-nowrap truncate max-w-full ${getScoreBadge(comp.avgOpportunityScore)}`}>
                   {comp.avgOpportunityScore}
                 </Badge>
               </div>

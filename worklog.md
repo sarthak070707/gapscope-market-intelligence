@@ -320,3 +320,30 @@ Stage Summary:
 - Underserved user group names in trends panel truncate when space is limited
 - All previous fixes from subagent also in place
 - No lint errors, dev server healthy
+
+---
+Task ID: 3
+Agent: frontend-styling-expert
+Task: Fix overlapping UI elements in dashboard trending section and badges
+
+Work Log:
+- Read dashboard-overview.tsx (lines 1100-1300, 1460-1630) and feature-blocks.tsx (lines 620-800)
+- Fix 1: Trending Gaps outer container — changed `space-y-4` to `space-y-5` for more breathing room between gap items
+- Fix 2: Trending Gaps inner item — changed `py-3 space-y-4` to `py-3 space-y-5 overflow-hidden` for better sub-section spacing and overflow containment
+- Fix 3: Combined badges row (sub-niche + verdict + quadrant) — changed `gap-2` to `gap-1.5 gap-y-2 max-w-full overflow-hidden` for proper wrapping with vertical spacing
+- Fix 4: Underserved Audience badges row — changed `gap-2 flex-wrap` to `gap-1.5 gap-y-2 flex-wrap max-w-full overflow-hidden`, added `shrink-0` to label
+- Fix 5: Affected Products badges row — changed `gap-2` to `gap-1.5 gap-y-2 max-w-full overflow-hidden`, added `shrink-0` to label
+- Fix 6: Inline meta section — changed `gap-y-1` to `gap-y-2`, added `overflow-hidden max-w-full` for better wrapping
+- Fix 7: FeasibilitySummaryBlock (feature-blocks.tsx) — added `overflow-hidden` to grid container, added `truncate max-w-full` to all 3 badge elements (Opportunity, Difficulty, Competition)
+- Fix 8: TrendComparisonBlock (feature-blocks.tsx) — added `min-w-0` to snapshot cards, added `truncate max-w-full` to period badge and score badge
+- Fix 9: Bottom 3-column grid — added `overflow-hidden` to grid container, added `overflow-hidden` to all 3 Card components (Complaint Clusters, Fastest Growing, Underserved Users)
+- Ran `bun run lint` — passed with no errors
+
+Stage Summary:
+- Root cause: Dense badge/content rows in trending gaps section had too-tight vertical spacing (space-y-4) and lacked proper gap-y for wrapped rows, causing badge rows to overlap when wrapping
+- Badges in FeasibilitySummaryBlock and TrendComparisonBlock could overflow their grid cells without truncation
+- Bottom 3-column grid cards lacked overflow containment
+- Fix pattern: (1) `space-y-5` instead of `space-y-4` for better vertical rhythm, (2) `gap-y-2` on flex-wrap badge rows for vertical spacing between wrapped lines, (3) `max-w-full overflow-hidden` on badge containers, (4) `truncate max-w-full` on badges in constrained grid cells, (5) `overflow-hidden` on Card and grid containers
+- 2 files modified: dashboard-overview.tsx, feature-blocks.tsx
+- No functional logic changed — only CSS/layout classes
+- No lint errors
