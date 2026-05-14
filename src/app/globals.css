@@ -142,3 +142,12 @@
 .dark .custom-scrollbar::-webkit-scrollbar-thumb:hover {
   background: oklch(0.5 0.05 50);
 }
+
+/* Ensure Framer Motion elements are visible before hydration.
+   Framer Motion sets inline opacity:0 on SSR, which causes blank pages
+   if JS fails to hydrate. This rule overrides that until JS takes over. */
+:not(.framer-motion-animated) {
+  &[style*="opacity: 0"] {
+    opacity: 1 !important;
+  }
+}
