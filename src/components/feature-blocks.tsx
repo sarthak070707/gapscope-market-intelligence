@@ -438,83 +438,134 @@ export function MarketQuadrantChart({ items }: { items: { name: string; quadrant
     dead_zone: 'fill-red-500',
   }
 
-  // Smart label positioning: spread labels to avoid overlaps
+  // Advanced label positioning: force-directed to avoid all overlaps
+  const LABEL_H = 10 // label height in viewBox units
+  const LABEL_W_BASE = 8 // base label width per character
+  const DOT_R = 5
+  const PADDING = 3 // min gap between labels
+
   const positionedItems = items.map((item, i) => {
-    // Clamp coordinates to keep labels within chart bounds
     const cx = Math.min(Math.max(item.quadrant.competitionScore * 2, 15), 185)
-    const cy = Math.min(Math.max(200 - item.quadrant.opportunityScore * 2, 30), 185)
-    // Default label above the dot, offset alternately for nearby points
-    let labelY = cy - 12
-    let labelX = cx
-    // Check for nearby items and alternate label position
-    for (let j = 0; j < i; j++) {
-      const prevItem = items[j]
-      const prevCx = Math.min(Math.max(prevItem.quadrant.competitionScore * 2, 15), 185)
-      const prevCy = Math.min(Math.max(200 - prevItem.quadrant.opportunityScore * 2, 30), 185)
-      const dist = Math.sqrt((cx - prevCx) ** 2 + (cy - prevCy) ** 2)
-      if (dist < 30) {
-        // Too close — shift label to opposite side
-        labelY = cy + 16
-        labelX = cx + (cx > prevCx ? 10 : -10)
-        break
-      }
-    }
-    return { ...item, cx, cy, labelX, labelY }
+    const cy = Math.min(Math.max(200 - item.quadrant.opportunityScore * 2, 35), 185)
+    return { ...item, cx, cy, labelX: cx, labelY: cy - DOT_R - 4 }
   })
 
-  return (
-    <div className="relative w-full aspect-square max-w-[320px] mx-auto">
-      <svg viewBox="0 0 200 200" className="w-full h-full">
-        {/* Background quadrants */}
-        <rect x="0" y="0" width="100" height="100" className="fill-green-50 dark:fill-green-950/20" />
-        <rect x="100" y="0" width="100" height="100" className="fill-amber-50 dark:fill-amber-950/20" />
-        <rect x="0" y="100" width="100" height="100" className="fill-sky-50 dark:fill-sky-950/20" />
-        <rect x="100" y="100" width="100" height="100" className="fill-red-50 dark:fill-red-950/20" />
+  // Iterative collision resolution
+  for (let pass = 0; pass < 5; pass++) {
+    for (let i = 0; i < positionedItems.length; i++) {
+      for (let j = i + 1; j < positionedItems.length; j++) {
+        const a = positionedItems[i]
+        const b = positionedItems[j]
+        const aW = Math.min(a.name.length, 12) * LABEL_W_BASE
+        const bW = Math.min(b.name.length, 12) * LABEL_W_BASE
+        // Check bounding box overlap
+        const aLeft = a.labelX - aW / 2
+        const aRight = a.labelX + aW / 2
+        const aTop = a.labelY - LABEL_H / 2
+        const aBottom = a.labelY + LABEL_H / 2
+        const bLeft = b.labelX - bW / 2
+        const bRight = b.labelX + bW / 2
+        const bTop = b.labelY - LABEL_H / 2
+        const bBottom = b.labelY + LABEL_H / 2
 
-        {/* Quadrant labels — positioned with more spacing */}
-        <text x="50" y="18" textAnchor="middle" className="fill-green-700 dark:fill-green-400 text-[7px] font-bold">GOLDMINE</text>
-        <text x="50" y="27" textAnchor="middle" className="fill-green-600 dark:fill-green-500 text-[4px]">Low Competition · High Opp</text>
-        <text x="150" y="18" textAnchor="middle" className="fill-amber-700 dark:fill-amber-400 text-[7px] font-bold">CROWDED</text>
-        <text x="150" y="27" textAnchor="middle" className="fill-amber-600 dark:fill-amber-500 text-[4px]">High Competition · High Opp</text>
-        <text x="50" y="185" textAnchor="middle" className="fill-sky-700 dark:fill-sky-400 text-[7px] font-bold">BLUE OCEAN</text>
-        <text x="50" y="194" textAnchor="middle" className="fill-sky-600 dark:fill-sky-500 text-[4px]">Low Competition · Lower Opp</text>
-        <text x="150" y="185" textAnchor="middle" className="fill-red-700 dark:fill-red-400 text-[7px] font-bold">DEAD ZONE</text>
-        <text x="150" y="194" textAnchor="middle" className="fill-red-600 dark:fill-red-500 text-[4px]">High Competition · Low Opp</text>
+        const overlapsX = aLeft < bRight + PADDING && aRight > bLeft - PADDING
+        const overlapsY = aTop < bBottom + PADDING && aBottom > bTop - PADDING
+
+        if (overlapsX && overlapsY) {
+          // Push labels apart vertically
+          const pushY = (a.cy <= b.cy ? -1 : 1) * (LABEL_H + PADDING)
+          positionedItems[i] = { ...a, labelY: a.labelY + pushY * 0.5 }
+          positionedItems[j] = { ...b, labelY: b.labelY - pushY * 0.5 }
+        }
+      }
+    }
+  }
+
+  // Clamp labels to chart bounds
+  for (let i = 0; i < positionedItems.length; i++) {
+    const item = positionedItems[i]
+    const w = Math.min(item.name.length, 12) * LABEL_W_BASE
+    positionedItems[i] = {
+      ...item,
+      labelX: Math.min(Math.max(item.labelX, w / 2 + 2), 200 - w / 2 - 2),
+      labelY: Math.min(Math.max(item.labelY, LABEL_H), 195),
+    }
+  }
+
+  // Truncate names for display
+  const truncate = (name: string) => name.length > 12 ? name.substring(0, 11) + '..' : name
+
+  return (
+    <div className="relative w-full max-w-[280px] mx-auto" style={{ aspectRatio: '1 / 1' }}>
+      <svg viewBox="0 0 200 200" className="w-full h-full overflow-visible">
+        {/* Background quadrants */}
+        <rect x="0" y="0" width="100" height="100" className="fill-green-50 dark:fill-green-950/20" rx="2" />
+        <rect x="100" y="0" width="100" height="100" className="fill-amber-50 dark:fill-amber-950/20" rx="2" />
+        <rect x="0" y="100" width="100" height="100" className="fill-sky-50 dark:fill-sky-950/20" rx="2" />
+        <rect x="100" y="100" width="100" height="100" className="fill-red-50 dark:fill-red-950/20" rx="2" />
+
+        {/* Quadrant labels — compact, in corners */}
+        <text x="8" y="10" className="fill-green-700/70 dark:fill-green-400/70 text-[5px] font-bold">GOLDMINE</text>
+        <text x="108" y="10" className="fill-amber-700/70 dark:fill-amber-400/70 text-[5px] font-bold">CROWDED</text>
+        <text x="8" y="198" className="fill-sky-700/70 dark:fill-sky-400/70 text-[5px] font-bold">BLUE OCEAN</text>
+        <text x="108" y="198" className="fill-red-700/70 dark:fill-red-400/70 text-[5px] font-bold">DEAD ZONE</text>
 
         {/* Axes */}
-        <line x1="100" y1="30" x2="100" y2="185" stroke="currentColor" strokeWidth="0.5" className="text-muted-foreground/20" />
-        <line x1="5" y1="100" x2="195" y2="100" stroke="currentColor" strokeWidth="0.5" className="text-muted-foreground/20" />
+        <line x1="100" y1="0" x2="100" y2="200" stroke="currentColor" strokeWidth="0.4" className="text-muted-foreground/20" />
+        <line x1="0" y1="100" x2="200" y2="100" stroke="currentColor" strokeWidth="0.4" className="text-muted-foreground/20" />
 
-        {/* Data points with smart label positioning */}
-        {positionedItems.map((item, i) => (
-          <g key={item.name + i}>
-            <circle
-              cx={item.cx}
-              cy={item.cy}
-              r="7"
-              className={`${quadrantColors[item.quadrant.quadrant] || 'fill-gray-500'} opacity-90`}
-              stroke="white"
-              strokeWidth="1.5"
-            />
-            {/* Background rect for readability */}
-            <rect
-              x={item.labelX - 22}
-              y={item.labelY - 6}
-              width={Math.min(item.name.length, 10) * 4.5 + 4}
-              height="8"
-              rx="2"
-              className="fill-background/80"
-            />
-            <text
-              x={item.labelX}
-              y={item.labelY}
-              textAnchor="middle"
-              className="fill-foreground text-[5px] font-semibold"
-            >
-              {item.name.length > 10 ? item.name.substring(0, 10) + '..' : item.name}
-            </text>
-          </g>
-        ))}
+        {/* Axis labels */}
+        <text x="100" y="6" textAnchor="middle" className="fill-muted-foreground/40 text-[3.5px]">HIGH OPPORTUNITY</text>
+        <text x="100" y="199" textAnchor="middle" className="fill-muted-foreground/40 text-[3.5px]">LOW OPPORTUNITY</text>
+        <text x="2" y="102" className="fill-muted-foreground/40 text-[3.5px]" transform="rotate(-90, 2, 102)">LOW COMPETITION</text>
+        <text x="198" y="98" className="fill-muted-foreground/40 text-[3.5px]" transform="rotate(90, 198, 98)">HIGH COMPETITION</text>
+
+        {/* Data points with collision-free labels */}
+        {positionedItems.map((item, i) => {
+          const nameW = Math.min(item.name.length, 12) * LABEL_W_BASE
+          return (
+            <g key={item.name + i}>
+              {/* Connector line from dot to label */}
+              <line
+                x1={item.cx}
+                y1={item.cy}
+                x2={item.labelX}
+                y2={item.labelY}
+                stroke="currentColor"
+                strokeWidth="0.3"
+                className="text-muted-foreground/20"
+              />
+              {/* Data point */}
+              <circle
+                cx={item.cx}
+                cy={item.cy}
+                r={DOT_R}
+                className={`${quadrantColors[item.quadrant.quadrant] || 'fill-gray-500'} opacity-90`}
+                stroke="white"
+                strokeWidth="1"
+              />
+              {/* Label background */}
+              <rect
+                x={item.labelX - nameW / 2}
+                y={item.labelY - LABEL_H / 2}
+                width={nameW}
+                height={LABEL_H}
+                rx="1.5"
+                className="fill-background/90 stroke-border/30"
+                strokeWidth="0.3"
+              />
+              {/* Label text */}
+              <text
+                x={item.labelX}
+                y={item.labelY + 1.5}
+                textAnchor="middle"
+                className="fill-foreground text-[4.5px] font-semibold"
+              >
+                {truncate(item.name)}
+              </text>
+            </g>
+          )
+        })}
       </svg>
     </div>
   )
@@ -698,13 +749,15 @@ export function WhyOpportunityExistsBlock({ text }: { text: string }) {
 }
 
 // ─── Underserved Audience Block ─────────────────────────────────────
-export function UnderservedAudienceBlock({ users }: {
+export function UnderservedAudienceBlock({ users, expandedIndex, onToggle }: {
   users: {
     userGroup: string
     description: string
     evidence: string
     opportunityScore: number
   }[]
+  expandedIndex?: number | null
+  onToggle?: (index: number | null) => void
 }) {
   const getScoreColor = (score: number) => {
     if (score >= 70) return 'bg-green-100 text-green-700 dark:bg-green-950/40 dark:text-green-400'
@@ -713,34 +766,47 @@ export function UnderservedAudienceBlock({ users }: {
   }
 
   return (
-    <div className="rounded-lg border border-purple-300/60 dark:border-purple-800/40 bg-purple-50/10 dark:bg-purple-950/10 p-3 space-y-3">
+    <div className="rounded-lg border border-purple-300/60 dark:border-purple-800/40 bg-purple-50/10 dark:bg-purple-950/10 p-3 space-y-2 overflow-hidden">
       <div className="flex items-center gap-2">
         <Users className="h-4 w-4 text-purple-600 dark:text-purple-400 shrink-0" />
         <p className="text-xs font-bold text-purple-700 dark:text-purple-400 uppercase tracking-wider">Underserved Audience</p>
       </div>
 
       <div className="space-y-2">
-        {users.map((user, i) => (
-          <div key={i} className="rounded-md border border-purple-200/60 dark:border-purple-800/30 bg-purple-50/20 dark:bg-purple-950/10 p-2.5 space-y-1">
-            <div className="flex items-center justify-between gap-2">
-              <div className="flex items-center gap-1.5 min-w-0">
-                <UserCircle className="h-3.5 w-3.5 text-purple-600 dark:text-purple-400 shrink-0" />
-                <span className="text-xs font-semibold text-purple-700 dark:text-purple-400 truncate">{user.userGroup}</span>
+        {users.map((user, i) => {
+          const isExpanded = expandedIndex === i
+          return (
+            <div key={i} className="rounded-md border border-purple-200/60 dark:border-purple-800/30 bg-purple-50/20 dark:bg-purple-950/10 p-2.5 space-y-1 overflow-hidden">
+              <div className="flex items-center justify-between gap-2">
+                <div className="flex items-center gap-1.5 min-w-0">
+                  <UserCircle className="h-3.5 w-3.5 text-purple-600 dark:text-purple-400 shrink-0" />
+                  <span className="text-xs font-semibold text-purple-700 dark:text-purple-400 truncate">{user.userGroup}</span>
+                </div>
+                <div className="flex items-center gap-1.5 shrink-0">
+                  {user.opportunityScore > 0 && (
+                    <Badge variant="outline" className={`text-[10px] h-5 whitespace-nowrap ${getScoreColor(user.opportunityScore)}`}>
+                      {user.opportunityScore}/100
+                    </Badge>
+                  )}
+                  {onToggle && (
+                    <button
+                      onClick={() => onToggle(isExpanded ? null : i)}
+                      className="text-[10px] text-purple-600 dark:text-purple-400 hover:underline whitespace-nowrap"
+                    >
+                      {isExpanded ? 'Less' : 'Details'}
+                    </button>
+                  )}
+                </div>
               </div>
-              {user.opportunityScore > 0 && (
-                <Badge variant="outline" className={`text-[10px] h-5 shrink-0 whitespace-nowrap ${getScoreColor(user.opportunityScore)}`}>
-                  {user.opportunityScore}/100
-                </Badge>
+              <p className={`text-xs text-muted-foreground leading-relaxed ${!isExpanded ? 'line-clamp-1' : ''}`}>{user.description}</p>
+              {isExpanded && user.evidence && (
+                <blockquote className="text-xs text-muted-foreground italic pl-3 border-l-[3px] border-orange-400/60 dark:border-orange-500/50 leading-relaxed">
+                  &ldquo;{user.evidence}&rdquo;
+                </blockquote>
               )}
             </div>
-            <p className="text-xs text-muted-foreground">{user.description}</p>
-            {user.evidence && (
-              <blockquote className="text-xs text-muted-foreground italic pl-3 border-l-[3px] border-orange-400/60 dark:border-orange-500/50 leading-relaxed">
-                &ldquo;{user.evidence}&rdquo;
-              </blockquote>
-            )}
-          </div>
-        ))}
+          )
+        })}
       </div>
     </div>
   )
