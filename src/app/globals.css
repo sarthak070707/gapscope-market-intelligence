@@ -123,17 +123,23 @@
 
 /* Custom scrollbar styling */
 .custom-scrollbar::-webkit-scrollbar {
-  width: 6px;
+  width: 5px;
+  height: 5px;
 }
 .custom-scrollbar::-webkit-scrollbar-track {
   background: transparent;
+  margin: 2px;
 }
 .custom-scrollbar::-webkit-scrollbar-thumb {
   background: oklch(0.7 0.03 50);
   border-radius: 3px;
+  min-height: 20px;
 }
 .custom-scrollbar::-webkit-scrollbar-thumb:hover {
   background: oklch(0.6 0.05 50);
+}
+.custom-scrollbar::-webkit-scrollbar-corner {
+  background: transparent;
 }
 
 .dark .custom-scrollbar::-webkit-scrollbar-thumb {
@@ -141,6 +147,46 @@
 }
 .dark .custom-scrollbar::-webkit-scrollbar-thumb:hover {
   background: oklch(0.5 0.05 50);
+}
+
+/* Horizontal scroll container with fade indicators */
+.scroll-x-container {
+  position: relative;
+}
+.scroll-x-container::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 24px;
+  background: linear-gradient(to right, transparent, var(--background));
+  pointer-events: none;
+  opacity: 0.6;
+  transition: opacity 0.2s;
+}
+.scroll-x-container.scrolled-end::after {
+  opacity: 0;
+}
+
+/* Vertical fade indicator for scrollable areas */
+.scroll-y-fade {
+  position: relative;
+}
+.scroll-y-fade::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 20px;
+  background: linear-gradient(to bottom, transparent, var(--background));
+  pointer-events: none;
+  opacity: 0.5;
+  transition: opacity 0.2s;
+}
+.scroll-y-fade.scrolled-bottom::after {
+  opacity: 0;
 }
 
 /* Ensure Framer Motion elements are visible before hydration.

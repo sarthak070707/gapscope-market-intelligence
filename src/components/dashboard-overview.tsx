@@ -1071,12 +1071,14 @@ export function DashboardOverview() {
               </CardHeader>
               <CardContent>
                 <div className="flex flex-col lg:flex-row items-center gap-6">
-                  <MarketQuadrantChart
-                    items={dashboardData.saturatedMarkets
-                      .filter(sm => sm.marketQuadrant)
-                      .map(sm => ({ name: sm.category, quadrant: sm.marketQuadrant! }))}
-                  />
-                  <div className="flex-1 space-y-3 w-full">
+                  <div className="overflow-x-auto w-full lg:w-auto flex justify-center">
+                    <MarketQuadrantChart
+                      items={dashboardData.saturatedMarkets
+                        .filter(sm => sm.marketQuadrant)
+                        .map(sm => ({ name: sm.category, quadrant: sm.marketQuadrant! }))}
+                    />
+                  </div>
+                  <div className="flex-1 space-y-3 w-full max-h-[300px] overflow-y-auto custom-scrollbar pr-1">
                     {dashboardData.saturatedMarkets.filter(sm => sm.marketQuadrant).map((sm) => {
                       const q = sm.marketQuadrant!
                       const quadrantColors: Record<string, string> = {
@@ -1086,7 +1088,7 @@ export function DashboardOverview() {
                         dead_zone: 'bg-red-100 text-red-700 dark:bg-red-950/40 dark:text-red-400',
                       }
                       return (
-                        <div key={sm.category} className="rounded-lg border p-3 gap-2 overflow-hidden">
+                        <div key={sm.category} className="rounded-lg border p-3 gap-2">
                           <div className="flex items-center justify-between gap-2 mb-1.5">
                             <span className="text-sm font-semibold truncate">{sm.category}</span>
                             <Badge variant="outline" className={`shrink-0 whitespace-nowrap text-[10px] ${quadrantColors[q.quadrant] || ''}`}>
@@ -1163,11 +1165,11 @@ export function DashboardOverview() {
                 <CardDescription>High-severity market gaps requiring attention</CardDescription>
               </CardHeader>
               <CardContent className="p-0">
-                <ScrollArea className="max-h-[420px]">
+                <ScrollArea className="max-h-[520px]">
                   <div className="px-6 pb-4 space-y-0">
                     {dashboardData.trendingGaps.map((gap, i) => (
                       <div key={i}>
-                        <div className="py-3 space-y-2 overflow-hidden">
+                        <div className="py-3 space-y-2">
                           {/* Always visible: severity badge + title + short description + key metrics */}
                           <div className="flex items-start gap-2.5">
                             <Badge variant="outline" className={`shrink-0 mt-0.5 ${severityColor(gap.severity)}`}>
@@ -1197,9 +1199,10 @@ export function DashboardOverview() {
                               initial={{ opacity: 0, height: 0 }}
                               animate={{ opacity: 1, height: 'auto' }}
                               exit={{ opacity: 0, height: 0 }}
-                              transition={{ duration: 0.2 }}
-                              className="overflow-hidden space-y-3"
+                              transition={{ duration: 0.25 }}
+                              className="overflow-hidden"
                             >
+                              <div className="max-h-[450px] overflow-y-auto custom-scrollbar pr-1 space-y-3 py-1">
                               {/* Full description */}
                               <p className="text-xs text-muted-foreground leading-relaxed">{gap.description}</p>
 
@@ -1215,7 +1218,7 @@ export function DashboardOverview() {
 
                               {/* Combined badges row: Sub-Niche + Verdict + Quadrant */}
                               {(gap.subNiche?.name || gap.marketQuadrant?.quadrant || gap.falseOpportunity?.verdict) && (
-                                <div className="flex flex-wrap items-center gap-1.5 gap-y-2 max-w-full overflow-hidden">
+                                <div className="flex flex-wrap items-center gap-1.5 gap-y-2 max-w-full">
                                   {gap.subNiche?.name && (
                                     <Badge className="text-xs bg-green-100 text-green-800 dark:bg-green-950/40 dark:text-green-400 gap-1 shrink-0 whitespace-nowrap">
                                       <CircleDot className="h-3 w-3" />
@@ -1242,7 +1245,7 @@ export function DashboardOverview() {
 
                               {/* Underserved Audience — compact badges */}
                               {gap.underservedUsers && gap.underservedUsers.length > 0 && (
-                                <div className="flex items-center gap-1.5 gap-y-2 flex-wrap max-w-full overflow-hidden">
+                                <div className="flex items-center gap-1.5 gap-y-2 flex-wrap max-w-full">
                                   <Users className="h-3 w-3 shrink-0 text-purple-500" />
                                   <span className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider shrink-0">Underserved:</span>
                                   {gap.underservedUsers.slice(0, 3).map((user, j) => (
@@ -1265,37 +1268,39 @@ export function DashboardOverview() {
 
                               {/* Affected Products */}
                               {gap.affectedProducts && gap.affectedProducts.length > 0 && (
-                                <div className="flex flex-wrap gap-1.5 gap-y-2 max-w-full overflow-hidden">
-                                  <span className="text-xs text-muted-foreground self-center mr-0.5 shrink-0">Affected:</span>
-                                  {gap.affectedProducts.slice(0, 4).map((p, j) => (
-                                    <Tooltip key={j}>
-                                      <TooltipTrigger asChild>
-                                        <Badge variant="outline" className="text-xs h-6 bg-muted/50 cursor-default gap-1 shrink-0 whitespace-nowrap">
-                                          <Link2 className="h-3 w-3 text-muted-foreground" />
-                                          {p.name}
-                                          {p.pricing && (
-                                            <span className="text-orange-600 dark:text-orange-400 font-medium">{p.pricing}</span>
-                                          )}
-                                        </Badge>
-                                      </TooltipTrigger>
-                                      <TooltipContent side="bottom" className="text-xs">
-                                        {p.strengths[0] && <span className="text-green-600">+ {p.strengths[0]}</span>}
-                                        {p.strengths[0] && p.weaknesses[0] && <span className="mx-1">·</span>}
-                                        {p.weaknesses[0] && <span className="text-red-600">- {p.weaknesses[0]}</span>}
-                                      </TooltipContent>
-                                    </Tooltip>
-                                  ))}
-                                  {gap.affectedProducts.length > 4 && (
-                                    <Badge variant="outline" className="text-xs h-6 bg-muted/50 shrink-0 whitespace-nowrap">
-                                      +{gap.affectedProducts.length - 4} more
-                                    </Badge>
-                                  )}
+                                <div className="overflow-x-auto -mx-1 px-1">
+                                  <div className="flex flex-wrap gap-1.5 gap-y-2" style={{ minWidth: 'min-content' }}>
+                                    <span className="text-xs text-muted-foreground self-center mr-0.5 shrink-0">Affected:</span>
+                                    {gap.affectedProducts.slice(0, 4).map((p, j) => (
+                                      <Tooltip key={j}>
+                                        <TooltipTrigger asChild>
+                                          <Badge variant="outline" className="text-xs h-6 bg-muted/50 cursor-default gap-1 shrink-0 whitespace-nowrap">
+                                            <Link2 className="h-3 w-3 text-muted-foreground" />
+                                            {p.name}
+                                            {p.pricing && (
+                                              <span className="text-orange-600 dark:text-orange-400 font-medium">{p.pricing}</span>
+                                            )}
+                                          </Badge>
+                                        </TooltipTrigger>
+                                        <TooltipContent side="bottom" className="text-xs">
+                                          {p.strengths[0] && <span className="text-green-600">+ {p.strengths[0]}</span>}
+                                          {p.strengths[0] && p.weaknesses[0] && <span className="mx-1">·</span>}
+                                          {p.weaknesses[0] && <span className="text-red-600">- {p.weaknesses[0]}</span>}
+                                        </TooltipContent>
+                                      </Tooltip>
+                                    ))}
+                                    {gap.affectedProducts.length > 4 && (
+                                      <Badge variant="outline" className="text-xs h-6 bg-muted/50 shrink-0 whitespace-nowrap">
+                                        +{gap.affectedProducts.length - 4} more
+                                      </Badge>
+                                    )}
+                                  </div>
                                 </div>
                               )}
 
                               {/* Inline meta: Execution + Why Now + Sources */}
                               {(gap.executionDifficulty || gap.whyNow || gap.sourceTransparency?.sourcePlatforms) && (
-                                <div className="flex flex-wrap items-center gap-x-3 gap-y-2 text-[11px] text-muted-foreground overflow-hidden max-w-full">
+                                <div className="flex flex-wrap items-center gap-x-3 gap-y-2 text-[11px] text-muted-foreground max-w-full">
                                   {gap.executionDifficulty && (
                                     <span className="inline-flex items-center gap-1">
                                       <Gauge className="h-3 w-3 shrink-0" />
@@ -1321,6 +1326,7 @@ export function DashboardOverview() {
                                   )}
                                 </div>
                               )}
+                              </div>
                             </motion.div>
                           )}
                         </div>
@@ -1353,7 +1359,7 @@ export function DashboardOverview() {
                   <CardDescription>Categories with highest competition density</CardDescription>
                 </CardHeader>
                 <CardContent>
-                  <ScrollArea className="max-h-[360px]">
+                  <ScrollArea className="max-h-[480px]">
                     <div className="space-y-3">
                       {dashboardData.saturatedMarkets.slice(0, 5).map((sat, i) => (
                         <motion.div
@@ -1361,7 +1367,7 @@ export function DashboardOverview() {
                           initial={{ opacity: 0, x: -10 }}
                           animate={{ opacity: 1, x: 0 }}
                           transition={{ delay: 0.3 + i * 0.05 }}
-                          className="rounded-lg border p-3 space-y-2 overflow-hidden"
+                          className="rounded-lg border p-3 space-y-2"
                         >
                           {/* Category name + saturation badge + expand button */}
                           <div className="flex items-center justify-between gap-2">
@@ -1410,13 +1416,14 @@ export function DashboardOverview() {
                               initial={{ opacity: 0, height: 0 }}
                               animate={{ opacity: 1, height: 'auto' }}
                               exit={{ opacity: 0, height: 0 }}
-                              transition={{ duration: 0.2 }}
-                              className="overflow-hidden space-y-2"
+                              transition={{ duration: 0.25 }}
+                              className="overflow-hidden"
                             >
+                              <div className="max-h-[300px] overflow-y-auto custom-scrollbar pr-1 space-y-2 py-1">
                               {/* Top Competitors table */}
                               {sat.topCompetitors && sat.topCompetitors.length > 0 && (
-                                <div className="rounded-md border overflow-hidden">
-                                  <table className="w-full text-xs">
+                                <div className="rounded-md border overflow-x-auto">
+                                  <table className="w-full text-xs" style={{ minWidth: 360 }}>
                                     <thead>
                                       <tr className="bg-muted/50 border-b">
                                         <th className="text-left p-1.5 font-medium">Name</th>
@@ -1455,6 +1462,7 @@ export function DashboardOverview() {
                                   )}
                                 </div>
                               )}
+                              </div>
                             </motion.div>
                           )}
                         </motion.div>
@@ -1482,7 +1490,7 @@ export function DashboardOverview() {
                   <CardDescription>Specific sub-niches with startup potential</CardDescription>
                 </CardHeader>
                 <CardContent>
-                  <ScrollArea className="max-h-[360px]">
+                  <ScrollArea className="max-h-[480px]">
                     <div className="space-y-2">
                       {dashboardData.emergingNiches.map((niche, i) => {
                         const opp = getOpportunityColor(niche.opportunityScore)
@@ -1493,7 +1501,7 @@ export function DashboardOverview() {
                             initial={{ opacity: 0, x: -10 }}
                             animate={{ opacity: 1, x: 0 }}
                             transition={{ delay: 0.35 + i * 0.05 }}
-                            className="rounded-lg border p-3 space-y-1.5 overflow-hidden"
+                            className="rounded-lg border p-3 space-y-1.5"
                           >
                             {/* Always visible: name + parent category + compact gauge */}
                             <div className="flex items-center justify-between gap-2">
@@ -1532,9 +1540,10 @@ export function DashboardOverview() {
                                 initial={{ opacity: 0, height: 0 }}
                                 animate={{ opacity: 1, height: 'auto' }}
                                 exit={{ opacity: 0, height: 0 }}
-                                transition={{ duration: 0.2 }}
-                                className="overflow-hidden space-y-2"
+                                transition={{ duration: 0.25 }}
+                                className="overflow-hidden"
                               >
+                                <div className="max-h-[250px] overflow-y-auto custom-scrollbar pr-1 space-y-2 py-1">
                                 {/* Full description */}
                                 {niche.description && (
                                   <p className="text-xs text-muted-foreground leading-relaxed">{niche.description}</p>
@@ -1565,6 +1574,7 @@ export function DashboardOverview() {
                                     <span className="leading-relaxed">High-opportunity niche: {niche.description}</span>
                                   </div>
                                 )}
+                                </div>
                               </motion.div>
                             )}
                           </motion.div>
@@ -1579,7 +1589,7 @@ export function DashboardOverview() {
         </div>
 
         {/* ═══ 3. Professional Complaint Clustering + Fastest Growing + 6. Underserved Users ═══ */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 overflow-hidden">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
 
           {/* Complaint Trends — collapsible clustering */}
           {dashboardData.complaintTrends.length > 0 && (
@@ -1598,7 +1608,7 @@ export function DashboardOverview() {
                   <CardDescription>User complaint distribution by category</CardDescription>
                 </CardHeader>
                 <CardContent>
-                  <ScrollArea className="max-h-[360px]">
+                  <ScrollArea className="max-h-[480px]">
                     <div className="space-y-2">
                       {dashboardData.complaintTrends.map((cluster, i) => {
                         const clusterColors: Record<string, { bar: string; bg: string; text: string; badgeBg: string; quoteBorder: string; quoteBg: string }> = {
@@ -1617,7 +1627,7 @@ export function DashboardOverview() {
                             initial={{ opacity: 0, x: -10 }}
                             animate={{ opacity: 1, x: 0 }}
                             transition={{ delay: i * 0.05, duration: 0.3 }}
-                            className="space-y-1.5 overflow-hidden"
+                            className="space-y-1.5"
                           >
                             {/* Cluster header: percentage + label + count + thin progress bar */}
                             <div className="flex items-center justify-between gap-2 min-w-0">
@@ -1657,13 +1667,13 @@ export function DashboardOverview() {
                                 initial={{ opacity: 0, height: 0 }}
                                 animate={{ opacity: 1, height: 'auto' }}
                                 exit={{ opacity: 0, height: 0 }}
-                                transition={{ duration: 0.2 }}
+                                transition={{ duration: 0.25 }}
                                 className="overflow-hidden"
                               >
-                                <div className="space-y-1 mt-1">
+                                <div className="max-h-[200px] overflow-y-auto custom-scrollbar pr-1 space-y-1 mt-1">
                                   {cluster.exampleSnippets.slice(0, 3).map((snippet, j) => (
                                     <blockquote key={j} className={`border-l-[3px] ${cc.quoteBorder} ${cc.quoteBg} pl-3 pr-2 py-1 rounded-r-md`}>
-                                      <p className="text-xs text-foreground leading-relaxed italic line-clamp-2">
+                                      <p className="text-xs text-foreground leading-relaxed italic">
                                         &ldquo;{snippet}&rdquo;
                                       </p>
                                     </blockquote>
@@ -1747,13 +1757,13 @@ export function DashboardOverview() {
                   </div>
                 </CardHeader>
                 <CardContent>
-                  <ScrollArea className="max-h-[360px]">
+                  <ScrollArea className="max-h-[480px]">
                     <div className="space-y-2">
                       {dashboardData.underservedUsers.map((user, i) => {
                         const isExpanded = expandedUser === i
                         const opp = getOpportunityColor(user.opportunityScore)
                         return (
-                          <div key={user.userGroup + i} className="rounded-lg border p-3 space-y-1.5 overflow-hidden">
+                          <div key={user.userGroup + i} className="rounded-lg border p-3 space-y-1.5">
                             {/* Always visible: name + opportunity badge + clamped description */}
                             <div className="flex items-center justify-between gap-2">
                               <div className="min-w-0 flex-1">
@@ -1782,16 +1792,18 @@ export function DashboardOverview() {
                                 initial={{ opacity: 0, height: 0 }}
                                 animate={{ opacity: 1, height: 'auto' }}
                                 exit={{ opacity: 0, height: 0 }}
-                                transition={{ duration: 0.2 }}
-                                className="overflow-hidden space-y-1.5"
+                                transition={{ duration: 0.25 }}
+                                className="overflow-hidden"
                               >
-                                <p className="text-xs text-muted-foreground leading-relaxed">{user.description}</p>
-                                {user.evidence && (
-                                  <div className="flex items-start gap-1.5 text-xs text-muted-foreground">
-                                    <Quote className="h-3 w-3 shrink-0 mt-0.5 text-purple-500" />
-                                    <span className="italic leading-relaxed">{user.evidence}</span>
-                                  </div>
-                                )}
+                                <div className="max-h-[200px] overflow-y-auto custom-scrollbar pr-1 space-y-1.5 py-1">
+                                  <p className="text-xs text-muted-foreground leading-relaxed">{user.description}</p>
+                                  {user.evidence && (
+                                    <div className="flex items-start gap-1.5 text-xs text-muted-foreground">
+                                      <Quote className="h-3 w-3 shrink-0 mt-0.5 text-purple-500" />
+                                      <span className="italic leading-relaxed">{user.evidence}</span>
+                                    </div>
+                                  )}
+                                </div>
                               </motion.div>
                             )}
                           </div>
@@ -1818,7 +1830,7 @@ export function DashboardOverview() {
                 <CardDescription>Number of products detected per category</CardDescription>
               </CardHeader>
               <CardContent>
-                <div className="overflow-hidden max-w-full">
+                <div className="overflow-x-auto -mx-1 px-1">
                   <ChartContainer config={chartConfig} className="h-48 sm:h-56 w-full min-w-[300px]">
                     <BarChart data={saturationChartData} margin={{ top: 5, right: 10, left: 0, bottom: 5 }}>
                       <CartesianGrid strokeDasharray="3 3" vertical={false} />
@@ -1860,12 +1872,12 @@ export function DashboardOverview() {
                 <CardDescription>Latest market gap detections with evidence</CardDescription>
               </CardHeader>
               <CardContent className="p-0">
-                <ScrollArea className="max-h-96">
+                <ScrollArea className="max-h-[520px]">
                   <div className="px-6 pb-4">
                     <div className="space-y-0">
                       {dashboardData.recentGaps.map((gap, i) => (
                         <div key={i}>
-                          <div className="py-2 space-y-2 overflow-hidden">
+                          <div className="py-2 space-y-2">
                             {/* Always visible: title + severity + short insight + compact metrics */}
                             <div className="flex items-start gap-2.5">
                               <Badge variant="outline" className={`shrink-0 ${severityColor(gap.severity)}`}>
@@ -1895,9 +1907,10 @@ export function DashboardOverview() {
                                 initial={{ opacity: 0, height: 0 }}
                                 animate={{ opacity: 1, height: 'auto' }}
                                 exit={{ opacity: 0, height: 0 }}
-                                transition={{ duration: 0.2 }}
-                                className="overflow-hidden space-y-2"
+                                transition={{ duration: 0.25 }}
+                                className="overflow-hidden"
                               >
+                                <div className="max-h-[350px] overflow-y-auto custom-scrollbar pr-1 space-y-2 py-1">
                                 {/* Full description */}
                                 <p className="text-xs text-muted-foreground leading-relaxed">{gap.description}</p>
 
@@ -1916,19 +1929,22 @@ export function DashboardOverview() {
 
                                 {/* Affected Products */}
                                 {gap.affectedProducts && gap.affectedProducts.length > 0 && (
-                                  <div className="flex flex-wrap gap-1">
-                                    {gap.affectedProducts.slice(0, 3).map((p, j) => (
-                                      <Badge key={j} variant="outline" className="text-xs h-5 bg-muted/50">
-                                        {p.name}
-                                      </Badge>
-                                    ))}
-                                    {gap.affectedProducts.length > 3 && (
-                                      <Badge variant="outline" className="text-xs h-5 bg-muted/50">
-                                        +{gap.affectedProducts.length - 3}
-                                      </Badge>
-                                    )}
+                                  <div className="overflow-x-auto -mx-1 px-1">
+                                    <div className="flex flex-wrap gap-1" style={{ minWidth: 'min-content' }}>
+                                      {gap.affectedProducts.slice(0, 3).map((p, j) => (
+                                        <Badge key={j} variant="outline" className="text-xs h-5 bg-muted/50 whitespace-nowrap">
+                                          {p.name}
+                                        </Badge>
+                                      ))}
+                                      {gap.affectedProducts.length > 3 && (
+                                        <Badge variant="outline" className="text-xs h-5 bg-muted/50 whitespace-nowrap">
+                                          +{gap.affectedProducts.length - 3}
+                                        </Badge>
+                                      )}
+                                    </div>
                                   </div>
                                 )}
+                                </div>
                               </motion.div>
                             )}
                           </div>

@@ -641,7 +641,7 @@ export function EnhancedEvidenceBlock({ evidence, affectedProductNames }: {
       {affectedProductNames && affectedProductNames.length > 0 && (
         <div className="pt-2 border-t border-border/40">
           <p className="text-[10px] font-semibold text-muted-foreground mb-1">Products affected:</p>
-          <div className="flex flex-wrap gap-1.5 overflow-hidden">
+          <div className="flex flex-wrap gap-1.5">
             {affectedProductNames.map((name, i) => (
               <Badge key={i} variant="outline" className="text-[10px] h-5 shrink-0 whitespace-nowrap truncate max-w-[140px]">
                 {name}
@@ -706,8 +706,8 @@ export function FeasibilitySummaryBlock({ executionDifficulty, opportunityScore,
   const comp = executionDifficulty ? getCompetitionLevel(executionDifficulty.competitionLevel) : null
 
   return (
-    <div className="grid grid-cols-3 gap-2 overflow-hidden">
-      <div className="rounded-md border bg-muted/20 p-2 text-center min-w-0 overflow-hidden">
+    <div className="grid grid-cols-3 gap-2">
+      <div className="rounded-md border bg-muted/20 p-2 text-center min-w-0">
         <p className="text-[9px] text-muted-foreground uppercase tracking-wider mb-0.5">Opportunity</p>
         {opp ? (
           <Badge variant="outline" className={`text-[9px] h-4 px-1 whitespace-nowrap truncate max-w-full ${opp.color}`}>{opp.label}</Badge>
@@ -715,7 +715,7 @@ export function FeasibilitySummaryBlock({ executionDifficulty, opportunityScore,
           <span className="text-[10px] text-muted-foreground">—</span>
         )}
       </div>
-      <div className="rounded-md border bg-muted/20 p-2 text-center min-w-0 overflow-hidden">
+      <div className="rounded-md border bg-muted/20 p-2 text-center min-w-0">
         <p className="text-[9px] text-muted-foreground uppercase tracking-wider mb-0.5">Difficulty</p>
         {diff ? (
           <Badge variant="outline" className={`text-[9px] h-4 px-1 whitespace-nowrap truncate max-w-full ${diff.color}`}>{diff.label}</Badge>
@@ -723,7 +723,7 @@ export function FeasibilitySummaryBlock({ executionDifficulty, opportunityScore,
           <span className="text-[10px] text-muted-foreground">—</span>
         )}
       </div>
-      <div className="rounded-md border bg-muted/20 p-2 text-center min-w-0 overflow-hidden">
+      <div className="rounded-md border bg-muted/20 p-2 text-center min-w-0">
         <p className="text-[9px] text-muted-foreground uppercase tracking-wider mb-0.5">Competition</p>
         {comp ? (
           <Badge variant="outline" className={`text-[9px] h-4 px-1 whitespace-nowrap truncate max-w-full ${comp.color}`}>{comp.label}</Badge>
@@ -766,7 +766,7 @@ export function UnderservedAudienceBlock({ users, expandedIndex, onToggle }: {
   }
 
   return (
-    <div className="rounded-lg border border-purple-300/60 dark:border-purple-800/40 bg-purple-50/10 dark:bg-purple-950/10 p-3 space-y-2 overflow-hidden">
+    <div className="rounded-lg border border-purple-300/60 dark:border-purple-800/40 bg-purple-50/10 dark:bg-purple-950/10 p-3 space-y-2">
       <div className="flex items-center gap-2">
         <Users className="h-4 w-4 text-purple-600 dark:text-purple-400 shrink-0" />
         <p className="text-xs font-bold text-purple-700 dark:text-purple-400 uppercase tracking-wider">Underserved Audience</p>
@@ -776,7 +776,7 @@ export function UnderservedAudienceBlock({ users, expandedIndex, onToggle }: {
         {users.map((user, i) => {
           const isExpanded = expandedIndex === i
           return (
-            <div key={i} className="rounded-md border border-purple-200/60 dark:border-purple-800/30 bg-purple-50/20 dark:bg-purple-950/10 p-2.5 space-y-1 overflow-hidden">
+            <div key={i} className="rounded-md border border-purple-200/60 dark:border-purple-800/30 bg-purple-50/20 dark:bg-purple-950/10 p-2.5 space-y-1">
               <div className="flex items-center justify-between gap-2">
                 <div className="flex items-center gap-1.5 min-w-0">
                   <UserCircle className="h-3.5 w-3.5 text-purple-600 dark:text-purple-400 shrink-0" />
@@ -859,7 +859,7 @@ export function TrendComparisonBlock({ comparisons, trendDirection, summary }: {
 
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
         {comparisons.map((comp, i) => (
-          <div key={i} className="rounded-md border bg-muted/20 p-2.5 space-y-2 overflow-hidden min-w-0">
+          <div key={i} className="rounded-md border bg-muted/20 p-2.5 space-y-2 min-w-0">
             <div className="text-[10px] font-semibold text-muted-foreground">{periodLabel(comp.period)}</div>
 
             <div className="space-y-1.5 text-xs">
@@ -1054,7 +1054,7 @@ export function SharedComplaintClusteringSection({ clusters }: {
   const totalComplaints = clusters.reduce((sum, c) => sum + c.count, 0)
 
   return (
-    <div className="rounded-lg border bg-card p-4 space-y-4 overflow-hidden">
+    <div className="rounded-lg border bg-card p-4 space-y-4">
       <div className="flex items-center justify-between flex-wrap gap-2">
         <div className="flex items-center gap-2">
           <AlertTriangle className="h-5 w-5 text-red-500 shrink-0" />
@@ -1065,7 +1065,7 @@ export function SharedComplaintClusteringSection({ clusters }: {
         </Badge>
       </div>
 
-      <div className="space-y-5 overflow-hidden">
+      <div className="space-y-5">
         {clusters.map((cluster, i) => {
           const colors = getSharedClusterColor(cluster.category)
           return (
