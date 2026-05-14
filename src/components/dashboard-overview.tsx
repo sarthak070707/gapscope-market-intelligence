@@ -960,7 +960,7 @@ export function DashboardOverview() {
           >
             <Card className="overflow-hidden">
               <CardContent className="p-0">
-                <div className="flex flex-wrap items-center divide-x divide-border">
+                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 divide-x divide-y divide-border">
                   {/* Market Health */}
                   <div className="flex items-center gap-2.5 px-4 py-3 min-w-0">
                     <Activity className="h-4 w-4 text-muted-foreground shrink-0" />
@@ -1050,16 +1050,16 @@ export function DashboardOverview() {
                         dead_zone: 'bg-red-100 text-red-700 dark:bg-red-950/40 dark:text-red-400',
                       }
                       return (
-                        <div key={sm.category} className="flex items-center justify-between rounded-lg border p-2.5">
-                          <div>
-                            <span className="text-sm font-semibold">{sm.category}</span>
+                        <div key={sm.category} className="flex items-center justify-between rounded-lg border p-2.5 gap-2 overflow-hidden">
+                          <div className="min-w-0">
+                            <span className="text-sm font-semibold truncate">{sm.category}</span>
                             <div className="flex items-center gap-2 mt-0.5">
-                              <span className="text-xs text-muted-foreground">Competition: <span className="font-medium">{q.competitionScore}/100</span></span>
-                              <span className="text-xs text-muted-foreground">Opportunity: <span className="font-medium">{q.opportunityScore}/100</span></span>
+                              <span className="text-xs text-muted-foreground whitespace-nowrap">Competition: <span className="font-medium">{q.competitionScore}/100</span></span>
+                              <span className="text-xs text-muted-foreground whitespace-nowrap">Opportunity: <span className="font-medium">{q.opportunityScore}/100</span></span>
                             </div>
                           </div>
-                          <Badge variant="outline" className={quadrantColors[q.quadrant] || ''}>
-                            {q.label || q.quadrant.replace('_', ' ')}
+                          <Badge variant="outline" className={`shrink-0 whitespace-nowrap ${quadrantColors[q.quadrant] || ''}`}>
+                            {q.label ? (q.label.length > 20 ? q.label.substring(0, 20) + '...' : q.label) : q.quadrant.replace('_', ' ')}
                           </Badge>
                         </div>
                       )
@@ -1306,15 +1306,15 @@ export function DashboardOverview() {
                           }}
                         >
                           {/* Category name + saturation badge */}
-                          <div className="flex items-center justify-between">
-                            <span className="text-sm font-semibold">{sat.category}</span>
-                            <Badge variant="outline" className={
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="text-sm font-semibold truncate">{sat.category}</span>
+                            <Badge variant="outline" className={`shrink-0 whitespace-nowrap ${
                               sat.level === 'high'
                                 ? 'bg-red-100 text-red-700 dark:bg-red-950/40 dark:text-red-400'
                                 : sat.level === 'medium'
                                   ? 'bg-amber-100 text-amber-700 dark:bg-amber-950/40 dark:text-amber-400'
                                   : 'bg-green-100 text-green-700 dark:bg-green-950/40 dark:text-green-400'
-                            }>
+                            }`}>
                               {sat.level} saturation
                             </Badge>
                           </div>
@@ -1466,7 +1466,7 @@ export function DashboardOverview() {
         </div>
 
         {/* ═══ 3. Professional Complaint Clustering + Fastest Growing + 6. Underserved Users ═══ */}
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
 
           {/* Complaint Trends — professional clustering */}
           {dashboardData.complaintTrends.length > 0 && (
@@ -1474,6 +1474,7 @@ export function DashboardOverview() {
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.4, delay: 0.35 }}
+              className="min-w-0"
             >
               <Card className="h-full">
                 <CardHeader>
@@ -1505,14 +1506,14 @@ export function DashboardOverview() {
                             className="space-y-2.5 overflow-hidden"
                           >
                             {/* Cluster header: large percentage, label, count */}
-                            <div className="flex items-center justify-between gap-2">
-                              <div className="flex items-baseline gap-2.5">
+                            <div className="flex items-center justify-between gap-2 min-w-0">
+                              <div className="flex items-baseline gap-2.5 min-w-0">
                                 <span className={`text-3xl font-extrabold tabular-nums shrink-0 ${cc.text}`}>
                                   {cluster.percentage}%
                                 </span>
                                 <div className="flex flex-col min-w-0">
-                                  <span className="text-sm font-semibold leading-tight whitespace-nowrap">{cluster.label}</span>
-                                  <span className="text-xs text-muted-foreground">{cluster.count} complaints</span>
+                                  <span className="text-sm font-semibold leading-tight truncate">{cluster.label}</span>
+                                  <span className="text-xs text-muted-foreground whitespace-nowrap">{cluster.count} complaints</span>
                                 </div>
                               </div>
                               <Badge className={`text-xs tabular-nums shrink-0 whitespace-nowrap ${cc.badgeBg}`}>
@@ -1561,6 +1562,7 @@ export function DashboardOverview() {
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.4, delay: 0.4 }}
+              className="min-w-0"
             >
               <Card className="h-full">
                 <CardHeader>
@@ -1605,6 +1607,7 @@ export function DashboardOverview() {
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.4, delay: 0.45 }}
+              className="min-w-0"
             >
               <Card className="h-full">
                 <CardHeader>

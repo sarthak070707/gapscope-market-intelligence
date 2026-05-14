@@ -222,10 +222,10 @@ function ScoreDot({ score }: { score: number }) {
 /** Compact product reference — always visible */
 function CompactProductRef({ product }: { product: ProductReference }) {
   return (
-    <div className="inline-flex items-center gap-1.5 rounded-md border bg-background/80 px-2 py-1 text-xs">
+    <div className="inline-flex items-center gap-1.5 rounded-md border bg-background/80 px-2 py-1 text-xs overflow-hidden max-w-full">
       <Link2 className="h-3 w-3 text-muted-foreground shrink-0" />
-      <span className="font-semibold truncate max-w-[100px]">{product.name}</span>
-      <Badge variant="outline" className="text-[10px] h-4 px-1.5 shrink-0 font-semibold">{product.pricing}</Badge>
+      <span className="font-semibold truncate min-w-0">{product.name}</span>
+      <Badge variant="outline" className="text-[10px] h-4 px-1.5 shrink-0 whitespace-nowrap font-semibold">{product.pricing}</Badge>
       {product.strengths.length > 0 && (
         <span className="text-green-600 dark:text-green-400 flex items-center gap-0.5 shrink-0" title={product.strengths[0]}>
           <Check className="h-3 w-3" />
@@ -363,7 +363,7 @@ function OpportunityCard({
       layout
     >
       <Card className="h-full hover:shadow-lg transition-all duration-200 border-border/80 group">
-        <CardContent className="p-4 sm:p-5 space-y-4">
+        <CardContent className="p-4 sm:p-5 space-y-4 overflow-hidden">
           {/* ── Row 1: Score gauge + Saturation badge + Difficulty badge + Save button ── */}
           <div className="flex items-start justify-between gap-2">
             <div className="flex items-center gap-2 flex-wrap">

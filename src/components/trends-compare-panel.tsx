@@ -384,9 +384,9 @@ function TrendCard({
                     <div className="space-y-1.5">
                       {trend.underservedUsers.map((user, j) => (
                         <div key={j} className="rounded-md border border-purple-200 dark:border-purple-900/40 bg-purple-50/30 dark:bg-purple-950/10 px-2.5 py-2 space-y-1">
-                          <div className="flex items-center gap-2">
+                          <div className="flex items-center gap-2 min-w-0">
                             <Users className="h-3.5 w-3.5 text-purple-500 shrink-0" />
-                            <span className="text-xs font-semibold text-purple-700 dark:text-purple-400">{user.userGroup}</span>
+                            <span className="text-xs font-semibold text-purple-700 dark:text-purple-400 truncate">{user.userGroup}</span>
                             {user.opportunityScore > 0 && (
                               <Badge variant="outline" className="text-[10px] h-4 px-1.5 bg-purple-100 text-purple-700 dark:bg-purple-950/40 dark:text-purple-400 shrink-0">
                                 {user.opportunityScore}/100
@@ -965,8 +965,8 @@ export function TrendsComparePanel() {
                       {comparisonResults.underservedUsers.map((user, j) => (
                         <div key={j} className="rounded-lg border border-purple-200 dark:border-purple-900/40 p-3 space-y-1.5">
                           <div className="flex items-start justify-between gap-2">
-                            <div>
-                              <p className="text-sm font-semibold text-purple-700 dark:text-purple-400">{user.userGroup}</p>
+                            <div className="min-w-0">
+                              <p className="text-sm font-semibold text-purple-700 dark:text-purple-400 truncate">{user.userGroup}</p>
                               <p className="text-xs text-muted-foreground mt-0.5">{user.description}</p>
                             </div>
                             {user.opportunityScore > 0 && (

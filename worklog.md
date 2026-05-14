@@ -269,3 +269,54 @@ Stage Summary:
 - All 4 files modified: feature-blocks.tsx, gap-analysis-panel.tsx, opportunities-panel.tsx, dashboard-overview.tsx
 - No functional logic changed — only CSS/layout classes
 - No lint errors, dev server healthy
+
+---
+Task ID: 3
+Agent: frontend-styling-expert
+Task: Fix Overlapping UI Elements in GapScope
+
+Work Log:
+- Read worklog.md to understand previous work context
+- Read all 4 target files: feature-blocks.tsx, dashboard-overview.tsx, gap-analysis-panel.tsx, opportunities-panel.tsx
+- Fix 1: UnderservedAudienceBlock (feature-blocks.tsx) — added `gap-2` to justify-between container, `min-w-0` to user group name container, `truncate` to user group name span, `shrink-0 whitespace-nowrap` to opportunity score badge
+- Fix 2: EnhancedEvidenceBlock (feature-blocks.tsx) — added `overflow-hidden` to product name badge container, `gap-1.5` (from gap-1), `shrink-0 whitespace-nowrap truncate max-w-[140px]` to product name badges
+- Fix 3: MarketQuadrantBlock (feature-blocks.tsx) — added `gap-2` to competition/opportunity labels row, `whitespace-nowrap` to both labels to prevent wrapping/overlap
+- Fix 4: TrendComparisonBlock (feature-blocks.tsx) — added `shrink-0` to period badge and score badge, `truncate` to top complaint category line
+- Fix 5: Dashboard 3-column grid (dashboard-overview.tsx) — changed `grid-cols-1 lg:grid-cols-3` to `grid-cols-1 md:grid-cols-2 lg:grid-cols-3` for better intermediate breakpoints, added `min-w-0` to each grid child motion.div
+- Fix 6: Dashboard Market Quadrant Map (dashboard-overview.tsx) — added `gap-2 overflow-hidden` to category row, `min-w-0` and `truncate` to category name, `whitespace-nowrap` to competition/opportunity labels, `shrink-0 whitespace-nowrap` to quadrant badge, truncated long quadrant labels
+- Fix 7: Dashboard Complaint Clusters header (dashboard-overview.tsx) — added `min-w-0` to justify-between container and items-baseline container, `truncate` to cluster label, `whitespace-nowrap` to count text
+- Fix 8: GapCard SubNicheBadge (gap-analysis-panel.tsx) — added `overflow-hidden` to container, `shrink-0` to "Sub-Niche" label, `shrink-0 whitespace-nowrap` to name and score badges, `line-clamp-2` to description
+- Fix 9: GapCard CardContent (gap-analysis-panel.tsx) — added `overflow-hidden` to CardContent container
+- Fix 10: CompactProductRef (opportunities-panel.tsx) — added `overflow-hidden max-w-full` to container, `min-w-0` to product name span, `whitespace-nowrap` to pricing badge
+- Fix 11: OpportunityCard CardContent (opportunities-panel.tsx) — added `overflow-hidden` to CardContent container
+- Ran `bun run lint` — passed with no errors
+- Verified dev server returns HTTP 200
+
+Stage Summary:
+- Root cause: Multiple elements lacked proper overflow handling — text containers without `min-w-0 truncate`, badges without `shrink-0 whitespace-nowrap`, flex containers without `overflow-hidden`, and the 3-column grid jumping directly from 1 to 3 columns
+- Fix pattern: (1) `overflow-hidden` on card/row containers, (2) `min-w-0 truncate` on text next to badges, (3) `shrink-0 whitespace-nowrap` on badges in flex rows, (4) `md:grid-cols-2 lg:grid-cols-3` for better responsive grid, (5) `min-w-0` on grid children
+- All 4 files modified: feature-blocks.tsx, dashboard-overview.tsx, gap-analysis-panel.tsx, opportunities-panel.tsx
+- No functional logic changed — only CSS/layout classes
+- No lint errors, dev server healthy
+
+---
+Task ID: 3-continued
+Agent: Main Agent
+Task: Continue fixing overlapping UI issues (productivity section, badges, metric bars)
+
+Work Log:
+- Analyzed 4 screenshots using VLM to identify specific overlapping issues
+- Key issues found: badges overlapping text, content overflow, cramped 3-column grids, metric bar divide-x breaking on wrap
+- Fixed dashboard-overview.tsx: Changed metrics bar from flex with divide-x to grid with divide-x/divide-y for proper responsive wrapping
+- Fixed dashboard-overview.tsx: Added gap-2 and truncate to saturated markets category name, added shrink-0 whitespace-nowrap to saturation badge
+- Fixed dashboard-overview.tsx: Fixed className template literal syntax error in saturated markets badge
+- Fixed trends-compare-panel.tsx: Added min-w-0 and truncate to underserved user group names
+- Ran bun run lint - passed with no errors
+- Verified dev server returns HTTP 200
+
+Stage Summary:
+- Metrics bar now uses CSS Grid instead of flex-wrap for proper responsive behavior
+- Saturated markets category names truncate properly and badges do not overlap
+- Underserved user group names in trends panel truncate when space is limited
+- All previous fixes from subagent also in place
+- No lint errors, dev server healthy

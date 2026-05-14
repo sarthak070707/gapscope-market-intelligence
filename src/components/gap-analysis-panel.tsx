@@ -166,23 +166,23 @@ function ExecutionDifficultyBadge({ level }: { level: string }) {
 // ─── Sub-Niche Badge ────────────────────────────────────────────────────────
 function SubNicheBadge({ name, opportunityScore, description }: { name: string; opportunityScore: number; description?: string }) {
   return (
-    <div className="rounded-lg border bg-green-50/80 dark:bg-green-950/20 border-green-200 dark:border-green-900/40 p-2.5">
+    <div className="rounded-lg border bg-green-50/80 dark:bg-green-950/20 border-green-200 dark:border-green-900/40 p-2.5 overflow-hidden">
       <div className="flex items-center gap-2 flex-wrap">
-        <div className="flex items-center gap-1.5">
+        <div className="flex items-center gap-1.5 shrink-0">
           <CircleDot className="h-3.5 w-3.5 text-green-600 dark:text-green-400" />
           <span className="text-xs font-semibold text-green-700 dark:text-green-400">Sub-Niche</span>
         </div>
-        <Badge className="bg-green-600 text-white dark:bg-green-700 dark:text-white text-xs font-semibold hover:bg-green-700">
+        <Badge className="bg-green-600 text-white dark:bg-green-700 dark:text-white text-xs font-semibold hover:bg-green-700 shrink-0 whitespace-nowrap">
           {name}
         </Badge>
         {opportunityScore > 0 && (
-          <Badge variant="outline" className="text-xs border-green-300 dark:border-green-800 text-green-700 dark:text-green-400">
+          <Badge variant="outline" className="text-xs border-green-300 dark:border-green-800 text-green-700 dark:text-green-400 shrink-0 whitespace-nowrap">
             {opportunityScore}/100 opportunity
           </Badge>
         )}
       </div>
       {description && (
-        <p className="text-xs text-muted-foreground mt-1.5">{description}</p>
+        <p className="text-xs text-muted-foreground mt-1.5 line-clamp-2">{description}</p>
       )}
     </div>
   )
@@ -237,7 +237,7 @@ function GapCard({ gap, delay = 0 }: { gap: GapAnalysis; delay?: number }) {
       transition={{ delay, duration: 0.3 }}
     >
       <Card className="h-full hover:shadow-md transition-shadow">
-        <CardContent className="p-4 sm:p-5 space-y-4">
+        <CardContent className="p-4 sm:p-5 space-y-4 overflow-hidden">
           {/* ─── Top: Gap Type Badge + Severity Badge + Difficulty Badge ─ */}
           <div className="space-y-1.5">
             {/* ─── Row 1: Type + Severity + Difficulty ── */}

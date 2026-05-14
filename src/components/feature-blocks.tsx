@@ -421,9 +421,9 @@ export function MarketQuadrantBlock({ quadrant }: { quadrant: MarketQuadrantPosi
         </svg>
       </div>
 
-      <div className="flex items-center justify-between text-xs">
-        <span className="text-muted-foreground">Competition: <span className="font-bold">{quadrant.competitionScore}/100</span></span>
-        <span className="text-muted-foreground">Opportunity: <span className="font-bold">{quadrant.opportunityScore}/100</span></span>
+      <div className="flex items-center justify-between text-xs gap-2">
+        <span className="text-muted-foreground whitespace-nowrap">Competition: <span className="font-bold">{quadrant.competitionScore}/100</span></span>
+        <span className="text-muted-foreground whitespace-nowrap">Opportunity: <span className="font-bold">{quadrant.opportunityScore}/100</span></span>
       </div>
     </div>
   )
@@ -561,9 +561,9 @@ export function EnhancedEvidenceBlock({ evidence, affectedProductNames }: {
       {affectedProductNames && affectedProductNames.length > 0 && (
         <div className="pt-2 border-t border-border/40">
           <p className="text-[10px] font-semibold text-muted-foreground mb-1">Products affected:</p>
-          <div className="flex flex-wrap gap-1">
+          <div className="flex flex-wrap gap-1.5 overflow-hidden">
             {affectedProductNames.map((name, i) => (
-              <Badge key={i} variant="outline" className="text-[10px] h-5">
+              <Badge key={i} variant="outline" className="text-[10px] h-5 shrink-0 whitespace-nowrap truncate max-w-[140px]">
                 {name}
               </Badge>
             ))}
@@ -693,13 +693,13 @@ export function UnderservedAudienceBlock({ users }: {
       <div className="space-y-2">
         {users.map((user, i) => (
           <div key={i} className="rounded-md border border-purple-200/60 dark:border-purple-800/30 bg-purple-50/20 dark:bg-purple-950/10 p-2.5 space-y-1">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-1.5">
+            <div className="flex items-center justify-between gap-2">
+              <div className="flex items-center gap-1.5 min-w-0">
                 <UserCircle className="h-3.5 w-3.5 text-purple-600 dark:text-purple-400 shrink-0" />
-                <span className="text-xs font-semibold text-purple-700 dark:text-purple-400">{user.userGroup}</span>
+                <span className="text-xs font-semibold text-purple-700 dark:text-purple-400 truncate">{user.userGroup}</span>
               </div>
               {user.opportunityScore > 0 && (
-                <Badge variant="outline" className={`text-[10px] h-5 ${getScoreColor(user.opportunityScore)}`}>
+                <Badge variant="outline" className={`text-[10px] h-5 shrink-0 whitespace-nowrap ${getScoreColor(user.opportunityScore)}`}>
                   {user.opportunityScore}/100
                 </Badge>
               )}
@@ -765,7 +765,7 @@ export function TrendComparisonBlock({ comparisons, trendDirection, summary }: {
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
         {comparisons.map((comp, i) => (
           <div key={i} className="rounded-md border bg-muted/20 p-2.5 space-y-2 overflow-hidden">
-            <Badge variant="outline" className="text-[10px] h-5 whitespace-nowrap">{periodLabel(comp.period)}</Badge>
+            <Badge variant="outline" className="text-[10px] h-5 shrink-0 whitespace-nowrap">{periodLabel(comp.period)}</Badge>
 
             <div className="space-y-2 text-xs">
               <div className="flex justify-between">
@@ -778,7 +778,7 @@ export function TrendComparisonBlock({ comparisons, trendDirection, summary }: {
               </div>
               <div className="flex justify-between items-center">
                 <span className="text-muted-foreground">Avg Score</span>
-                <Badge variant="outline" className={`text-[10px] h-4 px-1.5 whitespace-nowrap ${getScoreBadge(comp.avgOpportunityScore)}`}>
+                <Badge variant="outline" className={`text-[10px] h-4 px-1.5 shrink-0 whitespace-nowrap ${getScoreBadge(comp.avgOpportunityScore)}`}>
                   {comp.avgOpportunityScore}
                 </Badge>
               </div>
@@ -789,7 +789,7 @@ export function TrendComparisonBlock({ comparisons, trendDirection, summary }: {
                 </span>
               </div>
               <Separator className="!my-1" />
-              <div>
+              <div className="truncate">
                 <span className="text-muted-foreground">Top: </span>
                 <span className="font-semibold">{capitalize(comp.topComplaintCategory)}</span>
                 <span className="text-muted-foreground"> ({comp.topComplaintPercentage}%)</span>
