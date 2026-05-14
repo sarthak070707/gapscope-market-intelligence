@@ -47,7 +47,7 @@ import { ChartContainer, ChartTooltip, ChartTooltipContent, type ChartConfig } f
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { SaturationMeter } from '@/components/ui/saturation-meter'
 import { useAppStore } from '@/lib/store'
-import { WhyNowBlock, FalseOpportunityBlock, MarketQuadrantBlock, WhyExistingProductsFailBlock, ExecutionDifficultyBlock, FounderFitBlock, SourceTransparencyBlock, MarketQuadrantChart, TrendComparisonBlock, WhyOpportunityExistsBlock, UnderservedAudienceBlock, FeasibilitySummaryBlock } from '@/components/feature-blocks'
+import { WhyNowBlock, FalseOpportunityBlock, MarketQuadrantBlock, WhyExistingProductsFailBlock, ExecutionDifficultyBlock, FounderFitBlock, SourceTransparencyBlock, MarketQuadrantChart, TrendComparisonBlock, UnderservedAudienceBlock, FeasibilitySummaryBlock } from '@/components/feature-blocks'
 import type { DashboardStats, TimePeriod, GapAnalysis, MarketSaturation, SubNiche, ComplaintCluster, UnderservedUserGroup, TrendComparison } from '@/types'
 
 const chartConfig = {
@@ -1143,24 +1143,37 @@ export function DashboardOverview() {
                             </div>
                           </div>
 
-                          {/* Feasibility Summary Block — always visible */}
+                          {/* Feasibility Summary Block — compact */}
                           <FeasibilitySummaryBlock
                             executionDifficulty={gap.executionDifficulty ? { level: gap.executionDifficulty.level, demandLevel: gap.executionDifficulty.demandLevel, competitionLevel: gap.executionDifficulty.competitionLevel } : undefined}
                             opportunityScore={gap.marketQuadrant ? { total: gap.marketQuadrant.opportunityScore } : undefined}
                             falseOpportunity={gap.falseOpportunity ? { verdict: gap.falseOpportunity.verdict } : undefined}
                           />
 
-                          {/* Structured Evidence Block */}
+                          {/* Structured Evidence Block — compact inline */}
                           <EvidenceBlock evidence={gap.evidenceDetail} />
 
-                          {/* Why This Opportunity Exists — shared block */}
-                          {gap.whyThisMatters && (
-                            <WhyOpportunityExistsBlock text={gap.whyThisMatters} />
-                          )}
-
-                          {/* Underserved Audience — shared block */}
+                          {/* Underserved Audience — compact badges */}
                           {gap.underservedUsers && gap.underservedUsers.length > 0 && (
-                            <UnderservedAudienceBlock users={gap.underservedUsers} />
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                              <Users className="h-3 w-3 shrink-0 text-purple-500" />
+                              <span className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">Underserved:</span>
+                              {gap.underservedUsers.slice(0, 3).map((user, j) => (
+                                <Badge
+                                  key={j}
+                                  variant="outline"
+                                  className="text-[10px] h-5 px-1.5 bg-purple-50 text-purple-700 dark:bg-purple-950/30 dark:text-purple-400 border-purple-200 dark:border-purple-800/40"
+                                >
+                                  {user.userGroup}
+                                  {user.opportunityScore > 0 && (
+                                    <span className="ml-0.5 opacity-70">{user.opportunityScore}</span>
+                                  )}
+                                </Badge>
+                              ))}
+                              {gap.underservedUsers.length > 3 && (
+                                <span className="text-[10px] text-muted-foreground">+{gap.underservedUsers.length - 3} more</span>
+                              )}
+                            </div>
                           )}
 
                           {/* Affected Products — name badges with pricing */}

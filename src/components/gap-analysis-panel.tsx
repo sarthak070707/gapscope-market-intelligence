@@ -21,6 +21,7 @@ import {
   Link2,
   Clock,
   Gauge,
+  UserCircle,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
@@ -279,43 +280,66 @@ function GapCard({ gap, delay = 0 }: { gap: GapAnalysis; delay?: number }) {
           {/* ─── Description ───────────────────────────────────── */}
           <p className="text-xs text-muted-foreground leading-relaxed">{gap.description}</p>
 
-          {/* ─── Feasibility Summary (always visible) ──────────── */}
+          {/* ─── Feasibility Summary (always visible, compact) ── */}
           <FeasibilitySummaryBlock
             executionDifficulty={gap.executionDifficulty}
             opportunityScore={gap.marketQuadrant ? { total: gap.marketQuadrant.opportunityScore } : undefined}
             falseOpportunity={gap.falseOpportunity}
           />
 
-          {/* ─── Why This Opportunity Exists (always visible) ──── */}
-          {gap.whyThisMatters && (
-            <WhyOpportunityExistsBlock text={gap.whyThisMatters} />
-          )}
-
-          {/* ─── Underserved Audience (always visible) ─────────── */}
-          {gap.underservedUsers && gap.underservedUsers.length > 0 && (
-            <UnderservedAudienceBlock users={gap.underservedUsers} />
-          )}
-
-          {/* ─── Evidence Block (always visible, detailed) ─────── */}
+          {/* ─── Compact Evidence Summary (always visible) ─────── */}
           {gap.evidenceDetail && (
-            <EnhancedEvidenceBlock
-              evidence={gap.evidenceDetail}
-              affectedProductNames={gap.affectedProducts?.map(p => p.name)}
-            />
+            <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
+              <BarChart3 className="h-3.5 w-3.5 shrink-0 text-orange-500" />
+              <span className="truncate">
+                {gap.evidenceDetail.similarProducts > 0 && (
+                  <><span className="font-semibold text-foreground">{gap.evidenceDetail.similarProducts}</span> similar products</>
+                )}
+                {gap.evidenceDetail.similarProducts > 0 && gap.evidenceDetail.repeatedComplaints > 0 && ' · '}
+                {gap.evidenceDetail.repeatedComplaints > 0 && (
+                  <><span className="font-semibold text-foreground">{gap.evidenceDetail.repeatedComplaints}</span> complaints</>
+                )}
+                {(gap.evidenceDetail.similarProducts > 0 || gap.evidenceDetail.repeatedComplaints > 0) && gap.evidenceDetail.pricingOverlap > 0 && ' · '}
+                {gap.evidenceDetail.pricingOverlap > 0 && (
+                  <><span className="font-semibold text-foreground">{gap.evidenceDetail.pricingOverlap}%</span> pricing overlap</>
+                )}
+              </span>
+            </div>
           )}
 
-          {/* ─── Affected Products Row (always visible) ────────── */}
-          {gap.affectedProducts && gap.affectedProducts.length > 0 && (
-            <AffectedProductsRow products={gap.affectedProducts} />
+          {/* ─── Underserved Audience Badges (compact, always visible) ── */}
+          {gap.underservedUsers && gap.underservedUsers.length > 0 && (
+            <div className="flex items-center gap-1.5 flex-wrap">
+              <UserCircle className="h-3 w-3 shrink-0 text-purple-500" />
+              <span className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">Underserved:</span>
+              {gap.underservedUsers.map((user, j) => (
+                <Badge
+                  key={j}
+                  variant="outline"
+                  className="text-[10px] h-5 px-1.5 bg-purple-50 text-purple-700 dark:bg-purple-950/30 dark:text-purple-400 border-purple-200 dark:border-purple-800/40"
+                >
+                  {user.userGroup}
+                  {user.opportunityScore > 0 && (
+                    <span className="ml-0.5 opacity-70">{user.opportunityScore}</span>
+                  )}
+                </Badge>
+              ))}
+            </div>
           )}
 
-          {/* ─── Sub-Niche Badge (always visible) ──────────────── */}
+          {/* ─── Sub-Niche Badge (compact, always visible) ─────── */}
           {gap.subNiche && gap.subNiche.name && (
-            <SubNicheBadge
-              name={gap.subNiche.name}
-              opportunityScore={gap.subNiche.opportunityScore}
-              description={gap.subNiche.description}
-            />
+            <div className="flex items-center gap-2">
+              <Badge className="bg-green-600 text-white dark:bg-green-700 dark:text-white text-xs font-semibold hover:bg-green-700">
+                <CircleDot className="h-3 w-3 mr-1" />
+                {gap.subNiche.name}
+              </Badge>
+              {gap.subNiche.opportunityScore > 0 && (
+                <Badge variant="outline" className="text-xs border-green-300 dark:border-green-800 text-green-700 dark:text-green-400">
+                  {gap.subNiche.opportunityScore}/100
+                </Badge>
+              )}
+            </div>
           )}
 
           {/* ─── Expand Button ─────────────────────────────────── */}
@@ -339,6 +363,24 @@ function GapCard({ gap, delay = 0 }: { gap: GapAnalysis; delay?: number }) {
                 className="space-y-3 overflow-hidden"
               >
                 <Separator />
+
+                {/* ─── Why This Opportunity Exists (detailed) ──── */}
+                {gap.whyThisMatters && (
+                  <WhyOpportunityExistsBlock text={gap.whyThisMatters} />
+                )}
+
+                {/* ─── Evidence Block (detailed) ─────────────────── */}
+                {gap.evidenceDetail && (
+                  <EnhancedEvidenceBlock
+                    evidence={gap.evidenceDetail}
+                    affectedProductNames={gap.affectedProducts?.map(p => p.name)}
+                  />
+                )}
+
+                {/* ─── Underserved Audience (detailed) ────────────── */}
+                {gap.underservedUsers && gap.underservedUsers.length > 0 && (
+                  <UnderservedAudienceBlock users={gap.underservedUsers} />
+                )}
 
                 {/* ─── Full Product Details ─────────────────────── */}
                 {gap.affectedProducts && gap.affectedProducts.length > 0 && (

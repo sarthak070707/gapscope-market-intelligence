@@ -163,3 +163,55 @@ Stage Summary:
 - No type/schema changes needed (already existed)
 - No lint errors
 - No modifications to gap-analysis-panel.tsx or opportunities-panel.tsx
+
+---
+Task ID: fix-overlap
+Agent: Main Agent
+Task: Fix overlapping UI elements across all panels
+
+Work Log:
+- Diagnosed the problem: too many always-visible shared blocks stacking up in cards causing extremely long cards and visual overlap
+- Also found absolute-positioned badges (absolute -top-2) in the "WHY NOW?" compact block in opportunities-panel.tsx that overlapped with content above
+- Fixed opportunities-panel.tsx: Replaced absolute-positioned "WHY NOW?" badge with normal flow badge
+- Fixed opportunities-panel.tsx: Moved WhyOpportunityExistsBlock, EnhancedEvidenceBlock, WhyNowBlock, UnderservedAudienceBlock, and CompactProductRef to expanded section; kept only compact inline versions always visible
+- Fixed gap-analysis-panel.tsx: Moved WhyOpportunityExistsBlock, EnhancedEvidenceBlock, and UnderservedAudienceBlock to expanded section; kept compact FeasibilitySummaryBlock, inline evidence summary, compact underserved badges, and compact sub-niche badge always visible
+- Fixed dashboard-overview.tsx: Removed WhyOpportunityExistsBlock and UnderservedAudienceBlock from trending gaps; replaced with compact inline versions
+- Cleaned up unused import of WhyOpportunityExistsBlock in dashboard-overview.tsx
+- Ran bun run lint — passed with no errors
+- Verified app loads correctly (HTTP 200)
+
+Stage Summary:
+- Root cause: Too many large shared blocks always visible made cards extremely long and elements overlapped
+- Fix pattern: Keep only compact inline versions always visible; move detailed shared blocks to expandable section
+- All 3 panels fixed: gap-analysis-panel.tsx, opportunities-panel.tsx, dashboard-overview.tsx
+- Lint passes, app loads correctly
+
+---
+Task ID: 6
+Agent: Main Agent
+Task: Fix overlapping UI in opportunities-panel.tsx
+
+Work Log:
+- Read worklog.md to understand previous work context
+- Read opportunities-panel.tsx and feature-blocks.tsx to understand current structure
+- In opportunities-panel.tsx OpportunityCard component:
+  - Replaced EnhancedEvidenceBlock (always visible) with compact inline evidence summary (single line with BarChart3 icon, showing similar products count, complaints count, pricing overlap %)
+  - Removed WhyOpportunityExistsBlock from always visible section (moved to expanded)
+  - Removed the full "WHY NOW?" block from always visible section (moved to expanded via WhyNowBlock)
+  - Replaced UnderservedAudienceBlock (always visible) with compact badge row showing up to 3 underserved user groups as small badges with UserCircle icon
+  - Removed CompactProductRef products list from always visible section (moved to expanded)
+  - Changed expand button text from "Full Score Details & More" to "Full Details & Evidence"
+  - Added detailed blocks at start of expanded section (after Separator): WhyOpportunityExistsBlock, EnhancedEvidenceBlock, WhyNowBlock, UnderservedAudienceBlock, CompactProductRef products list
+  - Removed duplicate WhyNowBlock from bottom of expanded section (was only triggered by marketGrowthDriver, now replaced by timingAdvantage trigger at top)
+  - Kept FeasibilitySummaryBlock, Sub-Niche badge, and Verdict badge row as always visible
+- Also fixed pre-existing lint errors in gap-analysis-panel.tsx:
+  - Added UserCircle import from lucide-react
+  - Replaced undefined CompactEvidenceSummary component with compact inline evidence summary (matching opportunities-panel pattern)
+- Ran `bun run lint` — passed with no errors
+
+Stage Summary:
+- Opportunity cards are now much more compact in always-visible state
+- Detailed blocks (WhyOpportunityExistsBlock, EnhancedEvidenceBlock, WhyNowBlock, UnderservedAudienceBlock, CompactProductRef) moved to expanded section
+- Compact inline versions kept always visible: evidence summary (single line), underserved badges (3 max)
+- Fixed pre-existing lint errors in gap-analysis-panel.tsx
+- No lint errors

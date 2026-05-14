@@ -431,37 +431,23 @@ function OpportunityCard({
             falseOpportunity={opp.falseOpportunity}
           />
 
-          {/* ── Why This Opportunity Exists (always visible) ── */}
-          {opp.whyThisMatters && (
-            <WhyOpportunityExistsBlock text={opp.whyThisMatters} />
-          )}
-
-          {/* ── Evidence Block (always visible) ── */}
+          {/* ── Evidence (compact inline) ── */}
           {opp.evidenceDetail && (
-            <EnhancedEvidenceBlock
-              evidence={opp.evidenceDetail}
-              affectedProductNames={opp.affectedProducts?.map(p => p.name)}
-            />
-          )}
-
-          {/* ── Row 5b: "Why Now?" compact — always visible ── */}
-          {opp.whyNow?.timingAdvantage && (
-            <div className="relative rounded-xl border-2 border-amber-400/70 dark:border-amber-600/50 bg-gradient-to-br from-amber-50 via-yellow-50 to-amber-50 dark:from-amber-950/30 dark:via-yellow-950/20 dark:to-amber-950/30 p-3.5 shadow-sm">
-              <div className="absolute -top-2 left-3">
-                <span className="inline-flex items-center gap-1 rounded-full bg-amber-500 px-2 py-0.5 text-[10px] font-bold text-white shadow-sm">
-                  <Zap className="h-3 w-3" />
-                  WHY NOW
-                </span>
-              </div>
-              <div className="mt-1.5 space-y-1">
-                <p className="text-xs text-foreground leading-relaxed">{opp.whyNow.timingAdvantage}</p>
-                {opp.whyNow.marketGrowthDriver && (
-                  <p className="text-[10px] text-green-700 dark:text-green-400 flex items-start gap-1">
-                    <TrendingUp className="h-3 w-3 shrink-0 mt-0.5" />
-                    <span>{opp.whyNow.marketGrowthDriver}</span>
-                  </p>
+            <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
+              <BarChart3 className="h-3.5 w-3.5 shrink-0 text-orange-500" />
+              <span className="truncate">
+                {opp.evidenceDetail.similarProducts > 0 && (
+                  <><span className="font-semibold text-foreground">{opp.evidenceDetail.similarProducts}</span> similar products</>
                 )}
-              </div>
+                {opp.evidenceDetail.similarProducts > 0 && opp.evidenceDetail.repeatedComplaints > 0 && ' · '}
+                {opp.evidenceDetail.repeatedComplaints > 0 && (
+                  <><span className="font-semibold text-foreground">{opp.evidenceDetail.repeatedComplaints}</span> complaints</>
+                )}
+                {(opp.evidenceDetail.similarProducts > 0 || opp.evidenceDetail.repeatedComplaints > 0) && opp.evidenceDetail.pricingOverlap > 0 && ' · '}
+                {opp.evidenceDetail.pricingOverlap > 0 && (
+                  <><span className="font-semibold text-foreground">{opp.evidenceDetail.pricingOverlap}%</span> pricing overlap</>
+                )}
+              </span>
             </div>
           )}
 
@@ -507,21 +493,27 @@ function OpportunityCard({
             </div>
           )}
 
-          {/* ── Row 7: Product references — always visible ── */}
-          {opp.affectedProducts && opp.affectedProducts.length > 0 && (
-            <div className="space-y-1.5">
-              <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Products</p>
-              <div className="flex flex-wrap gap-1.5">
-                {opp.affectedProducts.map((p, j) => (
-                  <CompactProductRef key={j} product={p} />
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* ── Underserved Audience (always visible) ── */}
+          {/* ── Underserved Audience (compact badge row) ── */}
           {opp.underservedUsers && opp.underservedUsers.length > 0 && (
-            <UnderservedAudienceBlock users={opp.underservedUsers} />
+            <div className="flex items-center gap-1.5 flex-wrap">
+              <UserCircle className="h-3 w-3 shrink-0 text-purple-500" />
+              <span className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">Underserved:</span>
+              {opp.underservedUsers.slice(0, 3).map((user, j) => (
+                <Badge
+                  key={j}
+                  variant="outline"
+                  className="text-[10px] h-5 px-1.5 bg-purple-50 text-purple-700 dark:bg-purple-950/30 dark:text-purple-400 border-purple-200 dark:border-purple-800/40"
+                >
+                  {user.userGroup}
+                  {user.opportunityScore > 0 && (
+                    <span className="ml-0.5 opacity-70">{user.opportunityScore}</span>
+                  )}
+                </Badge>
+              ))}
+              {opp.underservedUsers.length > 3 && (
+                <span className="text-[10px] text-muted-foreground">+{opp.underservedUsers.length - 3} more</span>
+              )}
+            </div>
           )}
 
           {/* ── Row 9: Expand toggle ── */}
@@ -534,7 +526,7 @@ function OpportunityCard({
             {expanded ? (
               <><ChevronUp className="h-3.5 w-3.5 mr-1" />Show Less</>
             ) : (
-              <><ChevronDown className="h-3.5 w-3.5 mr-1" />Full Score Details &amp; More</>
+              <><ChevronDown className="h-3.5 w-3.5 mr-1" />Full Details &amp; Evidence</>
             )}
           </Button>
 
@@ -549,6 +541,41 @@ function OpportunityCard({
                 className="space-y-4 overflow-hidden"
               >
                 <Separator />
+
+                {/* ── Why This Opportunity Exists (detailed) ── */}
+                {opp.whyThisMatters && (
+                  <WhyOpportunityExistsBlock text={opp.whyThisMatters} />
+                )}
+
+                {/* ── Evidence Block (detailed) ── */}
+                {opp.evidenceDetail && (
+                  <EnhancedEvidenceBlock
+                    evidence={opp.evidenceDetail}
+                    affectedProductNames={opp.affectedProducts?.map(p => p.name)}
+                  />
+                )}
+
+                {/* ── Why Now? (detailed) ── */}
+                {opp.whyNow?.timingAdvantage && (
+                  <WhyNowBlock whyNow={opp.whyNow} />
+                )}
+
+                {/* ── Underserved Audience (detailed) ── */}
+                {opp.underservedUsers && opp.underservedUsers.length > 0 && (
+                  <UnderservedAudienceBlock users={opp.underservedUsers} />
+                )}
+
+                {/* ── Product references ── */}
+                {opp.affectedProducts && opp.affectedProducts.length > 0 && (
+                  <div className="space-y-1.5">
+                    <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Products</p>
+                    <div className="flex flex-wrap gap-1.5">
+                      {opp.affectedProducts.map((p, j) => (
+                        <CompactProductRef key={j} product={p} />
+                      ))}
+                    </div>
+                  </div>
+                )}
 
                 {/* Full Opportunity Score Breakdown */}
                 {hasScore && (
@@ -618,12 +645,6 @@ function OpportunityCard({
                 )}
 
                 {/* Feature Blocks */}
-                {opp.whyNow?.marketGrowthDriver && (
-                  <>
-                    <Separator />
-                    <WhyNowBlock whyNow={opp.whyNow} />
-                  </>
-                )}
                 {opp.falseOpportunity?.verdict && (
                   <>
                     <Separator />
