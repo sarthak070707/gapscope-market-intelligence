@@ -67,6 +67,8 @@ import { useAppStore } from '@/lib/store'
 import { CATEGORIES, type Category, type TrendData, type CompetitorComparison, type SubNiche, type UnderservedUserGroup, type TimePeriod, type TrendComparison } from '@/types'
 import { WhyNowBlock } from '@/components/feature-blocks'
 import { TrendComparisonBlock } from '@/components/feature-blocks'
+import { ModuleErrorState } from '@/components/module-error-state'
+import { classifyError, type ModuleError } from '@/lib/error-handler'
 
 function SparklineChart({ data, color = 'oklch(0.7 0.15 50)' }: { data: { label: string; value: number }[]; color?: string }) {
   return (
@@ -431,6 +433,8 @@ export function TrendsComparePanel() {
   const [category, setCategory] = useState<Category | 'all'>('all')
   const [productInput, setProductInput] = useState('')
   const [selectedProducts, setSelectedProducts] = useState<string[]>([])
+  const [trendError, setTrendError] = useState<ModuleError | null>(null)
+  const [compareError, setCompareError] = useState<ModuleError | null>(null)
 
   const trendResults = useAppStore((s) => s.trendResults)
   const setTrendResults = useAppStore((s) => s.setTrendResults)
@@ -531,12 +535,25 @@ export function TrendsComparePanel() {
 
   const trendMutation = useMutation({
     mutationFn: async () => {
+      setTrendError(null)
       const res = await fetch('/api/trends', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: 'detect', category, timePeriod }),
       })
-      if (!res.ok) throw new Error('Trend detection failed')
+      if (!res.ok) {
+        let moduleError: ModuleError
+        try {
+          const errorBody = await res.json()
+          moduleError = errorBody.moduleError || classifyError(new Error(errorBody.error || `HTTP ${res.status}`), 'Trend Detection', '/api/trends')
+          moduleError.statusCode = res.status
+        } catch {
+          moduleError = classifyError(new Error(`HTTP ${res.status}`), 'Trend Detection', '/api/trends')
+          moduleError.statusCode = res.status
+        }
+        setTrendError(moduleError)
+        throw new Error(moduleError.message)
+      }
       return res.json() as Promise<TrendData[]>
     },
     onSuccess: (data) => {
@@ -544,7 +561,10 @@ export function TrendsComparePanel() {
       setTrendResults(enriched)
       toast.success(`Detected ${data.length} trends!`)
     },
-    onError: () => {
+    onError: (err) => {
+      if (!trendError) {
+        setTrendError(classifyError(err, 'Trend Detection', '/api/trends'))
+      }
       toast.error('Trend detection failed. Please try again.')
     },
   })
@@ -574,19 +594,35 @@ export function TrendsComparePanel() {
 
   const compareMutation = useMutation({
     mutationFn: async () => {
+      setCompareError(null)
       const res = await fetch('/api/trends', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: 'compare', productIds: selectedProducts, category }),
       })
-      if (!res.ok) throw new Error('Comparison failed')
+      if (!res.ok) {
+        let moduleError: ModuleError
+        try {
+          const errorBody = await res.json()
+          moduleError = errorBody.moduleError || classifyError(new Error(errorBody.error || `HTTP ${res.status}`), 'Product Comparison', '/api/trends')
+          moduleError.statusCode = res.status
+        } catch {
+          moduleError = classifyError(new Error(`HTTP ${res.status}`), 'Product Comparison', '/api/trends')
+          moduleError.statusCode = res.status
+        }
+        setCompareError(moduleError)
+        throw new Error(moduleError.message)
+      }
       return res.json() as Promise<CompetitorComparison>
     },
     onSuccess: (data) => {
       setComparisonResults(data)
       toast.success('Comparison complete!')
     },
-    onError: () => {
+    onError: (err) => {
+      if (!compareError) {
+        setCompareError(classifyError(err, 'Product Comparison', '/api/trends'))
+      }
       toast.error('Comparison failed. Please try again.')
     },
   })
@@ -667,6 +703,15 @@ export function TrendsComparePanel() {
           </CardContent>
         </Card>
       </motion.div>
+
+      {/* Trend Detection Error State */}
+      {trendError && !trendMutation.isPending && (
+        <ModuleErrorState
+          error={trendError}
+          onRetry={() => trendMutation.mutate()}
+          isRetrying={trendMutation.isPending}
+        />
+      )}
 
       {/* Market Health Summary + Time Context */}
       {!trendMutation.isPending && trendResults.length > 0 && (
@@ -838,6 +883,15 @@ export function TrendsComparePanel() {
           </CardContent>
         </Card>
       </motion.div>
+
+      {/* Comparison Error State */}
+      {compareError && !compareMutation.isPending && (
+        <ModuleErrorState
+          error={compareError}
+          onRetry={() => compareMutation.mutate()}
+          isRetrying={compareMutation.isPending}
+        />
+      )}
 
       {/* Comparison Results */}
       {compareMutation.isPending && (

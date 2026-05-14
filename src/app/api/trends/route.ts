@@ -8,6 +8,7 @@ import type { TrendData, CompetitorComparison, SubNiche, UnderservedUserGroup } 
 const LLM_TIMEOUT_MS = 90_000;
 const WEBSEARCH_TIMEOUT_MS = 30_000;
 const MAX_RETRIES = 2;
+const INTER_CALL_DELAY_MS = 2000; // 2s pause between LLM calls to avoid rate limits
 
 /**
  * GET /api/trends
@@ -148,6 +149,9 @@ async function handleDetectTrends(category: string) {
       { status: 404 }
     );
   }
+
+  // Delay before LLM call to avoid rate limits
+  await new Promise((r) => setTimeout(r, INTER_CALL_DELAY_MS));
 
   // Also fetch existing product data from DB for context
   const existingProducts = await db.product.findMany({

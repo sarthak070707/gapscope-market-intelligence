@@ -178,15 +178,25 @@ export class TimeoutError extends Error {
 export interface RetryOptions {
   maxRetries: number;      // Default: 2
   baseDelayMs: number;     // Default: 1000
-  maxDelayMs: number;      // Default: 10000
+  maxDelayMs: number;      // Default: 30000
   shouldRetry?: (error: unknown) => boolean;  // Only retry certain errors
+  rateLimitBaseDelayMs?: number; // Default: 5000 — longer base delay for 429 errors
 }
 
 const DEFAULT_RETRY_OPTIONS: RetryOptions = {
   maxRetries: 2,
   baseDelayMs: 1000,
-  maxDelayMs: 10000,
+  maxDelayMs: 30000,
+  rateLimitBaseDelayMs: 5000,
 };
+
+function isRateLimitError(error: unknown): boolean {
+  if (error instanceof Error) {
+    const msg = error.message.toLowerCase();
+    return msg.includes('429') || msg.includes('rate limit') || msg.includes('too many');
+  }
+  return false;
+}
 
 export async function retryWithBackoff<T>(
   fn: () => Promise<T>,
@@ -213,12 +223,22 @@ export async function retryWithBackoff<T>(
       }
 
       // Calculate delay with exponential backoff + jitter
+      // Use much longer delays for rate-limited requests
+      const isRateLimited = isRateLimitError(error);
+      const baseDelay = isRateLimited ? (opts.rateLimitBaseDelayMs || 5000) : opts.baseDelayMs;
+      const maxDelay = isRateLimited ? 60000 : opts.maxDelayMs;
+      
       const delay = Math.min(
-        opts.baseDelayMs * Math.pow(2, attempt) + Math.random() * 500,
-        opts.maxDelayMs
+        baseDelay * Math.pow(2, attempt) + Math.random() * 1000,
+        maxDelay
       );
 
-      logError(module, error, { attempt: attempt + 1, maxRetries: opts.maxRetries, nextRetryIn: Math.round(delay) });
+      logError(module, error, { 
+        attempt: attempt + 1, 
+        maxRetries: opts.maxRetries, 
+        nextRetryIn: Math.round(delay),
+        isRateLimited,
+      });
       
       await new Promise((resolve) => setTimeout(resolve, delay));
     }

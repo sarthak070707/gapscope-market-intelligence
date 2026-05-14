@@ -5,8 +5,9 @@ import { safeJsonParse } from '@/lib/json';
 import { retryWithBackoff, withTimeout, logError, classifyError } from '@/lib/error-handler';
 import type { GapAnalysis, MarketSaturation, ComplaintAnalysis, ComplaintCluster, EvidenceDetail, SubNiche, ProductReference, UnderservedUserGroup, WhyNowAnalysis, ExecutionDifficulty, FalseOpportunityAnalysis, FounderFitSuggestion, SourceTransparency, WhyExistingProductsFail, MarketQuadrantPosition } from '@/types';
 
-const LLM_TIMEOUT_MS = 90_000;
+const LLM_TIMEOUT_MS = 120_000;
 const MAX_RETRIES = 2;
+const INTER_CALL_DELAY_MS = 2000; // 2s pause between LLM calls to avoid rate limits
 
 export async function POST(request: NextRequest) {
   try {
@@ -82,7 +83,7 @@ export async function POST(request: NextRequest) {
     // Track partial errors so one failing analysis doesn't break the others
     const partialErrors: Record<string, unknown> = {};
 
-    // Run gaps analysis (individual try/catch)
+    // Run gaps analysis (individual try/catch) — with delay to avoid rate limits
     if (analysisType === 'gaps' || analysisType === 'full') {
       try {
         result.gaps = await analyzeGaps(productsContext, effectiveProducts, timePeriod);
@@ -91,9 +92,11 @@ export async function POST(request: NextRequest) {
         const moduleError = classifyError(error, 'Gap Analysis', '/api/analyze');
         partialErrors.gaps = moduleError;
       }
+      // Delay between LLM calls to avoid rate limits
+      await new Promise((r) => setTimeout(r, INTER_CALL_DELAY_MS));
     }
 
-    // Run saturation analysis (individual try/catch)
+    // Run saturation analysis (individual try/catch) — with delay to avoid rate limits
     if (analysisType === 'saturation' || analysisType === 'full') {
       try {
         result.saturation = await analyzeSaturation(productsContext, category, effectiveProducts);
@@ -102,6 +105,8 @@ export async function POST(request: NextRequest) {
         const moduleError = classifyError(error, 'Gap Analysis', '/api/analyze');
         partialErrors.saturation = moduleError;
       }
+      // Delay between LLM calls to avoid rate limits
+      await new Promise((r) => setTimeout(r, INTER_CALL_DELAY_MS));
     }
 
     // Run complaints analysis (individual try/catch)
@@ -447,6 +452,9 @@ For each competitor, provide:
       topCompetitors = [];
     }
 
+    // Delay between LLM calls to avoid rate limits
+    await new Promise((r) => setTimeout(r, INTER_CALL_DELAY_MS));
+
     // Generate sub-niches using LLM (with timeout + retry)
     let subNiches: SubNiche[] = [];
     try {
@@ -541,6 +549,9 @@ Extract 3-10 distinct complaints. Base your analysis ONLY on the actual product 
   );
 
   const safeComplaints = Array.isArray(complaints) ? complaints : [];
+
+  // Delay before next LLM call to avoid rate limits
+  await new Promise((r) => setTimeout(r, INTER_CALL_DELAY_MS));
 
   // Generate complaint clusters (with timeout + retry)
   let clusters: ComplaintCluster[] = [];

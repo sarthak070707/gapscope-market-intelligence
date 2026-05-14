@@ -6,7 +6,7 @@ import { safeJsonParse } from '@/lib/json';
 import type { OpportunitySuggestion } from '@/types';
 
 const MODULE_NAME = 'Opportunity Generator';
-const LLM_TIMEOUT_MS = 90_000;
+const LLM_TIMEOUT_MS = 120_000;
 const MAX_RETRIES = 2;
 
 /**

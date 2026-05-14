@@ -5,9 +5,10 @@ import { retryWithBackoff, withTimeout, logError, classifyError, TimeoutError, t
 import type { ScannedProduct } from '@/types';
 
 const SCAN_TIMEOUT_MS = 120_000;
-const LLM_TIMEOUT_MS = 60_000;
+const LLM_TIMEOUT_MS = 90_000;
 const MAX_RETRIES = 2;
 const MAX_CONCURRENT_READS = 3;
+const INTER_CALL_DELAY_MS = 2000; // 2s pause between LLM calls to avoid rate limits
 
 export async function POST(request: NextRequest) {
   try {
@@ -185,6 +186,9 @@ async function executeScan(category: string, scanJobId: string): Promise<NextRes
     });
     return NextResponse.json([]);
   }
+
+  // Delay before LLM call to avoid rate limits (webSearch may have triggered API limits)
+  await new Promise((r) => setTimeout(r, INTER_CALL_DELAY_MS));
 
   // Step 3: Use LLM to parse raw content into structured product data (with retry + timeout)
   console.log(`[Scan] Step 3: Calling LLM to extract structured data (timeout: ${LLM_TIMEOUT_MS}ms, content length: ${rawContent.length} chars)`);
