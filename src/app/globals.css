@@ -122,6 +122,10 @@
 }
 
 /* Custom scrollbar styling */
+.custom-scrollbar {
+  scrollbar-width: thin;
+  scrollbar-color: oklch(0.7 0.03 50) transparent;
+}
 .custom-scrollbar::-webkit-scrollbar {
   width: 5px;
   height: 5px;
@@ -142,11 +146,52 @@
   background: transparent;
 }
 
+.dark .custom-scrollbar {
+  scrollbar-color: oklch(0.4 0.03 50) transparent;
+}
 .dark .custom-scrollbar::-webkit-scrollbar-thumb {
   background: oklch(0.4 0.03 50);
 }
 .dark .custom-scrollbar::-webkit-scrollbar-thumb:hover {
   background: oklch(0.5 0.05 50);
+}
+
+/* Scrollable card content area — reusable pattern for dashboard sections */
+.scrollable-card-content {
+  max-height: 480px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.scrollable-card-content-sm {
+  max-height: 360px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.scrollable-card-content-lg {
+  max-height: 600px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+/* Horizontal scrollable row — for badges, tags, metrics */
+.scroll-x-row {
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  scrollbar-width: thin;
+  scrollbar-color: oklch(0.7 0.03 50) transparent;
+}
+.scroll-x-row::-webkit-scrollbar {
+  height: 4px;
+}
+.scroll-x-row::-webkit-scrollbar-thumb {
+  background: oklch(0.7 0.03 50);
+  border-radius: 2px;
+}
+.dark .scroll-x-row {
+  scrollbar-color: oklch(0.4 0.03 50) transparent;
+}
+.dark .scroll-x-row::-webkit-scrollbar-thumb {
+  background: oklch(0.4 0.03 50);
 }
 
 /* Horizontal scroll container with fade indicators */

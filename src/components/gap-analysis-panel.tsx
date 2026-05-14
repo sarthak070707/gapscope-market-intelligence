@@ -237,7 +237,7 @@ function GapCard({ gap, delay = 0 }: { gap: GapAnalysis; delay?: number }) {
       transition={{ delay, duration: 0.3 }}
     >
       <Card className="h-full hover:shadow-md transition-shadow">
-        <CardContent className="p-4 sm:p-5 space-y-4 overflow-hidden">
+        <CardContent className="p-4 sm:p-5 space-y-4">
           {/* ─── Top: Gap Type Badge + Severity Badge + Difficulty Badge ─ */}
           <div className="space-y-1.5">
             {/* ─── Row 1: Type + Severity + Difficulty ── */}
@@ -366,7 +366,7 @@ function GapCard({ gap, delay = 0 }: { gap: GapAnalysis; delay?: number }) {
                 animate={{ opacity: 1, height: 'auto' }}
                 exit={{ opacity: 0, height: 0 }}
                 transition={{ duration: 0.2 }}
-                className="space-y-3 overflow-hidden"
+                className="space-y-3 overflow-y-auto custom-scrollbar max-h-[800px]"
               >
                 <Separator />
 
@@ -671,7 +671,7 @@ function SaturationEntry({ sat, delay = 0 }: { sat: MarketSaturation; delay?: nu
                 transition={{ duration: 0.2 }}
                 className="overflow-hidden"
               >
-                <div className="space-y-1.5 pt-2">
+                <div className="space-y-1.5 max-h-[300px] overflow-y-auto custom-scrollbar pr-1 pt-2">
                   {sat.topCompetitors.map((comp, j) => (
                     <div key={j} className="rounded-md border bg-muted/20 p-2.5 text-xs space-y-1">
                       <div className="flex items-center justify-between">

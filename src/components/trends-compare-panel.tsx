@@ -381,7 +381,7 @@ function TrendCard({
                     transition={{ duration: 0.2 }}
                     className="overflow-hidden"
                   >
-                    <div className="space-y-1.5">
+                    <div className="space-y-1.5 max-h-[300px] overflow-y-auto custom-scrollbar pr-1">
                       {trend.underservedUsers.map((user, j) => (
                         <div key={j} className="rounded-md border border-purple-200 dark:border-purple-900/40 bg-purple-50/30 dark:bg-purple-950/10 px-2.5 py-2 space-y-1">
                           <div className="flex items-center gap-2 min-w-0">
@@ -870,7 +870,7 @@ export function TrendsComparePanel() {
                 <CardDescription>Evidence-backed competitive analysis</CardDescription>
               </CardHeader>
               <CardContent>
-                <ScrollArea className="overflow-x-auto">
+                <ScrollArea className="scroll-x-row overflow-x-auto">
                   <Table>
                     <TableHeader>
                       <TableRow>

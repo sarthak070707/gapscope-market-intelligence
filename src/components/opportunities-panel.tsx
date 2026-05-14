@@ -363,7 +363,7 @@ function OpportunityCard({
       layout
     >
       <Card className="h-full hover:shadow-lg transition-all duration-200 border-border/80 group">
-        <CardContent className="p-4 sm:p-5 space-y-4 overflow-hidden">
+        <CardContent className="p-4 sm:p-5 space-y-4">
           {/* ── Row 1: Score gauge + Saturation badge + Difficulty badge + Save button ── */}
           <div className="flex items-start justify-between gap-2">
             <div className="flex items-center gap-2 flex-wrap">
@@ -415,7 +415,7 @@ function OpportunityCard({
 
           {/* ── Row 1b: Verdict + Quadrant Badges ── */}
           {(opp.marketQuadrant?.quadrant === 'goldmine' || opp.marketQuadrant?.quadrant === 'dead_zone' || opp.falseOpportunity?.verdict === 'avoid' || opp.falseOpportunity?.verdict === 'caution') && (
-            <div className="flex items-center gap-2 flex-wrap">
+            <div className="flex flex-wrap items-center gap-2 scroll-x-row">
               {opp.marketQuadrant?.quadrant === 'goldmine' && (
                 <Badge className="bg-green-600 text-white border-0 gap-1 font-semibold text-[10px] h-5 px-1.5 shrink-0 whitespace-nowrap">🔥 Goldmine</Badge>
               )}
@@ -471,7 +471,7 @@ function OpportunityCard({
 
           {/* ── Combined badge row: Sub-Niche + Underserved ── */}
           {(opp.subNiche?.name || (opp.underservedUsers && opp.underservedUsers.length > 0)) && (
-            <div className="flex flex-wrap items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2 scroll-x-row">
               {opp.subNiche?.name && (
                 <Badge className="bg-green-600 text-white border-0 gap-1 font-semibold text-[10px] h-5 px-1.5 shrink-0 whitespace-nowrap">
                   <Target className="h-3 w-3" />
@@ -526,7 +526,7 @@ function OpportunityCard({
                 animate={{ opacity: 1, height: 'auto' }}
                 exit={{ opacity: 0, height: 0 }}
                 transition={{ duration: 0.25, ease: 'easeInOut' }}
-                className="space-y-4 overflow-hidden"
+                className="space-y-4 overflow-y-auto custom-scrollbar max-h-[800px]"
               >
                 <Separator />
 
@@ -557,7 +557,7 @@ function OpportunityCard({
                 {opp.affectedProducts && opp.affectedProducts.length > 0 && (
                   <div className="space-y-1.5">
                     <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Products</p>
-                    <div className="flex flex-wrap gap-1.5">
+                    <div className="flex flex-wrap gap-1.5 scroll-x-row">
                       {opp.affectedProducts.map((p, j) => (
                         <CompactProductRef key={j} product={p} />
                       ))}

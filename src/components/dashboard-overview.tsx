@@ -1061,7 +1061,7 @@ export function DashboardOverview() {
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.4, delay: 0.2 }}
           >
-            <Card className="overflow-hidden">
+            <Card>
               <CardHeader>
                 <div className="flex items-center gap-2">
                   <BarChart3 className="h-5 w-5 text-orange-500" />
@@ -1071,14 +1071,14 @@ export function DashboardOverview() {
               </CardHeader>
               <CardContent>
                 <div className="flex flex-col lg:flex-row items-center gap-6">
-                  <div className="overflow-x-auto w-full lg:w-auto flex justify-center">
+                  <div className="overflow-x-auto scroll-x-row w-full lg:w-auto flex justify-center">
                     <MarketQuadrantChart
                       items={dashboardData.saturatedMarkets
                         .filter(sm => sm.marketQuadrant)
                         .map(sm => ({ name: sm.category, quadrant: sm.marketQuadrant! }))}
                     />
                   </div>
-                  <div className="flex-1 space-y-3 w-full max-h-[300px] overflow-y-auto custom-scrollbar pr-1">
+                  <div className="flex-1 space-y-3 w-full max-h-[400px] overflow-y-auto custom-scrollbar pr-1">
                     {dashboardData.saturatedMarkets.filter(sm => sm.marketQuadrant).map((sm) => {
                       const q = sm.marketQuadrant!
                       const quadrantColors: Record<string, string> = {
@@ -1116,7 +1116,7 @@ export function DashboardOverview() {
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.4, delay: 0.22 }}
           >
-            <Card className="overflow-hidden">
+            <Card>
               <CardHeader>
                 <div className="flex items-center gap-2">
                   <Clock className="h-5 w-5 text-orange-500" />
@@ -1125,6 +1125,7 @@ export function DashboardOverview() {
                 <CardDescription>How market metrics change across 7d, 30d, and 90d time periods</CardDescription>
               </CardHeader>
               <CardContent>
+                <ScrollArea className="max-h-[500px]">
                 <div className="space-y-4">
                   {dashboardData.trendComparisons.map((tc, i) => (
                     <motion.div
@@ -1144,6 +1145,7 @@ export function DashboardOverview() {
                     </motion.div>
                   ))}
                 </div>
+                </ScrollArea>
               </CardContent>
             </Card>
           </motion.div>
@@ -1156,7 +1158,7 @@ export function DashboardOverview() {
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.4, delay: 0.2 }}
           >
-            <Card className="overflow-hidden">
+            <Card>
               <CardHeader>
                 <div className="flex items-center gap-2">
                   <Flame className="h-5 w-5 text-orange-500" />
@@ -1165,7 +1167,7 @@ export function DashboardOverview() {
                 <CardDescription>High-severity market gaps requiring attention</CardDescription>
               </CardHeader>
               <CardContent className="p-0">
-                <ScrollArea className="max-h-[520px]">
+                <ScrollArea className="max-h-[600px]">
                   <div className="px-6 pb-4 space-y-0">
                     {dashboardData.trendingGaps.map((gap, i) => (
                       <div key={i}>
@@ -1202,7 +1204,7 @@ export function DashboardOverview() {
                               transition={{ duration: 0.25 }}
                               className="overflow-hidden"
                             >
-                              <div className="max-h-[450px] overflow-y-auto custom-scrollbar pr-1 space-y-3 py-1">
+                              <div className="max-h-[550px] overflow-y-auto custom-scrollbar pr-1 space-y-3 py-1">
                               {/* Full description */}
                               <p className="text-xs text-muted-foreground leading-relaxed">{gap.description}</p>
 
@@ -1268,7 +1270,7 @@ export function DashboardOverview() {
 
                               {/* Affected Products */}
                               {gap.affectedProducts && gap.affectedProducts.length > 0 && (
-                                <div className="overflow-x-auto -mx-1 px-1">
+                                <div className="scroll-x-row overflow-x-auto -mx-1 px-1">
                                   <div className="flex flex-wrap gap-1.5 gap-y-2" style={{ minWidth: 'min-content' }}>
                                     <span className="text-xs text-muted-foreground self-center mr-0.5 shrink-0">Affected:</span>
                                     {gap.affectedProducts.slice(0, 4).map((p, j) => (
@@ -1350,7 +1352,7 @@ export function DashboardOverview() {
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.4, delay: 0.25 }}
             >
-              <Card className="h-full overflow-hidden">
+              <Card className="h-full">
                 <CardHeader>
                   <div className="flex items-center gap-2">
                     <AlertTriangle className="h-5 w-5 text-amber-500" />
@@ -1359,7 +1361,7 @@ export function DashboardOverview() {
                   <CardDescription>Categories with highest competition density</CardDescription>
                 </CardHeader>
                 <CardContent>
-                  <ScrollArea className="max-h-[480px]">
+                  <ScrollArea className="max-h-[520px]">
                     <div className="space-y-3">
                       {dashboardData.saturatedMarkets.slice(0, 5).map((sat, i) => (
                         <motion.div
@@ -1419,10 +1421,10 @@ export function DashboardOverview() {
                               transition={{ duration: 0.25 }}
                               className="overflow-hidden"
                             >
-                              <div className="max-h-[300px] overflow-y-auto custom-scrollbar pr-1 space-y-2 py-1">
+                              <div className="max-h-[400px] overflow-y-auto custom-scrollbar pr-1 space-y-2 py-1">
                               {/* Top Competitors table */}
                               {sat.topCompetitors && sat.topCompetitors.length > 0 && (
-                                <div className="rounded-md border overflow-x-auto">
+                                <div className="rounded-md border scroll-x-row">
                                   <table className="w-full text-xs" style={{ minWidth: 360 }}>
                                     <thead>
                                       <tr className="bg-muted/50 border-b">
@@ -1481,7 +1483,7 @@ export function DashboardOverview() {
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.4, delay: 0.3 }}
             >
-              <Card className="h-full overflow-hidden">
+              <Card className="h-full">
                 <CardHeader>
                   <div className="flex items-center gap-2">
                     <Zap className="h-5 w-5 text-green-500" />
@@ -1490,7 +1492,7 @@ export function DashboardOverview() {
                   <CardDescription>Specific sub-niches with startup potential</CardDescription>
                 </CardHeader>
                 <CardContent>
-                  <ScrollArea className="max-h-[480px]">
+                  <ScrollArea className="max-h-[520px]">
                     <div className="space-y-2">
                       {dashboardData.emergingNiches.map((niche, i) => {
                         const opp = getOpportunityColor(niche.opportunityScore)
@@ -1543,7 +1545,7 @@ export function DashboardOverview() {
                                 transition={{ duration: 0.25 }}
                                 className="overflow-hidden"
                               >
-                                <div className="max-h-[250px] overflow-y-auto custom-scrollbar pr-1 space-y-2 py-1">
+                                <div className="max-h-[350px] overflow-y-auto custom-scrollbar pr-1 space-y-2 py-1">
                                 {/* Full description */}
                                 {niche.description && (
                                   <p className="text-xs text-muted-foreground leading-relaxed">{niche.description}</p>
@@ -1599,7 +1601,7 @@ export function DashboardOverview() {
               transition={{ duration: 0.4, delay: 0.35 }}
               className="min-w-0"
             >
-              <Card className="h-full overflow-hidden">
+              <Card className="h-full">
                 <CardHeader>
                   <div className="flex items-center gap-2">
                     <AlertTriangle className="h-5 w-5 text-red-500" />
@@ -1608,7 +1610,7 @@ export function DashboardOverview() {
                   <CardDescription>User complaint distribution by category</CardDescription>
                 </CardHeader>
                 <CardContent>
-                  <ScrollArea className="max-h-[480px]">
+                  <ScrollArea className="max-h-[520px]">
                     <div className="space-y-2">
                       {dashboardData.complaintTrends.map((cluster, i) => {
                         const clusterColors: Record<string, { bar: string; bg: string; text: string; badgeBg: string; quoteBorder: string; quoteBg: string }> = {
@@ -1670,7 +1672,7 @@ export function DashboardOverview() {
                                 transition={{ duration: 0.25 }}
                                 className="overflow-hidden"
                               >
-                                <div className="max-h-[200px] overflow-y-auto custom-scrollbar pr-1 space-y-1 mt-1">
+                                <div className="max-h-[300px] overflow-y-auto custom-scrollbar pr-1 space-y-1 mt-1">
                                   {cluster.exampleSnippets.slice(0, 3).map((snippet, j) => (
                                     <blockquote key={j} className={`border-l-[3px] ${cc.quoteBorder} ${cc.quoteBg} pl-3 pr-2 py-1 rounded-r-md`}>
                                       <p className="text-xs text-foreground leading-relaxed italic">
@@ -1699,7 +1701,7 @@ export function DashboardOverview() {
               transition={{ duration: 0.4, delay: 0.4 }}
               className="min-w-0"
             >
-              <Card className="h-full overflow-hidden">
+              <Card className="h-full">
                 <CardHeader>
                   <div className="flex items-center gap-2">
                     <TrendingUp className="h-5 w-5 text-green-500" />
@@ -1708,6 +1710,7 @@ export function DashboardOverview() {
                   <CardDescription>Categories with highest growth</CardDescription>
                 </CardHeader>
                 <CardContent>
+                  <ScrollArea className="max-h-[400px]">
                   <div className="space-y-3">
                     {dashboardData.fastestGrowingCategories.map((cat, i) => (
                       <div
@@ -1731,6 +1734,7 @@ export function DashboardOverview() {
                       </div>
                     ))}
                   </div>
+                </ScrollArea>
                 </CardContent>
               </Card>
             </motion.div>
@@ -1744,7 +1748,7 @@ export function DashboardOverview() {
               transition={{ duration: 0.4, delay: 0.45 }}
               className="min-w-0"
             >
-              <Card className="h-full overflow-hidden">
+              <Card className="h-full">
                 <CardHeader>
                   <div className="flex items-center gap-2.5">
                     <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-purple-100 dark:bg-purple-950/40">
@@ -1757,7 +1761,7 @@ export function DashboardOverview() {
                   </div>
                 </CardHeader>
                 <CardContent>
-                  <ScrollArea className="max-h-[480px]">
+                  <ScrollArea className="max-h-[520px]">
                     <div className="space-y-2">
                       {dashboardData.underservedUsers.map((user, i) => {
                         const isExpanded = expandedUser === i
@@ -1795,7 +1799,7 @@ export function DashboardOverview() {
                                 transition={{ duration: 0.25 }}
                                 className="overflow-hidden"
                               >
-                                <div className="max-h-[200px] overflow-y-auto custom-scrollbar pr-1 space-y-1.5 py-1">
+                                <div className="max-h-[300px] overflow-y-auto custom-scrollbar pr-1 space-y-1.5 py-1">
                                   <p className="text-xs text-muted-foreground leading-relaxed">{user.description}</p>
                                   {user.evidence && (
                                     <div className="flex items-start gap-1.5 text-xs text-muted-foreground">
@@ -1824,13 +1828,13 @@ export function DashboardOverview() {
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.4, delay: 0.5 }}
           >
-            <Card className="overflow-hidden">
+            <Card>
               <CardHeader>
                 <CardTitle>Market Saturation by Category</CardTitle>
                 <CardDescription>Number of products detected per category</CardDescription>
               </CardHeader>
               <CardContent>
-                <div className="overflow-x-auto -mx-1 px-1">
+                <div className="overflow-x-auto scroll-x-row -mx-1 px-1">
                   <ChartContainer config={chartConfig} className="h-48 sm:h-56 w-full min-w-[300px]">
                     <BarChart data={saturationChartData} margin={{ top: 5, right: 10, left: 0, bottom: 5 }}>
                       <CartesianGrid strokeDasharray="3 3" vertical={false} />
@@ -1866,13 +1870,13 @@ export function DashboardOverview() {
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.4, delay: 0.55 }}
           >
-            <Card className="overflow-hidden">
+            <Card>
               <CardHeader>
                 <CardTitle>Recent Gap Findings</CardTitle>
                 <CardDescription>Latest market gap detections with evidence</CardDescription>
               </CardHeader>
               <CardContent className="p-0">
-                <ScrollArea className="max-h-[520px]">
+                <ScrollArea className="max-h-[600px]">
                   <div className="px-6 pb-4">
                     <div className="space-y-0">
                       {dashboardData.recentGaps.map((gap, i) => (
@@ -1910,7 +1914,7 @@ export function DashboardOverview() {
                                 transition={{ duration: 0.25 }}
                                 className="overflow-hidden"
                               >
-                                <div className="max-h-[350px] overflow-y-auto custom-scrollbar pr-1 space-y-2 py-1">
+                                <div className="max-h-[450px] overflow-y-auto custom-scrollbar pr-1 space-y-2 py-1">
                                 {/* Full description */}
                                 <p className="text-xs text-muted-foreground leading-relaxed">{gap.description}</p>
 
@@ -1929,7 +1933,7 @@ export function DashboardOverview() {
 
                                 {/* Affected Products */}
                                 {gap.affectedProducts && gap.affectedProducts.length > 0 && (
-                                  <div className="overflow-x-auto -mx-1 px-1">
+                                  <div className="scroll-x-row overflow-x-auto -mx-1 px-1">
                                     <div className="flex flex-wrap gap-1" style={{ minWidth: 'min-content' }}>
                                       {gap.affectedProducts.slice(0, 3).map((p, j) => (
                                         <Badge key={j} variant="outline" className="text-xs h-5 bg-muted/50 whitespace-nowrap">
