@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { generateStructuredResponse } from '@/lib/zai';
-import type { OpportunitySuggestion } from '@/types';
+import type { OpportunitySuggestion, OpportunityScoreBreakdown, SubNiche, ProductReference, UnderservedUserGroup } from '@/types';
 
 /**
  * GET /api/opportunities
@@ -32,6 +32,11 @@ export async function GET(request: NextRequest) {
       gapEvidence: safeJsonParse(opp.gapEvidence, []),
       complaintRefs: safeJsonParse(opp.complaintRefs, []),
       trendSignals: safeJsonParse(opp.trendSignals, []),
+      evidenceDetail: safeJsonParse(opp.evidenceDetail, {}),
+      opportunityScore: safeJsonParse(opp.opportunityScore, {}),
+      subNiche: safeJsonParse(opp.subNiche, {}),
+      affectedProducts: safeJsonParse(opp.affectedProducts, []),
+      underservedUsers: safeJsonParse(opp.underservedUsers, []),
     }));
 
     return NextResponse.json(parsed);
@@ -54,7 +59,7 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { category, focusArea } = body;
+    const { category, focusArea, timePeriod = '30d' } = body;
 
     if (!category) {
       return NextResponse.json(
@@ -117,17 +122,18 @@ export async function POST(request: NextRequest) {
       ? `\nFocus specifically on the area: "${focusArea}"`
       : '';
 
-    // Generate opportunities using LLM
+    // Generate opportunities using LLM with ALL enriched fields
     const opportunities = await generateStructuredResponse<OpportunitySuggestion[]>(
       `You are a startup opportunity analyst. Based on REAL market gaps, user complaints, and trend data, 
 generate specific product/service opportunities. 
 
-IMPORTANT RULES:
+CRITICAL RULES:
 1. Every opportunity MUST be grounded in the provided gap evidence and complaint data
 2. Do NOT generate random ideas - each opportunity must address a real identified gap or complaint
 3. For each opportunity, reference specific gaps and complaints that support it
 4. Rate the quality score based on: market size potential, evidence strength, competitive advantage, and feasibility
 5. Assign saturation levels based on the number of existing products and feature overlap
+6. NEVER show mysterious AI numbers - always explain WHY scores are what they are
 
 For each opportunity, provide:
 - title: Clear, specific opportunity name
@@ -138,8 +144,50 @@ For each opportunity, provide:
 - gapEvidence: Array of specific gap descriptions that support this opportunity
 - complaintRefs: Array of specific complaint descriptions that support this opportunity  
 - trendSignals: Array of trend signals that support this opportunity
-- qualityScore: 0-10 score indicating opportunity quality (higher = better)${focusAreaPrompt}`,
-      `Based on the following REAL data, generate 3-7 product opportunities:
+- qualityScore: 0-10 score indicating opportunity quality (higher = better)
+
+EVIDENCE DETAIL (for each opportunity):
+- evidenceDetail: Object with:
+  - similarProducts: number of similar products found
+  - repeatedComplaints: count of complaints supporting this gap
+  - launchFrequency: how many products launched recently (number)
+  - commentSnippets: array of 2-3 actual comment snippets
+  - pricingOverlap: percentage (0-100) of products with similar pricing
+
+OPPORTUNITY SCORE (0-100, NOT magic - based on explainable factors):
+- opportunityScore: Object with:
+  - complaintFrequency: 0-20 (how frequently users complain about this)
+  - competitionDensity: 0-20 (lower = less competition = higher score)
+  - pricingDissatisfaction: 0-20 (higher = users unhappy with current pricing)
+  - launchGrowth: 0-20 (growth in this category)
+  - underservedAudience: 0-20 (how underserved the target audience is)
+  - total: sum of the above (0-100)
+  - explanation: 1-2 sentence explanation of why this score
+
+WHY THIS MATTERS:
+- whyThisMatters: A business-oriented explanation. Example: "Freelancers avoid premium AI writing tools because subscription costs exceed the value generated for low-volume users."
+
+SUB-NICHE (be SPECIFIC, not broad):
+- subNiche: Object with:
+  - name: Specific sub-niche (e.g., "ATS resume tools for engineering students" not just "resume tools")
+  - description: What this sub-niche encompasses
+  - parentCategory: Broader category
+  - opportunityScore: 0-100
+
+AFFECTED PRODUCTS (reference real products from the data):
+- affectedProducts: Array of 2-3 objects with:
+  - name: Product name
+  - pricing: Their pricing model
+  - strengths: 1-2 key strengths
+  - weaknesses: 1-2 key weaknesses related to this gap
+
+UNDERSERVED USERS:
+- underservedUsers: Array of 1-2 objects with:
+  - userGroup: Name of underserved group (e.g., "junior developers", "elderly users")
+  - description: Why this group is underserved
+  - evidence: Specific evidence
+  - opportunityScore: 0-100${focusAreaPrompt}`,
+      `Based on the following REAL data, generate 3-7 product opportunities (time period: ${timePeriod}):
 
 MARKET GAPS:
 ${gapsContext || 'No gaps data available'}
@@ -149,7 +197,7 @@ ${complaintsContext || 'No complaints data available'}
 
 TREND SIGNALS:
 ${trendsContext || 'No trend data available'}`,
-      `Return a JSON array of objects with fields: title (string), description (string), category (string), saturation (string: "low"|"medium"|"high"), saturationScore (number 0-100), gapEvidence (string[]), complaintRefs (string[]), trendSignals (string[]), qualityScore (number 0-10)`
+      `Return a JSON array of objects with fields: title (string), description (string), category (string), saturation (string: "low"|"medium"|"high"), saturationScore (number 0-100), gapEvidence (string[]), complaintRefs (string[]), trendSignals (string[]), qualityScore (number 0-10), evidenceDetail (object: { similarProducts: number, repeatedComplaints: number, launchFrequency: number, commentSnippets: string[], pricingOverlap: number }), opportunityScore (object: { complaintFrequency: number, competitionDensity: number, pricingDissatisfaction: number, launchGrowth: number, underservedAudience: number, total: number, explanation: string }), whyThisMatters (string), subNiche (object: { name: string, description: string, parentCategory: string, opportunityScore: number }), affectedProducts (array of { name: string, pricing: string, strengths: string[], weaknesses: string[] }), underservedUsers (array of { userGroup: string, description: string, evidence: string, opportunityScore: number })`
     );
 
     const safeOpportunities = Array.isArray(opportunities) ? opportunities : [];
@@ -169,6 +217,12 @@ ${trendsContext || 'No trend data available'}`,
             complaintRefs: JSON.stringify(opp.complaintRefs || []),
             trendSignals: JSON.stringify(opp.trendSignals || []),
             qualityScore: opp.qualityScore || 0,
+            evidenceDetail: JSON.stringify(opp.evidenceDetail || {}),
+            opportunityScore: JSON.stringify(opp.opportunityScore || {}),
+            whyThisMatters: opp.whyThisMatters || '',
+            subNiche: JSON.stringify(opp.subNiche || {}),
+            affectedProducts: JSON.stringify(opp.affectedProducts || []),
+            underservedUsers: JSON.stringify(opp.underservedUsers || []),
             isGenerated: true,
           },
         });
@@ -239,6 +293,11 @@ export async function PATCH(request: NextRequest) {
       gapEvidence: safeJsonParse(updated.gapEvidence, []),
       complaintRefs: safeJsonParse(updated.complaintRefs, []),
       trendSignals: safeJsonParse(updated.trendSignals, []),
+      evidenceDetail: safeJsonParse(updated.evidenceDetail, {}),
+      opportunityScore: safeJsonParse(updated.opportunityScore, {}),
+      subNiche: safeJsonParse(updated.subNiche, {}),
+      affectedProducts: safeJsonParse(updated.affectedProducts, []),
+      underservedUsers: safeJsonParse(updated.underservedUsers, []),
     });
   } catch (error) {
     console.error('Toggle save opportunity error:', error);

@@ -3,12 +3,13 @@
 import { useState } from 'react'
 import { useMutation } from '@tanstack/react-query'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Search, Loader2, ExternalLink, ChevronUp, ChevronDown } from 'lucide-react'
+import { Search, Loader2, ExternalLink, ChevronUp, ChevronDown, Clock } from 'lucide-react'
 import { toast } from 'sonner'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Skeleton } from '@/components/ui/skeleton'
+import { Input } from '@/components/ui/input'
 import {
   Select,
   SelectContent,
@@ -16,6 +17,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
+import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import {
   Table,
   TableBody,
@@ -25,13 +27,15 @@ import {
   TableRow,
 } from '@/components/ui/table'
 import { useAppStore } from '@/lib/store'
-import { CATEGORIES, type Category, type ScannedProduct } from '@/types'
+import { CATEGORIES, SEARCH_SUGGESTIONS, type Category, type ScannedProduct } from '@/types'
 
 export function ScannerPanel() {
   const [category, setCategory] = useState<Category | 'all'>('all')
   const [period, setPeriod] = useState<'daily' | 'weekly' | 'monthly'>('weekly')
   const [sortField, setSortField] = useState<'upvotes' | 'launchDate' | 'reviewScore'>('upvotes')
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc')
+  const [searchInput, setSearchInput] = useState('')
+  const [showSuggestions, setShowSuggestions] = useState(false)
 
   const scanResults = useAppStore((s) => s.scanResults)
   const setScanResults = useAppStore((s) => s.setScanResults)
@@ -92,6 +96,20 @@ export function ScannerPanel() {
     }
   }
 
+  // PRIORITY 9: Handle search suggestion click
+  const handleSuggestionClick = (suggestion: string) => {
+    setSearchInput(suggestion)
+    setShowSuggestions(false)
+    // Try to match suggestion to a category
+    const matchedCategory = CATEGORIES.find(cat => 
+      suggestion.toLowerCase().includes(cat.toLowerCase()) ||
+      cat.toLowerCase().includes(suggestion.toLowerCase().split(' ')[0])
+    )
+    if (matchedCategory) {
+      setCategory(matchedCategory)
+    }
+  }
+
   return (
     <div className="space-y-6">
       {/* Controls */}
@@ -121,9 +139,7 @@ export function ScannerPanel() {
                   <SelectContent>
                     <SelectItem value="all">All Categories</SelectItem>
                     {CATEGORIES.map((cat) => (
-                      <SelectItem key={cat} value={cat}>
-                        {cat}
-                      </SelectItem>
+                      <SelectItem key={cat} value={cat}>{cat}</SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
@@ -143,21 +159,51 @@ export function ScannerPanel() {
                 </Select>
               </div>
 
+              {/* PRIORITY 9: Search with suggestions */}
+              <div className="space-y-2 w-full sm:w-auto relative">
+                <label className="text-sm font-medium">Quick Search</label>
+                <Input
+                  placeholder="Search products..."
+                  value={searchInput}
+                  onChange={(e) => setSearchInput(e.target.value)}
+                  onFocus={() => setShowSuggestions(true)}
+                  onBlur={() => setTimeout(() => setShowSuggestions(false), 200)}
+                  className="w-full sm:w-52"
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && searchInput.trim()) {
+                      scanMutation.mutate()
+                    }
+                  }}
+                />
+                {/* Search Suggestions Dropdown */}
+                {showSuggestions && !searchInput && (
+                  <div className="absolute top-full left-0 right-0 z-10 mt-1 rounded-md border bg-popover p-2 shadow-lg max-h-64 overflow-y-auto custom-scrollbar">
+                    <p className="text-xs text-muted-foreground mb-1.5 px-1">Try searching for:</p>
+                    <div className="space-y-0.5">
+                      {SEARCH_SUGGESTIONS.map((suggestion) => (
+                        <button
+                          key={suggestion}
+                          className="w-full text-left text-sm px-2 py-1.5 rounded hover:bg-muted/50 transition-colors flex items-center gap-2"
+                          onMouseDown={() => handleSuggestionClick(suggestion)}
+                        >
+                          <Search className="h-3 w-3 text-muted-foreground" />
+                          {suggestion}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+
               <Button
                 onClick={() => scanMutation.mutate()}
                 disabled={scanMutation.isPending}
                 className="w-full sm:w-auto bg-orange-600 hover:bg-orange-700 text-white"
               >
                 {scanMutation.isPending ? (
-                  <>
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                    Scanning...
-                  </>
+                  <><Loader2 className="h-4 w-4 animate-spin" />Scanning...</>
                 ) : (
-                  <>
-                    <Search className="h-4 w-4" />
-                    Scan Product Hunt
-                  </>
+                  <><Search className="h-4 w-4" />Scan Product Hunt</>
                 )}
               </Button>
             </div>
@@ -208,6 +254,18 @@ export function ScannerPanel() {
               <div className="flex flex-col items-center justify-center py-12 text-muted-foreground">
                 <Search className="h-12 w-12 mb-4 opacity-30" />
                 <p className="text-sm">No scan results yet. Configure and run a scan above.</p>
+                {/* PRIORITY 9: Show search suggestions in empty state */}
+                <div className="mt-4 flex flex-wrap gap-2 justify-center max-w-lg">
+                  {SEARCH_SUGGESTIONS.slice(0, 5).map((suggestion) => (
+                    <button
+                      key={suggestion}
+                      className="text-xs px-3 py-1.5 rounded-full border hover:bg-muted/50 transition-colors"
+                      onClick={() => handleSuggestionClick(suggestion)}
+                    >
+                      {suggestion}
+                    </button>
+                  ))}
+                </div>
               </div>
             )}
 
@@ -270,9 +328,7 @@ export function ScannerPanel() {
                             {product.tagline}
                           </TableCell>
                           <TableCell>
-                            <Badge variant="outline" className="text-xs">
-                              {product.category}
-                            </Badge>
+                            <Badge variant="outline" className="text-xs">{product.category}</Badge>
                           </TableCell>
                           <TableCell className="font-semibold text-orange-600 dark:text-orange-400">
                             {product.upvotes.toLocaleString()}
@@ -291,8 +347,7 @@ export function ScannerPanel() {
                                 rel="noopener noreferrer"
                                 className="inline-flex items-center gap-1 text-sm text-orange-600 dark:text-orange-400 hover:underline"
                               >
-                                <ExternalLink className="h-3 w-3" />
-                                View
+                                <ExternalLink className="h-3 w-3" />View
                               </a>
                             )}
                           </TableCell>

@@ -21,6 +21,10 @@ import {
   GitCompare,
   Check,
   X as XIcon,
+  Users,
+  ChevronDown,
+  ChevronUp,
+  Target,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
@@ -46,7 +50,7 @@ import {
   TableRow,
 } from '@/components/ui/table'
 import { useAppStore } from '@/lib/store'
-import { CATEGORIES, type Category, type TrendData, type CompetitorComparison } from '@/types'
+import { CATEGORIES, type Category, type TrendData, type CompetitorComparison, type UnderservedUserGroup } from '@/types'
 
 function SparklineChart({ data, color = 'oklch(0.7 0.15 50)' }: { data: { label: string; value: number }[]; color?: string }) {
   return (
@@ -73,6 +77,118 @@ function DirectionIcon({ direction }: { direction: string }) {
     default:
       return <Minus className="h-4 w-4 text-muted-foreground" />
   }
+}
+
+// Expandable trend card with sub-niches and underserved users
+function TrendCard({ trend, delay = 0 }: { trend: TrendData; delay?: number }) {
+  const [expanded, setExpanded] = useState(false)
+  const sparklineColor = (direction: string) => {
+    switch (direction) {
+      case 'growing': return 'oklch(0.65 0.2 145)'
+      case 'declining': return 'oklch(0.6 0.2 25)'
+      default: return 'oklch(0.6 0.05 0)'
+    }
+  }
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 15 }}
+      animate={{ opacity: 1, y: 0 }}
+      exit={{ opacity: 0, y: -10 }}
+      transition={{ delay, duration: 0.3 }}
+    >
+      <Card className="h-full hover:shadow-md transition-shadow">
+        <CardContent className="p-4 sm:p-5 space-y-3">
+          <div className="flex items-start justify-between">
+            <div>
+              <Badge variant="outline" className="text-xs mb-2">{trend.category}</Badge>
+              <h4 className="font-semibold text-sm leading-tight">{trend.name}</h4>
+            </div>
+            <div className="flex items-center gap-1 shrink-0">
+              <DirectionIcon direction={trend.direction} />
+              <span
+                className={`text-sm font-bold ${
+                  trend.direction === 'growing'
+                    ? 'text-green-600 dark:text-green-400'
+                    : trend.direction === 'declining'
+                      ? 'text-red-600 dark:text-red-400'
+                      : 'text-muted-foreground'
+                }`}
+              >
+                {trend.growthRate > 0 ? '+' : ''}{trend.growthRate}%
+              </span>
+            </div>
+          </div>
+          <p className="text-xs text-muted-foreground line-clamp-2">{trend.description}</p>
+          <div className="h-12">
+            <SparklineChart
+              data={trend.dataPoints}
+              color={sparklineColor(trend.direction)}
+            />
+          </div>
+          <p className="text-xs text-muted-foreground">{trend.period}</p>
+
+          {/* PRIORITY 7: Sub-Niches from trend */}
+          {trend.subNiches && trend.subNiches.length > 0 && (
+            <div className="flex flex-wrap gap-1.5">
+              {trend.subNiches.map((sn, j) => (
+                <Badge key={j} variant="outline" className="text-xs bg-green-50 text-green-700 dark:bg-green-950/30 dark:text-green-400">
+                  <Target className="h-3 w-3 mr-0.5" />
+                  {sn.name}
+                </Badge>
+              ))}
+            </div>
+          )}
+
+          {/* Expand for underserved users */}
+          {(trend.underservedUsers && trend.underservedUsers.length > 0) && (
+            <>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="w-full text-xs h-7 text-muted-foreground"
+                onClick={() => setExpanded(!expanded)}
+              >
+                {expanded ? <ChevronUp className="h-3 w-3 mr-1" /> : <ChevronDown className="h-3 w-3 mr-1" />}
+                {expanded ? 'Hide' : 'Show'} Underserved Users
+              </Button>
+
+              <AnimatePresence>
+                {expanded && trend.underservedUsers && (
+                  <motion.div
+                    initial={{ opacity: 0, height: 0 }}
+                    animate={{ opacity: 1, height: 'auto' }}
+                    exit={{ opacity: 0, height: 0 }}
+                    transition={{ duration: 0.2 }}
+                    className="overflow-hidden"
+                  >
+                    <div className="space-y-1.5">
+                      {trend.underservedUsers.map((user, j) => (
+                        <div key={j} className="rounded-md border border-purple-200 dark:border-purple-900/40 p-2 text-xs space-y-0.5">
+                          <div className="flex items-center justify-between">
+                            <span className="font-semibold text-purple-700 dark:text-purple-400 flex items-center gap-1">
+                              <Users className="h-3 w-3" />
+                              {user.userGroup}
+                            </span>
+                            {user.opportunityScore > 0 && (
+                              <Badge variant="outline" className="text-xs h-5 bg-purple-100 text-purple-700 dark:bg-purple-950/40 dark:text-purple-400">
+                                {user.opportunityScore}/100
+                              </Badge>
+                            )}
+                          </div>
+                          <p className="text-muted-foreground">{user.description}</p>
+                        </div>
+                      ))}
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </>
+          )}
+        </CardContent>
+      </Card>
+    </motion.div>
+  )
 }
 
 export function TrendsComparePanel() {
@@ -135,17 +251,6 @@ export function TrendsComparePanel() {
     setSelectedProducts(selectedProducts.filter((p) => p !== name))
   }
 
-  const sparklineColor = (direction: string) => {
-    switch (direction) {
-      case 'growing':
-        return 'oklch(0.65 0.2 145)'
-      case 'declining':
-        return 'oklch(0.6 0.2 25)'
-      default:
-        return 'oklch(0.6 0.05 0)'
-    }
-  }
-
   return (
     <div className="space-y-6">
       {/* Trend Detection */}
@@ -178,9 +283,7 @@ export function TrendsComparePanel() {
                   <SelectContent>
                     <SelectItem value="all">All Categories</SelectItem>
                     {CATEGORIES.map((cat) => (
-                      <SelectItem key={cat} value={cat}>
-                        {cat}
-                      </SelectItem>
+                      <SelectItem key={cat} value={cat}>{cat}</SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
@@ -192,15 +295,9 @@ export function TrendsComparePanel() {
                 className="w-full sm:w-auto bg-orange-600 hover:bg-orange-700 text-white"
               >
                 {trendMutation.isPending ? (
-                  <>
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                    Detecting...
-                  </>
+                  <><Loader2 className="h-4 w-4 animate-spin" />Detecting...</>
                 ) : (
-                  <>
-                    <TrendingUp className="h-4 w-4" />
-                    Detect Trends
-                  </>
+                  <><TrendingUp className="h-4 w-4" />Detect Trends</>
                 )}
               </Button>
             </div>
@@ -237,47 +334,7 @@ export function TrendsComparePanel() {
         {!trendMutation.isPending && trendResults.length > 0 && (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
             {trendResults.map((trend, i) => (
-              <motion.div
-                key={trend.name + i}
-                initial={{ opacity: 0, y: 15 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -10 }}
-                transition={{ delay: i * 0.05, duration: 0.3 }}
-              >
-                <Card className="h-full hover:shadow-md transition-shadow">
-                  <CardContent className="p-4 sm:p-6 space-y-3">
-                    <div className="flex items-start justify-between">
-                      <div>
-                        <Badge variant="outline" className="text-xs mb-2">{trend.category}</Badge>
-                        <h4 className="font-semibold text-sm leading-tight">{trend.name}</h4>
-                      </div>
-                      <div className="flex items-center gap-1 shrink-0">
-                        <DirectionIcon direction={trend.direction} />
-                        <span
-                          className={`text-sm font-bold ${
-                            trend.direction === 'growing'
-                              ? 'text-green-600 dark:text-green-400'
-                              : trend.direction === 'declining'
-                                ? 'text-red-600 dark:text-red-400'
-                                : 'text-muted-foreground'
-                          }`}
-                        >
-                          {trend.growthRate > 0 ? '+' : ''}
-                          {trend.growthRate}%
-                        </span>
-                      </div>
-                    </div>
-                    <p className="text-xs text-muted-foreground line-clamp-2">{trend.description}</p>
-                    <div className="h-12">
-                      <SparklineChart
-                        data={trend.dataPoints}
-                        color={sparklineColor(trend.direction)}
-                      />
-                    </div>
-                    <p className="text-xs text-muted-foreground">{trend.period}</p>
-                  </CardContent>
-                </Card>
-              </motion.div>
+              <TrendCard key={trend.name + i} trend={trend} delay={i * 0.05} />
             ))}
           </div>
         )}
@@ -303,7 +360,6 @@ export function TrendsComparePanel() {
           </CardHeader>
           <CardContent>
             <div className="space-y-4">
-              {/* Product input */}
               <div className="flex flex-col sm:flex-row gap-3">
                 <Input
                   placeholder="Enter product name"
@@ -328,7 +384,6 @@ export function TrendsComparePanel() {
                 </Button>
               </div>
 
-              {/* Selected products chips */}
               {selectedProducts.length > 0 && (
                 <div className="flex flex-wrap gap-2">
                   {selectedProducts.map((name) => (
@@ -349,22 +404,15 @@ export function TrendsComparePanel() {
                 </div>
               )}
 
-              {/* Compare button */}
               <Button
                 onClick={() => compareMutation.mutate()}
                 disabled={compareMutation.isPending || selectedProducts.length < 2}
                 className="bg-orange-600 hover:bg-orange-700 text-white"
               >
                 {compareMutation.isPending ? (
-                  <>
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                    Comparing...
-                  </>
+                  <><Loader2 className="h-4 w-4 animate-spin" />Comparing...</>
                 ) : (
-                  <>
-                    <GitCompare className="h-4 w-4" />
-                    Compare Products
-                  </>
+                  <><GitCompare className="h-4 w-4" />Compare Products</>
                 )}
               </Button>
             </div>
@@ -419,9 +467,7 @@ export function TrendsComparePanel() {
                           <TableCell>
                             <div className="flex flex-wrap gap-1">
                               {product.features.slice(0, 3).map((f, j) => (
-                                <Badge key={j} variant="outline" className="text-xs">
-                                  {f}
-                                </Badge>
+                                <Badge key={j} variant="outline" className="text-xs">{f}</Badge>
                               ))}
                               {product.features.length > 3 && (
                                 <Badge variant="outline" className="text-xs text-muted-foreground">
@@ -482,6 +528,38 @@ export function TrendsComparePanel() {
                     <p className="text-sm text-muted-foreground leading-relaxed">
                       {comparisonResults.summary}
                     </p>
+                  </div>
+                )}
+
+                {/* PRIORITY 12: Underserved Users from comparison */}
+                {comparisonResults.underservedUsers && comparisonResults.underservedUsers.length > 0 && (
+                  <div className="mt-6">
+                    <div className="flex items-center gap-2 mb-3">
+                      <Users className="h-5 w-5 text-purple-500" />
+                      <h4 className="text-sm font-semibold">Underserved Users</h4>
+                    </div>
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                      {comparisonResults.underservedUsers.map((user, j) => (
+                        <div key={j} className="rounded-lg border border-purple-200 dark:border-purple-900/40 p-3 space-y-1.5">
+                          <div className="flex items-start justify-between gap-2">
+                            <div>
+                              <p className="text-sm font-semibold text-purple-700 dark:text-purple-400">{user.userGroup}</p>
+                              <p className="text-xs text-muted-foreground mt-0.5">{user.description}</p>
+                            </div>
+                            {user.opportunityScore > 0 && (
+                              <Badge variant="outline" className="bg-purple-100 text-purple-700 dark:bg-purple-950/40 dark:text-purple-400 shrink-0">
+                                {user.opportunityScore}/100
+                              </Badge>
+                            )}
+                          </div>
+                          {user.evidence && (
+                            <p className="text-xs text-orange-600 dark:text-orange-400 italic line-clamp-2">
+                              {user.evidence}
+                            </p>
+                          )}
+                        </div>
+                      ))}
+                    </div>
                   </div>
                 )}
               </CardContent>

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { webSearch, generateStructuredResponse } from '@/lib/zai';
-import type { TrendData, CompetitorComparison } from '@/types';
+import type { TrendData, CompetitorComparison, SubNiche, UnderservedUserGroup } from '@/types';
 
 /**
  * GET /api/trends
@@ -26,6 +26,8 @@ export async function GET(request: NextRequest) {
     const parsed = trends.map((trend) => ({
       ...trend,
       dataPoints: safeJsonParse(trend.dataPoints, []),
+      subNiches: safeJsonParse(trend.subNiches, []),
+      underservedUsers: safeJsonParse(trend.underservedUsers, []),
     }));
 
     return NextResponse.json(parsed);
@@ -98,7 +100,6 @@ async function handleDetectTrends(category: string) {
     webSearch(searchQuery2, 10).catch(() => []),
   ]);
 
-  // webSearch returns an array directly
   const allResults = [
     ...(Array.isArray(searchResult1) ? searchResult1 : []),
     ...(Array.isArray(searchResult2) ? searchResult2 : []),
@@ -128,7 +129,7 @@ async function handleDetectTrends(category: string) {
     .map((p) => `${p.name} (${p.pricing}, ${p.upvotes} upvotes, launched ${p.launchDate})`)
     .join('\n');
 
-  // Use LLM to detect trends from search results
+  // Use LLM to detect trends from search results - with sub-niches and underserved users
   const trends = await generateStructuredResponse<TrendData[]>(
     `You are a market trend analyst specializing in Product Hunt and tech product trends. 
 Analyze the search results and existing product data to identify trending patterns.
@@ -137,10 +138,24 @@ For each trend, provide:
 - category: "${category}"
 - name: A concise name for the trend
 - description: Description of the trend and what's driving it
-- growthRate: Estimated growth rate as a percentage (e.g., 25.5 for 25.5% growth)
+- growthRate: Estimated growth rate as a percentage
 - direction: "growing", "declining", or "stable"
 - dataPoints: Array of { label: string, value: number } representing trend data points over time (3-6 points)
 - period: Time period this trend covers (e.g., "3 months", "6 months")
+
+SUB-NICHE DETECTION (be SPECIFIC, not broad):
+- subNiches: Array of 2-3 sub-niches with:
+  - name: Specific sub-niche name (e.g., "AI debugging assistants for junior developers" not just "AI tools")
+  - description: What this sub-niche encompasses
+  - parentCategory: Broader category
+  - opportunityScore: 0-100 score
+
+UNDERSERVED USERS:
+- underservedUsers: Array of 1-2 underserved user groups with:
+  - userGroup: Name (e.g., "junior developers", "elderly users", "rural users")
+  - description: Why they're underserved
+  - evidence: Specific evidence from the data
+  - opportunityScore: 0-100 score
 
 Focus on:
 1. Categories with increasing product launches
@@ -151,7 +166,7 @@ Focus on:
 
 Identify 2-5 significant trends.`,
     `Search results:\n${searchContext}\n\nExisting products in DB:\n${productContext || 'None'}`,
-    `Return a JSON array of objects with fields: category (string), name (string), description (string), growthRate (number), direction (string: "growing"|"declining"|"stable"), dataPoints (array of {label: string, value: number}), period (string)`
+    `Return a JSON array of objects with fields: category (string), name (string), description (string), growthRate (number), direction (string: "growing"|"declining"|"stable"), dataPoints (array of {label: string, value: number}), period (string), subNiches (array of {name: string, description: string, parentCategory: string, opportunityScore: number}), underservedUsers (array of {userGroup: string, description: string, evidence: string, opportunityScore: number})`
   );
 
   const safeTrends = Array.isArray(trends) ? trends : [];
@@ -169,6 +184,8 @@ Identify 2-5 significant trends.`,
           direction: trend.direction || 'stable',
           dataPoints: JSON.stringify(trend.dataPoints || []),
           period: trend.period || '',
+          subNiches: JSON.stringify(trend.subNiches || []),
+          underservedUsers: JSON.stringify(trend.underservedUsers || []),
         },
       });
       savedTrends.push({
@@ -192,42 +209,25 @@ async function handleCompareProducts(body: {
 }) {
   const { productIds, category } = body;
 
-  // If productIds are provided, use those. Otherwise, try to find products by name in the DB
   let products;
   if (productIds && Array.isArray(productIds) && productIds.length >= 2) {
-    // Check if they look like DB IDs (cuid format) or product names
     const areIds = productIds.every((id) => id.length > 10);
     if (areIds) {
       products = await db.product.findMany({
-        where: {
-          id: { in: productIds },
-        },
-        include: {
-          gaps: true,
-          complaints: true,
-        },
+        where: { id: { in: productIds } },
+        include: { gaps: true, complaints: true },
       });
     } else {
-      // Treat as product names - search by name
       products = await db.product.findMany({
-        where: {
-          name: { in: productIds },
-        },
-        include: {
-          gaps: true,
-          complaints: true,
-        },
+        where: { name: { in: productIds } },
+        include: { gaps: true, complaints: true },
       });
     }
   } else {
-    // Fallback: get products in the category
     products = await db.product.findMany({
       where: category === 'all' ? {} : { category },
       take: 5,
-      include: {
-        gaps: true,
-        complaints: true,
-      },
+      include: { gaps: true, complaints: true },
     });
   }
 
@@ -238,7 +238,6 @@ async function handleCompareProducts(body: {
     );
   }
 
-  // Build comparison context
   const comparisonContext = products
     .map((p) => {
       const features = safeJsonParse(p.features, []);
@@ -256,7 +255,7 @@ Gaps: ${p.gaps.map((g) => `${g.gapType}: ${g.title}`).join('; ') || 'None'}`;
     })
     .join('\n\n---\n\n');
 
-  // Use LLM to compare products
+  // Use LLM to compare products - with underserved users
   const comparison = await generateStructuredResponse<CompetitorComparison>(
     `You are a competitive product analyst. Compare the following products in the "${category}" category.
 For each product, identify:
@@ -265,6 +264,13 @@ For each product, identify:
 - Review assessment (score 0-10)
 - Strengths (competitive advantages, 2-3 items)
 - Weaknesses (areas where it falls short, 2-3 items)
+
+Also identify UNDERSERVED USER GROUPS:
+- underservedUsers: Array of 2-3 user groups that these products collectively fail to serve well:
+  - userGroup: Name of the group
+  - description: Why they're underserved by current products
+  - evidence: Specific evidence from the comparison
+  - opportunityScore: 0-100
 
 Then provide an overall comparison summary highlighting:
 - Which products excel in which areas
@@ -275,13 +281,13 @@ Be specific and evidence-based in your analysis.`,
     `Compare these products:\n\n${comparisonContext}`,
     `Return a JSON object with:
 - products: array of { name (string), pricing (string), features (string[]), reviewScore (number), strengths (string[]), weaknesses (string[]) }
+- underservedUsers: array of { userGroup (string), description (string), evidence (string), opportunityScore (number) }
 - summary (string: overall comparison summary)`
   );
 
   return NextResponse.json(comparison);
 }
 
-// Helper to safely parse JSON strings
 function safeJsonParse(jsonStr: string, fallback: unknown): unknown {
   try {
     return JSON.parse(jsonStr || '[]');

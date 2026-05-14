@@ -1,7 +1,7 @@
 'use client'
 
 import { create } from 'zustand'
-import type { Category, ScannedProduct, GapAnalysis, MarketSaturation, OpportunitySuggestion, TrendData, CompetitorComparison } from '@/types'
+import type { Category, TimePeriod, ScannedProduct, GapAnalysis, MarketSaturation, OpportunitySuggestion, TrendData, CompetitorComparison, ComplaintCluster } from '@/types'
 
 export type TabId = 'dashboard' | 'scanner' | 'analysis' | 'opportunities' | 'trends'
 
@@ -14,6 +14,10 @@ interface AppState {
   selectedCategory: Category | 'all'
   setSelectedCategory: (category: Category | 'all') => void
 
+  // Time period filter (PRIORITY 11)
+  timePeriod: TimePeriod
+  setTimePeriod: (period: TimePeriod) => void
+
   // Scanner
   scanResults: ScannedProduct[]
   setScanResults: (results: ScannedProduct[]) => void
@@ -23,6 +27,8 @@ interface AppState {
   setAnalysisResults: (results: GapAnalysis[]) => void
   saturationResults: MarketSaturation[]
   setSaturationResults: (results: MarketSaturation[]) => void
+  complaintClusters: ComplaintCluster[]
+  setComplaintClusters: (clusters: ComplaintCluster[]) => void
 
   // Opportunities
   opportunities: OpportunitySuggestion[]
@@ -47,6 +53,10 @@ export const useAppStore = create<AppState>((set) => ({
   selectedCategory: 'all',
   setSelectedCategory: (category) => set({ selectedCategory: category }),
 
+  // Time period
+  timePeriod: '30d',
+  setTimePeriod: (period) => set({ timePeriod: period }),
+
   // Scanner
   scanResults: [],
   setScanResults: (results) => set({ scanResults: results }),
@@ -56,6 +66,8 @@ export const useAppStore = create<AppState>((set) => ({
   setAnalysisResults: (results) => set({ analysisResults: results }),
   saturationResults: [],
   setSaturationResults: (results) => set({ saturationResults: results }),
+  complaintClusters: [],
+  setComplaintClusters: (clusters) => set({ complaintClusters: clusters }),
 
   // Opportunities
   opportunities: [],

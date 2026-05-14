@@ -13,7 +13,6 @@ import {
   TrendingUp,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { Separator } from '@/components/ui/separator'
 import { useAppStore, type TabId } from '@/lib/store'
 import { DashboardOverview } from '@/components/dashboard-overview'
 import { ScannerPanel } from '@/components/scanner-panel'
@@ -139,6 +138,16 @@ export function GapFinderApp() {
           <TabContent activeTab={activeTab} />
         </div>
       </main>
+
+      {/* Footer */}
+      <footer className="mt-auto border-t bg-muted/30">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
+          <div className="flex items-center justify-between text-xs text-muted-foreground">
+            <span>GapFinder — Market Intelligence Software</span>
+            <span>Insights backed by real data, not AI fluff</span>
+          </div>
+        </div>
+      </footer>
     </div>
   )
 }
