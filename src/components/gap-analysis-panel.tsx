@@ -237,39 +237,39 @@ function GapCard({ gap, delay = 0 }: { gap: GapAnalysis; delay?: number }) {
       transition={{ delay, duration: 0.3 }}
     >
       <Card className="h-full hover:shadow-md transition-shadow">
-        <CardContent className="p-4 sm:p-5 space-y-3">
+        <CardContent className="p-4 sm:p-5 space-y-4">
           {/* ─── Top: Gap Type Badge + Severity Badge + Difficulty Badge ─ */}
-          <div className="flex items-center gap-2 flex-wrap">
-            <Badge variant="outline" className={`${config.color} ${config.darkColor} gap-1`}>
+          <div className="flex items-center gap-1.5 flex-wrap">
+            <Badge variant="outline" className={`${config.color} ${config.darkColor} gap-1 text-[10px] h-5 px-1.5`}>
               <Icon className="h-3 w-3" />
               {config.label}
             </Badge>
-            <Badge variant="outline" className={SEVERITY_COLORS[gap.severity]}>
-              {gap.severity} severity
+            <Badge variant="outline" className={`text-[10px] h-5 px-1.5 ${SEVERITY_COLORS[gap.severity]}`}>
+              {gap.severity}
             </Badge>
             {/* ─── Execution Difficulty Badge (always visible) ── */}
             {gap.executionDifficulty?.level && (
               <ExecutionDifficultyBadge level={gap.executionDifficulty.level} />
             )}
-            {/* ─── Verdict Badge ──────────────────────────────── */}
-            {gap.falseOpportunity?.verdict === 'avoid' && (
-              <Badge className="bg-red-100 text-red-700 dark:bg-red-950/40 dark:text-red-400 text-xs gap-1">
-                ⚠ Avoid
-              </Badge>
-            )}
-            {gap.falseOpportunity?.verdict === 'caution' && (
-              <Badge className="bg-amber-100 text-amber-700 dark:bg-amber-950/40 dark:text-amber-400 text-xs gap-1">
-                ⚡ Caution
-              </Badge>
-            )}
+            {/* ─── Verdict + Quadrant Badges (combined row) ── */}
             {gap.marketQuadrant?.quadrant === 'goldmine' && (
-              <Badge className="bg-green-100 text-green-700 dark:bg-green-950/40 dark:text-green-400 text-xs gap-1">
+              <Badge className="bg-green-100 text-green-700 dark:bg-green-950/40 dark:text-green-400 text-[10px] h-5 px-1.5 gap-1">
                 🔥 Goldmine
               </Badge>
             )}
             {gap.marketQuadrant?.quadrant === 'dead_zone' && (
-              <Badge className="bg-red-100 text-red-700 dark:bg-red-950/40 dark:text-red-400 text-xs gap-1">
+              <Badge className="bg-red-100 text-red-700 dark:bg-red-950/40 dark:text-red-400 text-[10px] h-5 px-1.5 gap-1">
                 💀 Dead Zone
+              </Badge>
+            )}
+            {gap.falseOpportunity?.verdict === 'avoid' && (
+              <Badge className="bg-red-100 text-red-700 dark:bg-red-950/40 dark:text-red-400 text-[10px] h-5 px-1.5 gap-1">
+                ⚠ Avoid
+              </Badge>
+            )}
+            {gap.falseOpportunity?.verdict === 'caution' && (
+              <Badge className="bg-amber-100 text-amber-700 dark:bg-amber-950/40 dark:text-amber-400 text-[10px] h-5 px-1.5 gap-1">
+                ⚡ Caution
               </Badge>
             )}
           </div>
@@ -307,37 +307,34 @@ function GapCard({ gap, delay = 0 }: { gap: GapAnalysis; delay?: number }) {
             </div>
           )}
 
-          {/* ─── Underserved Audience Badges (compact, always visible) ── */}
-          {gap.underservedUsers && gap.underservedUsers.length > 0 && (
-            <div className="flex items-center gap-1.5 flex-wrap">
-              <UserCircle className="h-3 w-3 shrink-0 text-purple-500" />
-              <span className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">Underserved:</span>
-              {gap.underservedUsers.map((user, j) => (
-                <Badge
-                  key={j}
-                  variant="outline"
-                  className="text-[10px] h-5 px-1.5 bg-purple-50 text-purple-700 dark:bg-purple-950/30 dark:text-purple-400 border-purple-200 dark:border-purple-800/40"
-                >
-                  {user.userGroup}
-                  {user.opportunityScore > 0 && (
-                    <span className="ml-0.5 opacity-70">{user.opportunityScore}</span>
+          {/* ─── Sub-Niche + Underserved Badges (combined row) ── */}
+          {(gap.subNiche?.name || (gap.underservedUsers && gap.underservedUsers.length > 0)) && (
+            <div className="flex flex-wrap items-center gap-1.5">
+              {gap.subNiche?.name && (
+                <Badge className="bg-green-600 text-white dark:bg-green-700 dark:text-white text-[10px] font-semibold hover:bg-green-700 gap-1">
+                  <CircleDot className="h-3 w-3" />
+                  {gap.subNiche.name}
+                  {gap.subNiche.opportunityScore > 0 && (
+                    <span className="ml-0.5 opacity-80">{gap.subNiche.opportunityScore}</span>
                   )}
                 </Badge>
-              ))}
-            </div>
-          )}
-
-          {/* ─── Sub-Niche Badge (compact, always visible) ─────── */}
-          {gap.subNiche && gap.subNiche.name && (
-            <div className="flex items-center gap-2">
-              <Badge className="bg-green-600 text-white dark:bg-green-700 dark:text-white text-xs font-semibold hover:bg-green-700">
-                <CircleDot className="h-3 w-3 mr-1" />
-                {gap.subNiche.name}
-              </Badge>
-              {gap.subNiche.opportunityScore > 0 && (
-                <Badge variant="outline" className="text-xs border-green-300 dark:border-green-800 text-green-700 dark:text-green-400">
-                  {gap.subNiche.opportunityScore}/100
-                </Badge>
+              )}
+              {gap.underservedUsers && gap.underservedUsers.length > 0 && (
+                <>
+                  <UserCircle className="h-3 w-3 shrink-0 text-purple-500" />
+                  {gap.underservedUsers.map((user, j) => (
+                    <Badge
+                      key={j}
+                      variant="outline"
+                      className="text-[10px] h-5 px-1.5 bg-purple-50 text-purple-700 dark:bg-purple-950/30 dark:text-purple-400 border-purple-200 dark:border-purple-800/40"
+                    >
+                      {user.userGroup}
+                      {user.opportunityScore > 0 && (
+                        <span className="ml-0.5 opacity-70">{user.opportunityScore}</span>
+                      )}
+                    </Badge>
+                  ))}
+                </>
               )}
             </div>
           )}

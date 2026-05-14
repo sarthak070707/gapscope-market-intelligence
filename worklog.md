@@ -215,3 +215,26 @@ Stage Summary:
 - Compact inline versions kept always visible: evidence summary (single line), underserved badges (3 max)
 - Fixed pre-existing lint errors in gap-analysis-panel.tsx
 - No lint errors
+
+---
+Task ID: 2
+Agent: frontend-styling-expert
+Task: Fix dashboard overlapping UI — trending gaps, badges, FeasibilitySummaryBlock
+
+Work Log:
+- Read worklog.md to understand previous work context
+- Read all relevant files: dashboard-overview.tsx, feature-blocks.tsx, gap-analysis-panel.tsx, opportunities-panel.tsx
+- Fix 1: Dashboard Trending Gaps — replaced full ExecutionDifficultyBlock with compact inline summary line (🛠 Medium difficulty · 4-6 weeks MVP · $5k-20k budget), replaced full WhyNowBlock with compact one-liner showing timingAdvantage or marketGrowthDriver
+- Fix 2: FeasibilitySummaryBlock — changed from `flex gap-2` to `grid grid-cols-3 gap-1.5`, added `min-w-0` to prevent overflow, made badges smaller (text-[9px], h-4, px-1), reduced padding from p-2 to p-1.5
+- Fix 3: Dashboard Trending Gaps — changed inner spacing from `space-y-2` to `space-y-3` for better visual separation between sections
+- Fix 4: Badge rows — gap-analysis-panel.tsx: split verdict/quadrant badges into separate row with `gap-1.5`, made all badges smaller (text-[10px], h-5, px-1.5); opportunities-panel.tsx: changed badge row gap from `gap-2` to `gap-1.5`, made saturation and difficulty badges smaller (text-[10px], h-5, px-1.5)
+- Cleaned up unused imports: removed WhyNowBlock and ExecutionDifficultyBlock from dashboard-overview.tsx imports
+- Ran `bun run lint` — passed with no errors
+- Verified dev server returns HTTP 200
+
+Stage Summary:
+- Root cause: Full-size ExecutionDifficultyBlock and WhyNowBlock rendered in compact dashboard cards caused extreme vertical expansion and overlap
+- FeasibilitySummaryBlock used flex layout that could overflow on narrow screens
+- Badge rows were too crowded with inconsistent sizing
+- All 4 fixes applied: compact blocks, responsive grid, better spacing, proper badge gaps
+- No lint errors, dev server healthy

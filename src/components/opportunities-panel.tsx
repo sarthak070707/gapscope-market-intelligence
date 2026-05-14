@@ -363,23 +363,35 @@ function OpportunityCard({
       layout
     >
       <Card className="h-full hover:shadow-lg transition-all duration-200 border-border/80 group">
-        <CardContent className="p-4 sm:p-5 space-y-3.5">
-          {/* ── Row 1: Score gauge + Saturation badge + Difficulty badge + Save button ── */}
+        <CardContent className="p-4 sm:p-5 space-y-4">
+          {/* ── Row 1: Score gauge + Saturation badge + Difficulty badge + Verdict + Save button ── */}
           <div className="flex items-start justify-between gap-2">
-            <div className="flex items-center gap-2 flex-wrap">
+            <div className="flex items-center gap-1.5 flex-wrap">
               {hasScore ? (
                 <ScoreGauge score={opp.opportunityScore!} />
               ) : (
                 <QualityBadge score={opp.qualityScore} />
               )}
-              <Badge variant="outline" className={SATURATION_COLORS[opp.saturation]}>
-                {opp.saturation} saturation
+              <Badge variant="outline" className={`text-[10px] h-5 px-1.5 ${SATURATION_COLORS[opp.saturation]}`}>
+                {opp.saturation}
               </Badge>
               {diffConf && (
-                <Badge variant="outline" className={`${diffConf.color} gap-1 font-semibold text-xs`}>
+                <Badge variant="outline" className={`${diffConf.color} gap-1 text-[10px] h-5 px-1.5 font-semibold`}>
                   <Wrench className="h-3 w-3" />
                   {diffConf.label}
                 </Badge>
+              )}
+              {opp.marketQuadrant?.quadrant === 'goldmine' && (
+                <Badge className="bg-green-600 text-white border-0 gap-1 font-semibold text-[10px] h-5 px-1.5">🔥 Goldmine</Badge>
+              )}
+              {opp.marketQuadrant?.quadrant === 'dead_zone' && (
+                <Badge className="bg-red-600 text-white border-0 gap-1 font-semibold text-[10px] h-5 px-1.5">💀 Dead Zone</Badge>
+              )}
+              {opp.falseOpportunity?.verdict === 'avoid' && (
+                <Badge className="bg-red-600 text-white border-0 gap-1 font-semibold text-[10px] h-5 px-1.5">⚠ Avoid</Badge>
+              )}
+              {opp.falseOpportunity?.verdict === 'caution' && (
+                <Badge className="bg-amber-500 text-white border-0 gap-1 font-semibold text-[10px] h-5 px-1.5">⚡ Caution</Badge>
               )}
             </div>
             <div className="flex items-center gap-1 shrink-0">
@@ -451,67 +463,37 @@ function OpportunityCard({
             </div>
           )}
 
-          {/* ── Row 6: Sub-Niche badge — always visible ── */}
-          {opp.subNiche && opp.subNiche.name && (
-            <div className="flex items-center gap-2">
-              <Badge className="bg-green-600 text-white border-0 gap-1.5 font-semibold text-xs">
-                <Target className="h-3 w-3" />
-                {opp.subNiche.name}
-              </Badge>
-              {opp.subNiche.opportunityScore > 0 && (
-                <div className="flex items-center gap-1.5">
-                  <ScoreDot score={opp.subNiche.opportunityScore} />
-                  <span className="text-xs font-semibold text-muted-foreground tabular-nums">{opp.subNiche.opportunityScore}/100</span>
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* ── Row 6b: Verdict badge row — always visible ── */}
-          {(opp.marketQuadrant?.quadrant === 'goldmine' || opp.falseOpportunity?.verdict === 'avoid' || opp.falseOpportunity?.verdict === 'caution' || opp.marketQuadrant?.quadrant === 'dead_zone') && (
-            <div className="flex flex-wrap gap-1.5">
-              {opp.marketQuadrant?.quadrant === 'goldmine' && (
-                <Badge className="bg-green-600 text-white border-0 gap-1 font-semibold text-xs">
-                  🔥 Goldmine
-                </Badge>
-              )}
-              {opp.falseOpportunity?.verdict === 'avoid' && (
-                <Badge className="bg-red-600 text-white border-0 gap-1 font-semibold text-xs">
-                  ⚠ Avoid
-                </Badge>
-              )}
-              {opp.falseOpportunity?.verdict === 'caution' && (
-                <Badge className="bg-amber-500 text-white border-0 gap-1 font-semibold text-xs">
-                  ⚡ Caution
-                </Badge>
-              )}
-              {opp.marketQuadrant?.quadrant === 'dead_zone' && (
-                <Badge className="bg-red-600 text-white border-0 gap-1 font-semibold text-xs">
-                  💀 Dead Zone
-                </Badge>
-              )}
-            </div>
-          )}
-
-          {/* ── Underserved Audience (compact badge row) ── */}
-          {opp.underservedUsers && opp.underservedUsers.length > 0 && (
-            <div className="flex items-center gap-1.5 flex-wrap">
-              <UserCircle className="h-3 w-3 shrink-0 text-purple-500" />
-              <span className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">Underserved:</span>
-              {opp.underservedUsers.slice(0, 3).map((user, j) => (
-                <Badge
-                  key={j}
-                  variant="outline"
-                  className="text-[10px] h-5 px-1.5 bg-purple-50 text-purple-700 dark:bg-purple-950/30 dark:text-purple-400 border-purple-200 dark:border-purple-800/40"
-                >
-                  {user.userGroup}
-                  {user.opportunityScore > 0 && (
-                    <span className="ml-0.5 opacity-70">{user.opportunityScore}</span>
+          {/* ── Combined badge row: Sub-Niche + Underserved ── */}
+          {(opp.subNiche?.name || (opp.underservedUsers && opp.underservedUsers.length > 0)) && (
+            <div className="flex flex-wrap items-center gap-1.5">
+              {opp.subNiche?.name && (
+                <Badge className="bg-green-600 text-white border-0 gap-1 font-semibold text-[10px] h-5 px-1.5">
+                  <Target className="h-3 w-3" />
+                  {opp.subNiche.name}
+                  {opp.subNiche.opportunityScore > 0 && (
+                    <span className="ml-0.5 opacity-80">{opp.subNiche.opportunityScore}</span>
                   )}
                 </Badge>
-              ))}
-              {opp.underservedUsers.length > 3 && (
-                <span className="text-[10px] text-muted-foreground">+{opp.underservedUsers.length - 3} more</span>
+              )}
+              {opp.underservedUsers && opp.underservedUsers.length > 0 && (
+                <>
+                  <UserCircle className="h-3 w-3 shrink-0 text-purple-500" />
+                  {opp.underservedUsers.slice(0, 3).map((user, j) => (
+                    <Badge
+                      key={j}
+                      variant="outline"
+                      className="text-[10px] h-5 px-1.5 bg-purple-50 text-purple-700 dark:bg-purple-950/30 dark:text-purple-400 border-purple-200 dark:border-purple-800/40"
+                    >
+                      {user.userGroup}
+                      {user.opportunityScore > 0 && (
+                        <span className="ml-0.5 opacity-70">{user.opportunityScore}</span>
+                      )}
+                    </Badge>
+                  ))}
+                  {opp.underservedUsers.length > 3 && (
+                    <span className="text-[10px] text-muted-foreground">+{opp.underservedUsers.length - 3} more</span>
+                  )}
+                </>
               )}
             </div>
           )}

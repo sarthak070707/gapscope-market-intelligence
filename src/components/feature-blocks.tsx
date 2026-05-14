@@ -626,29 +626,29 @@ export function FeasibilitySummaryBlock({ executionDifficulty, opportunityScore,
   const comp = executionDifficulty ? getCompetitionLevel(executionDifficulty.competitionLevel) : null
 
   return (
-    <div className="flex gap-2">
-      <div className="rounded-md border bg-muted/20 p-2 text-center flex-1">
-        <p className="text-[10px] text-muted-foreground uppercase tracking-wider">Opportunity</p>
+    <div className="grid grid-cols-3 gap-2">
+      <div className="rounded-md border bg-muted/20 p-2 text-center min-w-0">
+        <p className="text-[9px] text-muted-foreground uppercase tracking-wider">Opportunity</p>
         {opp ? (
-          <Badge variant="outline" className={`text-[10px] h-5 mt-1 ${opp.color}`}>{opp.label}</Badge>
+          <Badge variant="outline" className={`text-[9px] h-4 mt-0.5 px-1 ${opp.color}`}>{opp.label}</Badge>
         ) : (
-          <span className="text-xs text-muted-foreground">—</span>
+          <span className="text-[10px] text-muted-foreground">—</span>
         )}
       </div>
-      <div className="rounded-md border bg-muted/20 p-2 text-center flex-1">
-        <p className="text-[10px] text-muted-foreground uppercase tracking-wider">Difficulty</p>
+      <div className="rounded-md border bg-muted/20 p-2 text-center min-w-0">
+        <p className="text-[9px] text-muted-foreground uppercase tracking-wider">Difficulty</p>
         {diff ? (
-          <Badge variant="outline" className={`text-[10px] h-5 mt-1 ${diff.color}`}>{diff.label}</Badge>
+          <Badge variant="outline" className={`text-[9px] h-4 mt-0.5 px-1 ${diff.color}`}>{diff.label}</Badge>
         ) : (
-          <span className="text-xs text-muted-foreground">—</span>
+          <span className="text-[10px] text-muted-foreground">—</span>
         )}
       </div>
-      <div className="rounded-md border bg-muted/20 p-2 text-center flex-1">
-        <p className="text-[10px] text-muted-foreground uppercase tracking-wider">Competition</p>
+      <div className="rounded-md border bg-muted/20 p-2 text-center min-w-0">
+        <p className="text-[9px] text-muted-foreground uppercase tracking-wider">Competition</p>
         {comp ? (
-          <Badge variant="outline" className={`text-[10px] h-5 mt-1 ${comp.color}`}>{comp.label}</Badge>
+          <Badge variant="outline" className={`text-[9px] h-4 mt-0.5 px-1 ${comp.color}`}>{comp.label}</Badge>
         ) : (
-          <span className="text-xs text-muted-foreground">—</span>
+          <span className="text-[10px] text-muted-foreground">—</span>
         )}
       </div>
     </div>

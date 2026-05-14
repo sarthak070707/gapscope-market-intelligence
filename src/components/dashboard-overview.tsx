@@ -47,7 +47,7 @@ import { ChartContainer, ChartTooltip, ChartTooltipContent, type ChartConfig } f
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { SaturationMeter } from '@/components/ui/saturation-meter'
 import { useAppStore } from '@/lib/store'
-import { WhyNowBlock, FalseOpportunityBlock, MarketQuadrantBlock, WhyExistingProductsFailBlock, ExecutionDifficultyBlock, FounderFitBlock, SourceTransparencyBlock, MarketQuadrantChart, TrendComparisonBlock, UnderservedAudienceBlock, FeasibilitySummaryBlock } from '@/components/feature-blocks'
+import { FalseOpportunityBlock, MarketQuadrantBlock, WhyExistingProductsFailBlock, FounderFitBlock, SourceTransparencyBlock, MarketQuadrantChart, TrendComparisonBlock, UnderservedAudienceBlock, FeasibilitySummaryBlock } from '@/components/feature-blocks'
 import type { DashboardStats, TimePeriod, GapAnalysis, MarketSaturation, SubNiche, ComplaintCluster, UnderservedUserGroup, TrendComparison } from '@/types'
 
 const chartConfig = {
@@ -1131,10 +1131,10 @@ export function DashboardOverview() {
                   <div className="px-6 pb-4 space-y-4">
                     {dashboardData.trendingGaps.map((gap, i) => (
                       <div key={i}>
-                        <div className="py-2 space-y-2">
+                        <div className="py-3 space-y-4">
                           {/* Header: severity badge + title */}
                           <div className="flex items-start gap-2.5">
-                            <Badge variant="outline" className={severityColor(gap.severity)}>
+                            <Badge variant="outline" className={`shrink-0 mt-0.5 ${severityColor(gap.severity)}`}>
                               {gap.severity}
                             </Badge>
                             <div className="min-w-0 flex-1">
@@ -1152,6 +1152,33 @@ export function DashboardOverview() {
 
                           {/* Structured Evidence Block — compact inline */}
                           <EvidenceBlock evidence={gap.evidenceDetail} />
+
+                          {/* Combined badges row: Sub-Niche + Verdict + Quadrant */}
+                          {(gap.subNiche?.name || gap.marketQuadrant?.quadrant || gap.falseOpportunity?.verdict) && (
+                            <div className="flex flex-wrap items-center gap-1.5">
+                              {gap.subNiche?.name && (
+                                <Badge className="text-xs bg-green-100 text-green-800 dark:bg-green-950/40 dark:text-green-400 gap-1">
+                                  <CircleDot className="h-3 w-3" />
+                                  {gap.subNiche.name}
+                                  {gap.subNiche.opportunityScore > 0 && (
+                                    <span className="ml-0.5 opacity-80">{gap.subNiche.opportunityScore}</span>
+                                  )}
+                                </Badge>
+                              )}
+                              {gap.marketQuadrant?.quadrant === 'goldmine' && (
+                                <Badge className="text-xs bg-green-600 text-white gap-1">🔥 Goldmine</Badge>
+                              )}
+                              {gap.marketQuadrant?.quadrant === 'dead_zone' && (
+                                <Badge className="text-xs bg-red-600 text-white gap-1">💀 Dead Zone</Badge>
+                              )}
+                              {gap.falseOpportunity?.verdict === 'avoid' && (
+                                <Badge className="text-xs bg-red-600 text-white gap-1">⚠ Avoid</Badge>
+                              )}
+                              {gap.falseOpportunity?.verdict === 'caution' && (
+                                <Badge className="text-xs bg-amber-600 text-white gap-1">⚡ Caution</Badge>
+                              )}
+                            </div>
+                          )}
 
                           {/* Underserved Audience — compact badges */}
                           {gap.underservedUsers && gap.underservedUsers.length > 0 && (
@@ -1206,61 +1233,31 @@ export function DashboardOverview() {
                             </div>
                           )}
 
-                          {/* Sub-Niche — green badge with opportunity score */}
-                          {gap.subNiche && gap.subNiche.name && (
-                            <div className="flex items-center gap-2">
-                              <Badge className="text-xs bg-green-100 text-green-800 dark:bg-green-950/40 dark:text-green-400 gap-1">
-                                <CircleDot className="h-3 w-3" />
-                                {gap.subNiche.name}
-                              </Badge>
-                              {gap.subNiche.opportunityScore > 0 && (
-                                <span className="text-xs font-semibold text-green-600 dark:text-green-400">
-                                  {gap.subNiche.opportunityScore}/100
+                          {/* Inline meta: Execution + Why Now + Sources — combined compact row */}
+                          {(gap.executionDifficulty || gap.whyNow || gap.sourceTransparency?.sourcePlatforms) && (
+                            <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-muted-foreground">
+                              {gap.executionDifficulty && (
+                                <span className="inline-flex items-center gap-1">
+                                  <Gauge className="h-3 w-3 shrink-0" />
+                                  {gap.executionDifficulty.level === 'low' || gap.executionDifficulty.level === 'low-medium' ? 'Easy' : gap.executionDifficulty.level === 'medium' ? 'Medium' : gap.executionDifficulty.level === 'medium-high' ? 'Med-Hard' : 'Hard'}
+                                  {gap.executionDifficulty.timeToMvp && <> · {gap.executionDifficulty.timeToMvp}</>}
+                                  {gap.executionDifficulty.estimatedBudget && <> · {gap.executionDifficulty.estimatedBudget}</>}
                                 </span>
                               )}
-                            </div>
-                          )}
-
-                          {/* NEW: Verdict + Quadrant badges */}
-                          {(gap.marketQuadrant?.quadrant || gap.falseOpportunity?.verdict) && (
-                            <div className="flex flex-wrap gap-1.5">
-                              {gap.marketQuadrant?.quadrant === 'goldmine' && (
-                                <Badge className="text-xs bg-green-600 text-white gap-1">🔥 Goldmine</Badge>
+                              {gap.whyNow && (
+                                <span className="inline-flex items-center gap-1 max-w-[280px]">
+                                  <Clock className="h-3 w-3 shrink-0 text-amber-500" />
+                                  <span className="truncate">{gap.whyNow.timingAdvantage || gap.whyNow.marketGrowthDriver}</span>
+                                </span>
                               )}
-                              {gap.marketQuadrant?.quadrant === 'dead_zone' && (
-                                <Badge className="text-xs bg-red-600 text-white gap-1">💀 Dead Zone</Badge>
-                              )}
-                              {gap.falseOpportunity?.verdict === 'avoid' && (
-                                <Badge className="text-xs bg-red-600 text-white gap-1">⚠ Avoid</Badge>
-                              )}
-                              {gap.falseOpportunity?.verdict === 'caution' && (
-                                <Badge className="text-xs bg-amber-600 text-white gap-1">⚡ Caution</Badge>
-                              )}
-                            </div>
-                          )}
-
-                          {/* NEW: Execution Difficulty — compact block */}
-                          {gap.executionDifficulty && (
-                            <ExecutionDifficultyBlock difficulty={gap.executionDifficulty} />
-                          )}
-
-                          {/* NEW: Why Now — full block from feature-blocks */}
-                          {gap.whyNow && (
-                            <WhyNowBlock whyNow={gap.whyNow} />
-                          )}
-
-                          {/* NEW: Source Transparency — compact inline */}
-                          {gap.sourceTransparency?.sourcePlatforms && (
-                            <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                              <MessageSquare className="h-3 w-3" />
-                              <span>Sources: {gap.sourceTransparency.sourcePlatforms.join(', ')}</span>
-                              <span>·</span>
-                              <span>{gap.sourceTransparency.totalComments} comments</span>
-                              {gap.sourceTransparency.confidenceLevel && (
-                                <>
-                                  <span>·</span>
-                                  <Badge variant="outline" className="text-[10px] h-4">{gap.sourceTransparency.confidenceLevel} confidence</Badge>
-                                </>
+                              {gap.sourceTransparency?.sourcePlatforms && (
+                                <span className="inline-flex items-center gap-1">
+                                  <MessageSquare className="h-3 w-3 shrink-0" />
+                                  {gap.sourceTransparency.sourcePlatforms.join(', ')}
+                                  {gap.sourceTransparency.confidenceLevel && (
+                                    <Badge variant="outline" className="text-[9px] h-4 px-1 ml-0.5">{gap.sourceTransparency.confidenceLevel}</Badge>
+                                  )}
+                                </span>
                               )}
                             </div>
                           )}
