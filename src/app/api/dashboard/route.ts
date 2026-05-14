@@ -4,7 +4,7 @@ import type { DashboardStats, GapAnalysis, MarketSaturation, SubNiche, Complaint
 
 /**
  * GET /api/dashboard
- * Returns dashboard statistics with enriched data for all 12 priorities
+ * Returns dashboard statistics with enriched data and market metrics
  */
 export async function GET(request: NextRequest) {
   try {
@@ -74,7 +74,7 @@ export async function GET(request: NextRequest) {
       underservedUsers: safeJsonParse(g.underservedUsers, []) as GapAnalysis['underservedUsers'],
     }));
 
-    // PRIORITY 10: Trending Gaps - gaps with high severity
+    // Trending Gaps - gaps with high severity
     const trendingGapsData = await db.gap.findMany({
       where: { severity: 'high' },
       take: 5,
@@ -105,16 +105,38 @@ export async function GET(request: NextRequest) {
       underservedUsers: safeJsonParse(g.underservedUsers, []) as GapAnalysis['underservedUsers'],
     }));
 
-    // PRIORITY 10: Saturated Markets - compute from products
+    // Saturated Markets - compute from products with deterministic values
     const saturatedMarkets: MarketSaturation[] = [];
     for (const catItem of productsByCategory) {
       const catProducts = await db.product.findMany({
         where: { category: catItem.category },
-        include: { complaints: true },
+        include: { complaints: true, gaps: true },
       });
       const productCount = catProducts.length;
       const complaintCount = catProducts.reduce((sum, p) => sum + p.complaints.length, 0);
-      const rawScore = Math.min(100, Math.round(productCount * 8 + complaintCount * 3));
+
+      // Calculate feature overlap deterministically
+      let featureOverlap = 0;
+      try {
+        const allFeatures = catProducts.map((p) => {
+          try { return JSON.parse(p.features || '[]') as string[]; } catch { return []; }
+        });
+        const totalFeatures = allFeatures.flat();
+        const uniqueFeatures = new Set(totalFeatures.map((f) => f.toLowerCase()));
+        featureOverlap = uniqueFeatures.size > 0
+          ? Math.round(((totalFeatures.length - uniqueFeatures.size) / totalFeatures.length) * 100)
+          : 0;
+      } catch { featureOverlap = 0; }
+
+      // Calculate pricing similarity deterministically
+      let pricingSimilarity = 0;
+      try {
+        const pricingModels = catProducts.map((p) => p.pricing.toLowerCase());
+        const freeCount = pricingModels.filter((p) => p.includes('free') || p.includes('freemium')).length;
+        pricingSimilarity = Math.round((freeCount / Math.max(productCount, 1)) * 100);
+      } catch { pricingSimilarity = 0; }
+
+      const rawScore = Math.min(100, Math.round(productCount * 8 + complaintCount * 3 + featureOverlap * 0.2));
       const score = Math.max(0, rawScore);
       const level = score < 33 ? 'low' : score < 66 ? 'medium' : 'high';
       saturatedMarkets.push({
@@ -123,15 +145,15 @@ export async function GET(request: NextRequest) {
         level: level as 'low' | 'medium' | 'high',
         factors: {
           similarProducts: productCount,
-          featureOverlap: Math.round(Math.random() * 40 + 20), // estimated
-          launchFrequency: Math.round(productCount / 2),
+          featureOverlap,
+          launchFrequency: Math.round(productCount / 3),
           userComplaints: complaintCount,
-          pricingSimilarity: Math.round(Math.random() * 30 + 30), // estimated
+          pricingSimilarity,
         },
       });
     }
 
-    // PRIORITY 10: Emerging Niches from trends
+    // Emerging Niches from trends
     const emergingTrends = await db.trend.findMany({
       where: { direction: 'growing' },
       orderBy: { growthRate: 'desc' },
@@ -163,7 +185,7 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    // PRIORITY 10: Complaint Trends - aggregate from complaints
+    // Complaint Trends - aggregate from complaints with better clustering
     const allComplaints = await db.complaint.findMany({
       take: 100,
       orderBy: { frequency: 'desc' },
@@ -175,7 +197,7 @@ export async function GET(request: NextRequest) {
       }
       complaintByCategory[c.category].count += 1;
       complaintByCategory[c.category].total += c.frequency;
-      if (complaintByCategory[c.category].examples.length < 2) {
+      if (complaintByCategory[c.category].examples.length < 3) {
         complaintByCategory[c.category].examples.push(c.text);
       }
     }
@@ -191,7 +213,7 @@ export async function GET(request: NextRequest) {
       .sort((a, b) => b.percentage - a.percentage)
       .slice(0, 6);
 
-    // PRIORITY 10: Fastest Growing Categories from trends
+    // Fastest Growing Categories from trends
     const trends = await db.trend.findMany({
       where: { direction: 'growing' },
       orderBy: { growthRate: 'desc' },
@@ -204,7 +226,7 @@ export async function GET(request: NextRequest) {
     const trendingCategories: { name: string; growth: number }[] = [];
     const fastestGrowing: { name: string; growth: number; productCount: number }[] = [];
     const seenCats = new Set<string>();
-    
+
     for (const trend of trends) {
       if (!seenCats.has(trend.category)) {
         seenCats.add(trend.category);
@@ -216,7 +238,7 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    // PRIORITY 12: Underserved Users from gaps
+    // Underserved Users from gaps
     const allGapsWithUnderserved = await db.gap.findMany({
       where: { gapType: 'underserved' },
       take: 10,
@@ -226,6 +248,35 @@ export async function GET(request: NextRequest) {
     const underservedUsers: UnderservedUserGroup[] = allGapsWithUnderserved
       .flatMap((g) => safeJsonParse(g.underservedUsers, []) as UnderservedUserGroup[])
       .slice(0, 5);
+
+    // Market metrics - computed deterministically
+    const highSeverityGaps = await db.gap.count({ where: { severity: 'high' } });
+    const avgGrowthRate = trends.length > 0
+      ? Math.round(trends.reduce((sum, t) => sum + t.growthRate, 0) / trends.length)
+      : 0;
+
+    // Calculate average opportunity score from DB
+    const oppScores = await db.opportunity.findMany({
+      select: { opportunityScore: true },
+    });
+    let avgOpportunityScore = 0;
+    try {
+      const scores = oppScores
+        .map(o => safeJsonParse(o.opportunityScore, {}) as Record<string, unknown>)
+        .filter(s => s && typeof s === 'object' && 'total' in s)
+        .map(s => (s.total as number) || 0);
+      avgOpportunityScore = scores.length > 0
+        ? Math.round(scores.reduce((a, b) => a + b, 0) / scores.length)
+        : 0;
+    } catch { avgOpportunityScore = 0; }
+
+    const marketMetrics = {
+      avgLaunchGrowth: avgGrowthRate,
+      totalComplaints: allComplaints.length,
+      highOpportunityCount: highSeverityGaps,
+      avgOpportunityScore,
+      marketHealth: (avgGrowthRate > 20 ? 'expanding' : avgGrowthRate > 5 ? 'stable' : 'contracting') as 'expanding' | 'stable' | 'contracting',
+    };
 
     const stats: DashboardStats = {
       totalProducts,
@@ -239,8 +290,9 @@ export async function GET(request: NextRequest) {
       saturatedMarkets,
       emergingNiches,
       complaintTrends,
-      fastestGrowing,
+      fastestGrowingCategories: fastestGrowing,
       underservedUsers,
+      marketMetrics,
     };
 
     return NextResponse.json(stats);

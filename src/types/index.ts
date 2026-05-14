@@ -64,6 +64,7 @@ export interface EvidenceDetail {
   launchFrequency: number;
   commentSnippets: string[];
   pricingOverlap: number;
+  launchGrowth?: number; // percentage growth in product launches
 }
 
 // PRIORITY 7: Sub-Niche Detection
@@ -195,6 +196,14 @@ export interface TrendData {
   subNiches?: SubNiche[];
   // PRIORITY 12: Underserved Users
   underservedUsers?: UnderservedUserGroup[];
+  // Market Context
+  marketContext?: {
+    productCount: number;
+    avgUpvotes: number;
+    launchFrequency: number; // new products per week
+    highComplaintActivity: boolean;
+    rapidGrowth: boolean;
+  };
 }
 
 export interface CompetitorComparison {
@@ -233,7 +242,7 @@ export interface CompareRequest {
   category: string;
 }
 
-// Dashboard stats - PRIORITY 10: Enhanced dashboard
+// Dashboard stats - Enhanced dashboard with market metrics
 export interface DashboardStats {
   totalProducts: number;
   totalGaps: number;
@@ -242,12 +251,18 @@ export interface DashboardStats {
   topCategories: { name: string; count: number }[];
   recentGaps: GapAnalysis[];
   trendingCategories: { name: string; growth: number }[];
-  // PRIORITY 10: New dashboard sections
   trendingGaps: GapAnalysis[];
   saturatedMarkets: MarketSaturation[];
   emergingNiches: SubNiche[];
   complaintTrends: ComplaintCluster[];
   fastestGrowingCategories: { name: string; growth: number; productCount: number }[];
-  // PRIORITY 12: Underserved Users
   underservedUsers: UnderservedUserGroup[];
+  // Market overview metrics
+  marketMetrics?: {
+    avgLaunchGrowth: number; // average % growth in launches
+    totalComplaints: number;
+    highOpportunityCount: number; // gaps with high severity
+    avgOpportunityScore: number;
+    marketHealth: 'expanding' | 'stable' | 'contracting';
+  };
 }

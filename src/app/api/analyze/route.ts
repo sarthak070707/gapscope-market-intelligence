@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { generateStructuredResponse } from '@/lib/zai';
+import { safeJsonParse } from '@/lib/json';
 import type { GapAnalysis, MarketSaturation, ComplaintAnalysis, ComplaintCluster, EvidenceDetail, SubNiche, ProductReference, UnderservedUserGroup } from '@/types';
 
 export async function POST(request: NextRequest) {
@@ -63,11 +64,11 @@ export async function POST(request: NextRequest) {
       name: p.name,
       tagline: p.tagline,
       description: p.description,
-      features: safeJsonParse(p.features, []),
+      features: safeJsonParse<string[]>(p.features, []),
       pricing: p.pricing,
       upvotes: p.upvotes,
       reviewScore: p.reviewScore,
-      comments: safeJsonParse(p.comments, []),
+      comments: safeJsonParse<string[]>(p.comments, []),
       category: p.category,
     }));
 
@@ -109,7 +110,8 @@ async function analyzeGaps(
   timePeriod: string
 ): Promise<GapAnalysis[]> {
   const gaps = await generateStructuredResponse<GapAnalysis[]>(
-    `You are a product market analyst specializing in identifying gaps in product markets. 
+    `You are a rigorous product market analyst specializing in identifying gaps in product markets. You work for a market intelligence firm and your analysis must be evidence-backed, specific, and actionable — the kind of analysis a venture capitalist would trust.
+
 Analyze the given products and identify market gaps. Focus on these gap types:
 - missing_feature: Features that users commonly need but are absent across products
 - weak_ux: Products with poor user experience or usability issues
@@ -117,43 +119,71 @@ Analyze the given products and identify market gaps. Focus on these gap types:
 - underserved: User segments or use cases that are not well served
 - overcrowded: Areas with too many similar products competing for the same users
 
-CRITICAL: For each gap, you MUST provide:
-- gapType: One of the gap types above
-- title: A concise title for the gap
-- description: Detailed description of the gap and its implications
-- evidence: Specific evidence from the product data that supports this gap
+=== CRITICAL RULES FOR EVIDENCE-BACKED OUTPUT ===
+
+Rule 1: Be HYPER-SPECIFIC, never generic.
+- WRONG: "AI writing tools are oversaturated"
+- RIGHT: "Most recently launched AI writing tools target marketers (8 of 11 in our data), while zero focus on technical documentation workflows for engineering teams"
+- WRONG: "The market is growing"
+- RIGHT: "23 products launched in this category in the last 90 days, up from 14 in the prior period"
+- WRONG: "Pricing is a problem"
+- RIGHT: "7 of 12 products charge $29/month or more, yet 31 complaints cite this price point as too high for individual users"
+
+Rule 2: Cite specific numbers from the data in EVERY field:
+- How many products compete in this gap area (count them from the data)
+- How many complaints reference this issue (count them)
+- What specific prices overlap (name the prices)
+- How many products launched recently vs historically
+- What percentage of products have the same feature set
+
+Rule 3: Every insight must feel PROVABLE and ACTIONABLE. Avoid motivational language.
+Do NOT use phrases like "The market is growing" or "There is an opportunity" — instead state the concrete evidence that IMPLIES growth or opportunity.
+
+Rule 4: For titles, be SPECIFIC about WHO is affected and WHAT is missing:
+- WRONG: "AI writing gap"
+- RIGHT: "No AI writing tool serves technical documentation for regulated industries"
+- WRONG: "Pricing issues in productivity"
+- RIGHT: "Freelancers priced out of project management tools that bundle features they don't need"
+
+=== REQUIRED FIELDS FOR EACH GAP ===
+
+- gapType: One of the gap types listed above
+- title: A concise, specific title naming WHO is affected and WHAT is missing
+- description: Detailed description with at least 2 specific data points from the product data
+- evidence: Direct evidence from the product data, citing product names, prices, or feature lists
 - severity: "low", "medium", or "high" based on market impact
 
 - evidenceDetail: Object with:
-  - similarProducts: number of similar products in the data
-  - repeatedComplaints: count of complaints supporting this gap
-  - launchFrequency: how many products launched recently in this space (number)
-  - commentSnippets: array of 2-3 actual comment snippets that support this gap
-  - pricingOverlap: percentage (0-100) of products with similar pricing
+  - similarProducts: EXACT count of similar products in the data (count them)
+  - repeatedComplaints: EXACT count of complaints supporting this gap
+  - launchFrequency: EXACT number of products launched recently in this space
+  - commentSnippets: array of 2-3 ACTUAL comment text snippets quoted from the data
+  - pricingOverlap: percentage (0-100) of products with similar pricing, calculated from the data
+  - launchGrowth: percentage growth in launches compared to prior period (estimated from data)
 
-- whyThisMatters: A business-oriented explanation of why this gap matters. Example: "Freelancers avoid premium AI writing tools because subscription costs exceed the value generated for low-volume users."
+- whyThisMatters: A business-oriented explanation citing specific numbers and a CAUSAL MECHANISM. Format: "[WHO] [DOES WHAT] because [SPECIFIC REASON WITH NUMBERS]." Example: "Freelancers avoid premium AI writing tools because the $29/month subscription exceeds the $15/month average revenue per article for low-volume writers, creating a pricing ceiling that limits market expansion."
 
 - subNiche: Object with:
-  - name: Specific sub-niche name (e.g., "ATS resume tools for engineering students" not just "resume tools")
-  - description: What this sub-niche encompasses
+  - name: HYPER-SPECIFIC sub-niche name that names the WHO, WHAT, and CONTEXT. NOT "AI coding tools" but "AI debugging assistants for junior developers who write Python". NOT "resume tools" but "ATS resume optimizers for engineering graduates entering FAANG". NOT "home workout apps" but "postpartum fitness trackers for new mothers recovering from C-sections".
+  - description: What this sub-niche encompasses and why it's distinct from the parent category
   - parentCategory: The broader category this falls under
-  - opportunityScore: 0-100 score for this sub-niche
+  - opportunityScore: 0-100 score justified by the data (higher = better opportunity)
 
-- affectedProducts: Array of 2-3 real product objects with:
-  - name: Product name from the data
-  - pricing: Their pricing model
-  - strengths: 1-2 key strengths
-  - weaknesses: 1-2 key weaknesses related to this gap
+- affectedProducts: Array of 2-4 real product objects from the data with:
+  - name: Actual product name from the data
+  - pricing: Their actual pricing model
+  - strengths: 1-2 SPECIFIC strengths (not "good UX" but "one-click onboarding completed in under 60 seconds")
+  - weaknesses: 1-2 SPECIFIC weaknesses related to this gap (not "limited features" but "lacks batch export, forcing users to process documents one at a time")
 
-- underservedUsers: Array of 1-2 underserved user groups with:
-  - userGroup: Name of the underserved group (e.g., "junior developers", "elderly users", "rural users")
-  - description: Why this group is underserved
-  - evidence: Specific evidence from the data
+- underservedUsers: Array of 1-3 underserved user groups with:
+  - userGroup: SPECIFIC group name (e.g., "junior Python developers at startups", "freelance technical writers", "elderly smartphone users in rural areas")
+  - description: WHY this group is underserved, with specific evidence
+  - evidence: Specific evidence from the data showing how this group is ignored
   - opportunityScore: 0-100 score
 
-Identify 3-8 meaningful gaps. Base your analysis ONLY on the product data provided. Be specific, not generic.`,
+Identify 3-8 meaningful gaps. Base your analysis ONLY on the product data provided. Every number must come from or be derived from the data.`,
     `Analyze these products for market gaps (time period: ${timePeriod}):\n\n${productsContext}`,
-    `Return a JSON array of objects with fields: gapType (string), title (string), description (string), evidence (string), severity (string: "low"|"medium"|"high"), evidenceDetail (object: { similarProducts: number, repeatedComplaints: number, launchFrequency: number, commentSnippets: string[], pricingOverlap: number }), whyThisMatters (string), subNiche (object: { name: string, description: string, parentCategory: string, opportunityScore: number }), affectedProducts (array of { name: string, pricing: string, strengths: string[], weaknesses: string[] }), underservedUsers (array of { userGroup: string, description: string, evidence: string, opportunityScore: number })`
+    `Return a JSON array of objects with fields: gapType (string), title (string), description (string), evidence (string), severity (string: "low"|"medium"|"high"), evidenceDetail (object: { similarProducts: number, repeatedComplaints: number, launchFrequency: number, commentSnippets: string[], pricingOverlap: number, launchGrowth: number }), whyThisMatters (string), subNiche (object: { name: string, description: string, parentCategory: string, opportunityScore: number }), affectedProducts (array of { name: string, pricing: string, strengths: string[], weaknesses: string[] }), underservedUsers (array of { userGroup: string, description: string, evidence: string, opportunityScore: number })`
   );
 
   const safeGaps = Array.isArray(gaps) ? gaps : [];
@@ -198,6 +228,56 @@ function findMostRelevantProduct(
     }
   }
   return products[0] || null;
+}
+
+/**
+ * Find the most relevant product for a complaint by matching
+ * the complaint text against product names and categories.
+ * Falls back to products[0] only if no match is found.
+ */
+function findRelevantProductForComplaint(
+  complaint: ComplaintAnalysis,
+  products: { id: string; name: string; category: string }[]
+) {
+  const complaintText = (complaint.text || '').toLowerCase();
+
+  // Score each product by how relevant it is to this complaint
+  let bestProduct: { id: string; name: string; category: string } | null = null;
+  let bestScore = 0;
+
+  for (const product of products) {
+    let score = 0;
+
+    // Direct name mention is the strongest signal
+    const nameLower = product.name.toLowerCase();
+    if (complaintText.includes(nameLower)) {
+      score += 10;
+    }
+
+    // Partial name match (individual words in product name)
+    const nameWords = nameLower.split(/\s+/);
+    for (const word of nameWords) {
+      if (word.length >= 3 && complaintText.includes(word)) {
+        score += 3;
+      }
+    }
+
+    // Category keyword match (e.g., "AI Tools" → complaint mentions "AI" or "tool")
+    const categoryLower = product.category.toLowerCase();
+    const categoryWords = categoryLower.split(/\s+/);
+    for (const word of categoryWords) {
+      if (word.length >= 3 && complaintText.includes(word)) {
+        score += 2;
+      }
+    }
+
+    if (score > bestScore) {
+      bestScore = score;
+      bestProduct = product;
+    }
+  }
+
+  return bestProduct || products[0] || null;
 }
 
 async function analyzeSaturation(
@@ -277,19 +357,27 @@ async function analyzeSaturation(
     const score = Math.max(0, Math.min(100, rawScore));
     const level = score < 33 ? 'low' : score < 66 ? 'medium' : 'high';
 
-    // PRIORITY 3: Generate competitor breakdown using LLM
+    // Generate competitor breakdown using LLM
     let topCompetitors: ProductReference[] = [];
     try {
       topCompetitors = await generateStructuredResponse<ProductReference[]>(
-        `You are a competitive analyst. Based on the product data, identify the top 3 competitors in the "${cat}" category.
-For each competitor, provide:
-- name: Product name
-- pricing: Their pricing model
-- strengths: Array of 1-2 key competitive strengths
-- weaknesses: Array of 1-2 key weaknesses
+        `You are a rigorous competitive analyst. Based on the product data, identify the top competitors in the "${cat}" category.
 
-Be specific and base your analysis on the product data provided.`,
-        `Products in category "${cat}":\n${JSON.stringify(catProducts.map(p => ({ name: p.name, pricing: p.pricing, tagline: p.tagline, upvotes: p.upvotes, reviewScore: p.reviewScore })), null, 2)}`,
+RULES:
+1. You MUST list at least 3 competitors if 3+ products exist in the data. If fewer, list all of them.
+2. Strengths and weaknesses must be SPECIFIC, not generic.
+   - WRONG: "Good UI" → RIGHT: "Drag-and-drop onboarding that gets users to first result in under 2 minutes"
+   - WRONG: "Limited features" → RIGHT: "No bulk export capability, forcing users to download files one at a time"
+   - WRONG: "Competitive pricing" → RIGHT: "Free tier includes 500 API calls/month vs competitors' 100"
+3. Include pricing comparison context: how does each competitor's pricing compare to the others in this category?
+4. Base EVERY claim on the actual product data provided. Do not fabricate information.
+
+For each competitor, provide:
+- name: Actual product name from the data
+- pricing: Their actual pricing model as listed
+- strengths: Array of 2-3 SPECIFIC competitive strengths with evidence
+- weaknesses: Array of 2-3 SPECIFIC weaknesses with evidence`,
+        `Products in category "${cat}" (${catProducts.length} total):\n${JSON.stringify(catProducts.map(p => ({ name: p.name, pricing: p.pricing, tagline: p.tagline, upvotes: p.upvotes, reviewScore: p.reviewScore })), null, 2)}`,
         `Return a JSON array of objects with fields: name (string), pricing (string), strengths (string[]), weaknesses (string[])`
       );
       if (!Array.isArray(topCompetitors)) topCompetitors = [];
@@ -297,18 +385,30 @@ Be specific and base your analysis on the product data provided.`,
       topCompetitors = [];
     }
 
-    // PRIORITY 7: Generate sub-niches using LLM
+    // Generate sub-niches using LLM
     let subNiches: SubNiche[] = [];
     try {
       subNiches = await generateStructuredResponse<SubNiche[]>(
-        `You are a market niche analyst. Based on the product data, identify 2-3 specific sub-niches within the "${cat}" category.
-IMPORTANT: Be SPECIFIC. Not "AI coding tools" but "AI debugging assistants for junior developers".
+        `You are a market niche analyst specializing in finding hyper-specific, underserved sub-niches.
+
+Based on the product data, identify 2-3 SUB-NICHES within the "${cat}" category.
+
+CRITICAL: Sub-niches must be HYPER-SPECIFIC. The more specific, the better.
+- WRONG: "AI coding tools"
+- RIGHT: "AI debugging assistants for junior developers who write Python"
+- WRONG: "resume tools"
+- RIGHT: "ATS resume optimizers for engineering graduates entering FAANG"
+- WRONG: "project management"
+- RIGHT: "project management for solo freelancers managing 5+ concurrent clients"
+- WRONG: "fitness apps"
+- RIGHT: "postpartum fitness trackers for new mothers recovering from C-sections"
+
 For each sub-niche:
-- name: Specific sub-niche name
-- description: What this sub-niche encompasses
+- name: A hyper-specific name that names the WHO, WHAT, and CONTEXT
+- description: What this sub-niche encompasses and why existing products don't serve it well. Cite specific product gaps from the data.
 - parentCategory: "${cat}"
-- opportunityScore: 0-100 score (higher = better opportunity)`,
-        `Products in category "${cat}":\n${JSON.stringify(catProducts.map(p => ({ name: p.name, pricing: p.pricing, tagline: p.tagline, description: p.description.substring(0, 200) })), null, 2)}`,
+- opportunityScore: 0-100 score. Justify with data: how many products serve this niche? How many complaints mention it?`,
+        `Products in category "${cat}" (${catProducts.length} total):\n${JSON.stringify(catProducts.map(p => ({ name: p.name, pricing: p.pricing, tagline: p.tagline, description: p.description.substring(0, 200) })), null, 2)}`,
         `Return a JSON array of objects with fields: name (string), description (string), parentCategory (string), opportunityScore (number)`
       );
       if (!Array.isArray(subNiches)) subNiches = [];
@@ -337,38 +437,54 @@ For each sub-niche:
 
 async function analyzeComplaints(
   productsContext: string,
-  products: { id: string; name: string; comments: string }[]
+  products: { id: string; name: string; category: string; comments: string }[]
 ): Promise<{ complaints: ComplaintAnalysis[]; clusters: ComplaintCluster[] }> {
   const complaints = await generateStructuredResponse<ComplaintAnalysis[]>(
-    `You are a product review analyst. Analyze the product data below and extract common complaints.
+    `You are a rigorous product review analyst. Analyze the product data below and extract common complaints.
+
+RULES FOR SPECIFIC OUTPUT:
+1. Each complaint text must be SPECIFIC and cite real details from the data — not a vague summary.
+   - WRONG: "Users complain about pricing"
+   - RIGHT: "7 out of 12 users in comments mention the $29/month tier is too expensive for freelancers who process fewer than 10 documents/month"
+2. Cite specific product names, prices, or feature names in the complaint text.
+3. Count accurately: if 5 comments mention slow performance, the frequency should be 5, not 10.
+4. Every complaint must be grounded in the actual comments/reviews data provided.
+
 For each complaint, provide:
-- text: The complaint description
+- text: A specific complaint description with evidence (product names, prices, feature names)
 - category: One of "pricing", "missing_feature", "performance", "ux", "support", "integration"
 - sentiment: One of "negative", "neutral", "mixed"
-- frequency: How commonly this complaint appears (1-10 scale)
+- frequency: How many distinct users/comments express this complaint (1-10 scale)
 
-Focus on recurring themes and patterns. Extract 3-10 distinct complaints.
-Base your analysis on the actual product comments and reviews data provided.`,
+Extract 3-10 distinct complaints. Base your analysis ONLY on the actual product comments and reviews data provided.`,
     `Analyze these products for common complaints:\n\n${productsContext}`,
     `Return a JSON array of objects with fields: text (string), category (string), sentiment (string), frequency (number)`
   );
 
   const safeComplaints = Array.isArray(complaints) ? complaints : [];
 
-  // PRIORITY 2: Generate complaint clusters
+  // Generate complaint clusters
   let clusters: ComplaintCluster[] = [];
   try {
     clusters = await generateStructuredResponse<ComplaintCluster[]>(
-      `You are a data analyst. Group the following complaints into clusters by theme.
+      `You are a data analyst specializing in complaint clustering. Group the following complaints into clusters by theme.
+
+RULES:
+1. Each cluster's "percentage" must represent what share of total complaints fall in this cluster.
+2. All cluster percentages MUST add up to approximately 100% (between 95% and 105% is acceptable).
+3. Each cluster MUST include 1-2 ACTUAL QUOTED complaint text snippets — not paraphrased summaries.
+   - WRONG exampleSnippet: "Users find it expensive"
+   - RIGHT exampleSnippet: "7 out of 12 users mention the $29/month tier is too expensive for freelancers"
+4. Count must be an integer ≥ 1, and should be consistent with the percentage and total number of complaints.
+5. Group into 3-6 clusters. Each cluster should represent a DISTINCT theme.
+
 For each cluster, provide:
 - category: The complaint category (e.g., "pricing", "missing_feature", "performance", "ux", "support", "integration")
-- label: A short human-readable label (e.g., "Expensive pricing")
-- percentage: What percentage of total complaints this cluster represents (must add up to ~100%)
+- label: A short, specific human-readable label (e.g., "Freemium pricing too limited for power users")
+- percentage: What % of total complaints this cluster represents (clusters must total ~100%)
 - count: Number of complaints in this cluster
-- exampleSnippets: 1-2 example snippets from the complaints
-
-Group into 3-6 clusters. Percentages must approximately total 100%.`,
-      `Complaints to cluster:\n${safeComplaints.map(c => `[${c.category}] ${c.text} (frequency: ${c.frequency})`).join('\n')}`,
+- exampleSnippets: 1-2 ACTUAL QUOTED snippets from the complaint text above (copy verbatim, do not paraphrase)`,
+      `Complaints to cluster (${safeComplaints.length} total):\n${safeComplaints.map(c => `[${c.category}] "${c.text}" (frequency: ${c.frequency})`).join('\n')}`,
       `Return a JSON array of objects with fields: category (string), label (string), percentage (number), count (number), exampleSnippets (string[])`
     );
     if (!Array.isArray(clusters)) clusters = [];
@@ -376,10 +492,10 @@ Group into 3-6 clusters. Percentages must approximately total 100%.`,
     clusters = [];
   }
 
-  // Save complaints to the database
+  // Save complaints to the database — mapped to the most relevant product
   for (const complaint of safeComplaints) {
     try {
-      const targetProduct = products[0];
+      const targetProduct = findRelevantProductForComplaint(complaint, products);
       if (targetProduct) {
         await db.complaint.create({
           data: {
@@ -397,12 +513,4 @@ Group into 3-6 clusters. Percentages must approximately total 100%.`,
   }
 
   return { complaints: safeComplaints, clusters };
-}
-
-function safeJsonParse(jsonStr: string, fallback: unknown): unknown {
-  try {
-    return JSON.parse(jsonStr || '[]');
-  } catch {
-    return fallback;
-  }
 }
