@@ -627,26 +627,26 @@ export function FeasibilitySummaryBlock({ executionDifficulty, opportunityScore,
 
   return (
     <div className="grid grid-cols-3 gap-2">
-      <div className="rounded-md border bg-muted/20 p-2 text-center min-w-0">
-        <p className="text-[9px] text-muted-foreground uppercase tracking-wider">Opportunity</p>
+      <div className="rounded-md border bg-muted/20 p-2 text-center min-w-0 overflow-hidden">
+        <p className="text-[9px] text-muted-foreground uppercase tracking-wider mb-0.5">Opportunity</p>
         {opp ? (
-          <Badge variant="outline" className={`text-[9px] h-4 mt-0.5 px-1 ${opp.color}`}>{opp.label}</Badge>
+          <Badge variant="outline" className={`text-[9px] h-4 px-1 whitespace-nowrap ${opp.color}`}>{opp.label}</Badge>
         ) : (
           <span className="text-[10px] text-muted-foreground">—</span>
         )}
       </div>
-      <div className="rounded-md border bg-muted/20 p-2 text-center min-w-0">
-        <p className="text-[9px] text-muted-foreground uppercase tracking-wider">Difficulty</p>
+      <div className="rounded-md border bg-muted/20 p-2 text-center min-w-0 overflow-hidden">
+        <p className="text-[9px] text-muted-foreground uppercase tracking-wider mb-0.5">Difficulty</p>
         {diff ? (
-          <Badge variant="outline" className={`text-[9px] h-4 mt-0.5 px-1 ${diff.color}`}>{diff.label}</Badge>
+          <Badge variant="outline" className={`text-[9px] h-4 px-1 whitespace-nowrap ${diff.color}`}>{diff.label}</Badge>
         ) : (
           <span className="text-[10px] text-muted-foreground">—</span>
         )}
       </div>
-      <div className="rounded-md border bg-muted/20 p-2 text-center min-w-0">
-        <p className="text-[9px] text-muted-foreground uppercase tracking-wider">Competition</p>
+      <div className="rounded-md border bg-muted/20 p-2 text-center min-w-0 overflow-hidden">
+        <p className="text-[9px] text-muted-foreground uppercase tracking-wider mb-0.5">Competition</p>
         {comp ? (
-          <Badge variant="outline" className={`text-[9px] h-4 mt-0.5 px-1 ${comp.color}`}>{comp.label}</Badge>
+          <Badge variant="outline" className={`text-[9px] h-4 px-1 whitespace-nowrap ${comp.color}`}>{comp.label}</Badge>
         ) : (
           <span className="text-[10px] text-muted-foreground">—</span>
         )}
@@ -762,12 +762,12 @@ export function TrendComparisonBlock({ comparisons, trendDirection, summary }: {
 
       <p className="text-xs text-foreground leading-relaxed">{summary}</p>
 
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
         {comparisons.map((comp, i) => (
-          <div key={i} className="rounded-md border bg-muted/20 p-2.5 space-y-2">
-            <Badge variant="outline" className="text-[10px] h-5">{periodLabel(comp.period)}</Badge>
+          <div key={i} className="rounded-md border bg-muted/20 p-2.5 space-y-2 overflow-hidden">
+            <Badge variant="outline" className="text-[10px] h-5 whitespace-nowrap">{periodLabel(comp.period)}</Badge>
 
-            <div className="space-y-1.5 text-xs">
+            <div className="space-y-2 text-xs">
               <div className="flex justify-between">
                 <span className="text-muted-foreground">Products</span>
                 <span className="font-bold tabular-nums">{comp.productCount}</span>
@@ -778,7 +778,7 @@ export function TrendComparisonBlock({ comparisons, trendDirection, summary }: {
               </div>
               <div className="flex justify-between items-center">
                 <span className="text-muted-foreground">Avg Score</span>
-                <Badge variant="outline" className={`text-[10px] h-4 px-1.5 ${getScoreBadge(comp.avgOpportunityScore)}`}>
+                <Badge variant="outline" className={`text-[10px] h-4 px-1.5 whitespace-nowrap ${getScoreBadge(comp.avgOpportunityScore)}`}>
                   {comp.avgOpportunityScore}
                 </Badge>
               </div>
@@ -959,18 +959,18 @@ export function SharedComplaintClusteringSection({ clusters }: {
   const totalComplaints = clusters.reduce((sum, c) => sum + c.count, 0)
 
   return (
-    <div className="rounded-lg border bg-card p-4 space-y-4">
+    <div className="rounded-lg border bg-card p-4 space-y-4 overflow-hidden">
       <div className="flex items-center justify-between flex-wrap gap-2">
         <div className="flex items-center gap-2">
-          <AlertTriangle className="h-5 w-5 text-red-500" />
+          <AlertTriangle className="h-5 w-5 text-red-500 shrink-0" />
           <h3 className="text-sm font-semibold">Top Complaints</h3>
         </div>
-        <Badge variant="outline" className="text-xs bg-red-50 text-red-700 dark:bg-red-950/30 dark:text-red-400">
+        <Badge variant="outline" className="text-xs bg-red-50 text-red-700 dark:bg-red-950/30 dark:text-red-400 whitespace-nowrap">
           {totalComplaints} total complaints
         </Badge>
       </div>
 
-      <div className="space-y-5">
+      <div className="space-y-5 overflow-hidden">
         {clusters.map((cluster, i) => {
           const colors = getSharedClusterColor(cluster.category)
           return (
@@ -983,17 +983,17 @@ export function SharedComplaintClusteringSection({ clusters }: {
             >
               {/* Cluster header: large percentage, label, count */}
               <div className="flex items-center gap-3">
-                <span className={`text-2xl font-bold tabular-nums ${colors.text}`}>
+                <span className={`text-2xl font-bold tabular-nums shrink-0 ${colors.text}`}>
                   {cluster.percentage}%
                 </span>
                 <div className="flex-1 min-w-0">
-                  <p className="text-sm font-semibold text-foreground">{cluster.label}</p>
+                  <p className="text-sm font-semibold text-foreground whitespace-nowrap">{cluster.label}</p>
                   <p className="text-xs text-muted-foreground">{cluster.count} complaints</p>
                 </div>
               </div>
 
               {/* Horizontal bar */}
-              <div className="h-3 w-full rounded-full bg-muted/50 overflow-hidden">
+              <div className="relative h-3 w-full rounded-full bg-muted/50 overflow-hidden shrink-0">
                 <motion.div
                   className={`h-full rounded-full ${colors.bar}`}
                   initial={{ width: 0 }}

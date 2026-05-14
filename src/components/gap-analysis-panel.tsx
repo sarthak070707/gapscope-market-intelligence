@@ -239,38 +239,45 @@ function GapCard({ gap, delay = 0 }: { gap: GapAnalysis; delay?: number }) {
       <Card className="h-full hover:shadow-md transition-shadow">
         <CardContent className="p-4 sm:p-5 space-y-4">
           {/* ─── Top: Gap Type Badge + Severity Badge + Difficulty Badge ─ */}
-          <div className="flex items-center gap-1.5 flex-wrap">
-            <Badge variant="outline" className={`${config.color} ${config.darkColor} gap-1 text-[10px] h-5 px-1.5`}>
-              <Icon className="h-3 w-3" />
-              {config.label}
-            </Badge>
-            <Badge variant="outline" className={`text-[10px] h-5 px-1.5 ${SEVERITY_COLORS[gap.severity]}`}>
-              {gap.severity}
-            </Badge>
-            {/* ─── Execution Difficulty Badge (always visible) ── */}
-            {gap.executionDifficulty?.level && (
-              <ExecutionDifficultyBadge level={gap.executionDifficulty.level} />
-            )}
-            {/* ─── Verdict + Quadrant Badges (combined row) ── */}
-            {gap.marketQuadrant?.quadrant === 'goldmine' && (
-              <Badge className="bg-green-100 text-green-700 dark:bg-green-950/40 dark:text-green-400 text-[10px] h-5 px-1.5 gap-1">
-                🔥 Goldmine
+          <div className="space-y-1.5">
+            {/* ─── Row 1: Type + Severity + Difficulty ── */}
+            <div className="flex items-center gap-2 flex-wrap">
+              <Badge variant="outline" className={`${config.color} ${config.darkColor} gap-1 text-[10px] h-5 px-1.5 shrink-0 whitespace-nowrap`}>
+                <Icon className="h-3 w-3" />
+                {config.label}
               </Badge>
-            )}
-            {gap.marketQuadrant?.quadrant === 'dead_zone' && (
-              <Badge className="bg-red-100 text-red-700 dark:bg-red-950/40 dark:text-red-400 text-[10px] h-5 px-1.5 gap-1">
-                💀 Dead Zone
+              <Badge variant="outline" className={`text-[10px] h-5 px-1.5 shrink-0 whitespace-nowrap ${SEVERITY_COLORS[gap.severity]}`}>
+                {gap.severity}
               </Badge>
-            )}
-            {gap.falseOpportunity?.verdict === 'avoid' && (
-              <Badge className="bg-red-100 text-red-700 dark:bg-red-950/40 dark:text-red-400 text-[10px] h-5 px-1.5 gap-1">
-                ⚠ Avoid
-              </Badge>
-            )}
-            {gap.falseOpportunity?.verdict === 'caution' && (
-              <Badge className="bg-amber-100 text-amber-700 dark:bg-amber-950/40 dark:text-amber-400 text-[10px] h-5 px-1.5 gap-1">
-                ⚡ Caution
-              </Badge>
+              {/* ─── Execution Difficulty Badge (always visible) ── */}
+              {gap.executionDifficulty?.level && (
+                <ExecutionDifficultyBadge level={gap.executionDifficulty.level} />
+              )}
+            </div>
+            {/* ─── Row 2: Verdict + Quadrant Badges ── */}
+            {(gap.marketQuadrant?.quadrant === 'goldmine' || gap.marketQuadrant?.quadrant === 'dead_zone' || gap.falseOpportunity?.verdict === 'avoid' || gap.falseOpportunity?.verdict === 'caution') && (
+              <div className="flex items-center gap-2 flex-wrap">
+                {gap.marketQuadrant?.quadrant === 'goldmine' && (
+                  <Badge className="bg-green-100 text-green-700 dark:bg-green-950/40 dark:text-green-400 text-[10px] h-5 px-1.5 gap-1 shrink-0 whitespace-nowrap">
+                    🔥 Goldmine
+                  </Badge>
+                )}
+                {gap.marketQuadrant?.quadrant === 'dead_zone' && (
+                  <Badge className="bg-red-100 text-red-700 dark:bg-red-950/40 dark:text-red-400 text-[10px] h-5 px-1.5 gap-1 shrink-0 whitespace-nowrap">
+                    💀 Dead Zone
+                  </Badge>
+                )}
+                {gap.falseOpportunity?.verdict === 'avoid' && (
+                  <Badge className="bg-red-100 text-red-700 dark:bg-red-950/40 dark:text-red-400 text-[10px] h-5 px-1.5 gap-1 shrink-0 whitespace-nowrap">
+                    ⚠ Avoid
+                  </Badge>
+                )}
+                {gap.falseOpportunity?.verdict === 'caution' && (
+                  <Badge className="bg-amber-100 text-amber-700 dark:bg-amber-950/40 dark:text-amber-400 text-[10px] h-5 px-1.5 gap-1 shrink-0 whitespace-nowrap">
+                    ⚡ Caution
+                  </Badge>
+                )}
+              </div>
             )}
           </div>
 
@@ -281,11 +288,13 @@ function GapCard({ gap, delay = 0 }: { gap: GapAnalysis; delay?: number }) {
           <p className="text-xs text-muted-foreground leading-relaxed">{gap.description}</p>
 
           {/* ─── Feasibility Summary (always visible, compact) ── */}
+          <div className="mt-1">
           <FeasibilitySummaryBlock
             executionDifficulty={gap.executionDifficulty}
             opportunityScore={gap.marketQuadrant ? { total: gap.marketQuadrant.opportunityScore } : undefined}
             falseOpportunity={gap.falseOpportunity}
           />
+          </div>
 
           {/* ─── Compact Evidence Summary (always visible) ─────── */}
           {gap.evidenceDetail && (
@@ -309,9 +318,9 @@ function GapCard({ gap, delay = 0 }: { gap: GapAnalysis; delay?: number }) {
 
           {/* ─── Sub-Niche + Underserved Badges (combined row) ── */}
           {(gap.subNiche?.name || (gap.underservedUsers && gap.underservedUsers.length > 0)) && (
-            <div className="flex flex-wrap items-center gap-1.5">
+            <div className="flex flex-wrap items-center gap-2">
               {gap.subNiche?.name && (
-                <Badge className="bg-green-600 text-white dark:bg-green-700 dark:text-white text-[10px] font-semibold hover:bg-green-700 gap-1">
+                <Badge className="bg-green-600 text-white dark:bg-green-700 dark:text-white text-[10px] font-semibold hover:bg-green-700 gap-1 shrink-0 whitespace-nowrap">
                   <CircleDot className="h-3 w-3" />
                   {gap.subNiche.name}
                   {gap.subNiche.opportunityScore > 0 && (
@@ -326,7 +335,7 @@ function GapCard({ gap, delay = 0 }: { gap: GapAnalysis; delay?: number }) {
                     <Badge
                       key={j}
                       variant="outline"
-                      className="text-[10px] h-5 px-1.5 bg-purple-50 text-purple-700 dark:bg-purple-950/30 dark:text-purple-400 border-purple-200 dark:border-purple-800/40"
+                      className="text-[10px] h-5 px-1.5 bg-purple-50 text-purple-700 dark:bg-purple-950/30 dark:text-purple-400 border-purple-200 dark:border-purple-800/40 shrink-0 whitespace-nowrap"
                     >
                       {user.userGroup}
                       {user.opportunityScore > 0 && (
@@ -495,11 +504,11 @@ function ComplaintClusteringSection({ clusters }: { clusters: ComplaintCluster[]
                   initial={{ opacity: 0, x: -15 }}
                   animate={{ opacity: 1, x: 0 }}
                   transition={{ delay: i * 0.06, duration: 0.3 }}
-                  className={`rounded-lg border p-3 space-y-2.5 ${colors.bg} ${isHighSeverity ? 'border-red-200 dark:border-red-900/40' : isMediumSeverity ? 'border-amber-200 dark:border-amber-900/40' : 'border-border/40'}`}
+                  className={`rounded-lg border p-3 space-y-2.5 overflow-hidden ${colors.bg} ${isHighSeverity ? 'border-red-200 dark:border-red-900/40' : isMediumSeverity ? 'border-amber-200 dark:border-amber-900/40' : 'border-border/40'}`}
                 >
                   {/* Cluster header: percentage badge, label, count */}
                   <div className="flex items-center gap-3">
-                    <div className={`flex items-center justify-center rounded-md px-2 py-1 min-w-[56px] ${colors.bg} border ${isHighSeverity ? 'border-red-300 dark:border-red-800/60' : isMediumSeverity ? 'border-amber-300 dark:border-amber-800/60' : 'border-border/60'}`}>
+                    <div className={`flex items-center justify-center rounded-md px-2 py-1 min-w-[56px] shrink-0 ${colors.bg} border ${isHighSeverity ? 'border-red-300 dark:border-red-800/60' : isMediumSeverity ? 'border-amber-300 dark:border-amber-800/60' : 'border-border/60'}`}>
                       <span className={`text-lg font-bold tabular-nums ${colors.text}`}>
                         {cluster.percentage}%
                       </span>
@@ -516,7 +525,7 @@ function ComplaintClusteringSection({ clusters }: { clusters: ComplaintCluster[]
                   </div>
 
                   {/* Enhanced horizontal bar with gradient and threshold markers */}
-                  <div className="relative h-4 w-full rounded-full bg-muted/30 overflow-hidden border border-border/20">
+                  <div className="relative h-4 w-full rounded-full bg-muted/30 overflow-hidden border border-border/20 shrink-0">
                     <motion.div
                       className={`h-full rounded-full ${colors.bar} opacity-90`}
                       initial={{ width: 0 }}

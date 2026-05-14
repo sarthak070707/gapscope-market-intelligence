@@ -238,3 +238,34 @@ Stage Summary:
 - Badge rows were too crowded with inconsistent sizing
 - All 4 fixes applied: compact blocks, responsive grid, better spacing, proper badge gaps
 - No lint errors, dev server healthy
+
+---
+Task ID: 1
+Agent: frontend-styling-expert
+Task: Fix overlapping badges/layout across all panels
+
+Work Log:
+- Read worklog.md to understand previous work context
+- Read all 4 target files: feature-blocks.tsx, gap-analysis-panel.tsx, opportunities-panel.tsx, dashboard-overview.tsx
+- Fix 1: FeasibilitySummaryBlock (feature-blocks.tsx) — added `overflow-hidden` to each grid cell, `whitespace-nowrap` to badges, `mb-0.5` spacing between label and badge
+- Fix 2: TrendComparisonBlock (feature-blocks.tsx) — added `overflow-hidden` to period cards, `whitespace-nowrap` to period and score badges, increased inner spacing from `space-y-1.5` to `space-y-2`, changed grid gap from `gap-2` to `gap-3`
+- Fix 3: SharedComplaintClusteringSection (feature-blocks.tsx) — added `overflow-hidden` to container and inner section, `shrink-0` to percentage display, `whitespace-nowrap` to labels, `relative shrink-0` to bar container
+- Fix 4: GapCard badge row (gap-analysis-panel.tsx) — split single badge row into two logical rows using `space-y-1.5`: Row 1 = type + severity + difficulty, Row 2 = verdict + quadrant. Added `shrink-0 whitespace-nowrap` to all badges, increased gap from `gap-1.5` to `gap-2`
+- Fix 5: FeasibilitySummaryBlock in GapCard (gap-analysis-panel.tsx) — added `mt-1` margin wrapper for breathing room
+- Fix 6: Sub-Niche + Underserved badge row (gap-analysis-panel.tsx) — increased gap from `gap-1.5` to `gap-2`, added `shrink-0 whitespace-nowrap` to badges
+- Fix 7: ComplaintClusteringSection (gap-analysis-panel.tsx) — added `overflow-hidden` to cluster container, `shrink-0` to percentage box, `shrink-0` to bar chart container
+- Fix 8: OpportunityCard badge row (opportunities-panel.tsx) — separated verdict/quadrant badges into Row 1b with `gap-2` and `shrink-0 whitespace-nowrap`. Row 1 = ScoreGauge + saturation + difficulty. Added `whitespace-nowrap` to saturation and difficulty badges
+- Fix 9: Sub-Niche + Underserved badge row (opportunities-panel.tsx) — increased gap from `gap-1.5` to `gap-2`, added `shrink-0 whitespace-nowrap` to sub-niche and underserved badges
+- Fix 10: Dashboard saturatedMarkets section (dashboard-overview.tsx) — increased spacing from `space-y-4` to `space-y-6`, added `overflow-hidden` to market cards, added `shrink-0 whitespace-nowrap` to sub-niche badges, increased metric pills gap from `gap-1.5` to `gap-2`
+- Fix 11: Dashboard trending gaps badges (dashboard-overview.tsx) — increased gaps from `gap-1.5` to `gap-2`, added `shrink-0 whitespace-nowrap` to all badges (sub-niche, verdict, quadrant, underserved, affected products, confidence)
+- Fix 12: Dashboard complaint trends section (dashboard-overview.tsx) — added `overflow-hidden` to cluster div, `shrink-0` to percentage and bar, `whitespace-nowrap` to labels and badges, increased spacing from `space-y-4` to `space-y-6`
+- Fixed syntax error in gap-analysis-panel.tsx (missing closing parenthesis for conditional rendering)
+- Ran `bun run lint` — passed with no errors
+- Verified dev server returns HTTP 200
+
+Stage Summary:
+- Root cause: Badges lacked `shrink-0 whitespace-nowrap`, causing them to shrink and overlap in flex-wrap containers; containers lacked `overflow-hidden`; gaps were too tight at `gap-1.5`
+- Fix pattern: (1) `shrink-0 whitespace-nowrap` on all Badge elements, (2) `overflow-hidden` on container divs, (3) `gap-2` instead of `gap-1.5`, (4) split dense badge rows into multiple rows using `space-y-1.5`
+- All 4 files modified: feature-blocks.tsx, gap-analysis-panel.tsx, opportunities-panel.tsx, dashboard-overview.tsx
+- No functional logic changed — only CSS/layout classes
+- No lint errors, dev server healthy

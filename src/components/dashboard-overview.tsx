@@ -1155,9 +1155,9 @@ export function DashboardOverview() {
 
                           {/* Combined badges row: Sub-Niche + Verdict + Quadrant */}
                           {(gap.subNiche?.name || gap.marketQuadrant?.quadrant || gap.falseOpportunity?.verdict) && (
-                            <div className="flex flex-wrap items-center gap-1.5">
+                            <div className="flex flex-wrap items-center gap-2">
                               {gap.subNiche?.name && (
-                                <Badge className="text-xs bg-green-100 text-green-800 dark:bg-green-950/40 dark:text-green-400 gap-1">
+                                <Badge className="text-xs bg-green-100 text-green-800 dark:bg-green-950/40 dark:text-green-400 gap-1 shrink-0 whitespace-nowrap">
                                   <CircleDot className="h-3 w-3" />
                                   {gap.subNiche.name}
                                   {gap.subNiche.opportunityScore > 0 && (
@@ -1166,30 +1166,30 @@ export function DashboardOverview() {
                                 </Badge>
                               )}
                               {gap.marketQuadrant?.quadrant === 'goldmine' && (
-                                <Badge className="text-xs bg-green-600 text-white gap-1">🔥 Goldmine</Badge>
+                                <Badge className="text-xs bg-green-600 text-white gap-1 shrink-0 whitespace-nowrap">🔥 Goldmine</Badge>
                               )}
                               {gap.marketQuadrant?.quadrant === 'dead_zone' && (
-                                <Badge className="text-xs bg-red-600 text-white gap-1">💀 Dead Zone</Badge>
+                                <Badge className="text-xs bg-red-600 text-white gap-1 shrink-0 whitespace-nowrap">💀 Dead Zone</Badge>
                               )}
                               {gap.falseOpportunity?.verdict === 'avoid' && (
-                                <Badge className="text-xs bg-red-600 text-white gap-1">⚠ Avoid</Badge>
+                                <Badge className="text-xs bg-red-600 text-white gap-1 shrink-0 whitespace-nowrap">⚠ Avoid</Badge>
                               )}
                               {gap.falseOpportunity?.verdict === 'caution' && (
-                                <Badge className="text-xs bg-amber-600 text-white gap-1">⚡ Caution</Badge>
+                                <Badge className="text-xs bg-amber-600 text-white gap-1 shrink-0 whitespace-nowrap">⚡ Caution</Badge>
                               )}
                             </div>
                           )}
 
                           {/* Underserved Audience — compact badges */}
                           {gap.underservedUsers && gap.underservedUsers.length > 0 && (
-                            <div className="flex items-center gap-1.5 flex-wrap">
+                            <div className="flex items-center gap-2 flex-wrap">
                               <Users className="h-3 w-3 shrink-0 text-purple-500" />
                               <span className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">Underserved:</span>
                               {gap.underservedUsers.slice(0, 3).map((user, j) => (
                                 <Badge
                                   key={j}
                                   variant="outline"
-                                  className="text-[10px] h-5 px-1.5 bg-purple-50 text-purple-700 dark:bg-purple-950/30 dark:text-purple-400 border-purple-200 dark:border-purple-800/40"
+                                  className="text-[10px] h-5 px-1.5 bg-purple-50 text-purple-700 dark:bg-purple-950/30 dark:text-purple-400 border-purple-200 dark:border-purple-800/40 shrink-0 whitespace-nowrap"
                                 >
                                   {user.userGroup}
                                   {user.opportunityScore > 0 && (
@@ -1205,12 +1205,12 @@ export function DashboardOverview() {
 
                           {/* Affected Products — name badges with pricing */}
                           {gap.affectedProducts && gap.affectedProducts.length > 0 && (
-                            <div className="flex flex-wrap gap-1.5">
+                            <div className="flex flex-wrap gap-2">
                               <span className="text-xs text-muted-foreground self-center mr-0.5">Affected:</span>
                               {gap.affectedProducts.slice(0, 4).map((p, j) => (
                                 <Tooltip key={j}>
                                   <TooltipTrigger asChild>
-                                    <Badge variant="outline" className="text-xs h-6 bg-muted/50 cursor-default gap-1">
+                                    <Badge variant="outline" className="text-xs h-6 bg-muted/50 cursor-default gap-1 shrink-0 whitespace-nowrap">
                                       <Link2 className="h-3 w-3 text-muted-foreground" />
                                       {p.name}
                                       {p.pricing && (
@@ -1226,7 +1226,7 @@ export function DashboardOverview() {
                                 </Tooltip>
                               ))}
                               {gap.affectedProducts.length > 4 && (
-                                <Badge variant="outline" className="text-xs h-6 bg-muted/50">
+                                <Badge variant="outline" className="text-xs h-6 bg-muted/50 shrink-0 whitespace-nowrap">
                                   +{gap.affectedProducts.length - 4} more
                                 </Badge>
                               )}
@@ -1255,7 +1255,7 @@ export function DashboardOverview() {
                                   <MessageSquare className="h-3 w-3 shrink-0" />
                                   {gap.sourceTransparency.sourcePlatforms.join(', ')}
                                   {gap.sourceTransparency.confidenceLevel && (
-                                    <Badge variant="outline" className="text-[9px] h-4 px-1 ml-0.5">{gap.sourceTransparency.confidenceLevel}</Badge>
+                                    <Badge variant="outline" className="text-[9px] h-4 px-1 ml-0.5 whitespace-nowrap">{gap.sourceTransparency.confidenceLevel}</Badge>
                                   )}
                                 </span>
                               )}
@@ -1292,14 +1292,14 @@ export function DashboardOverview() {
                 </CardHeader>
                 <CardContent>
                   <ScrollArea className="max-h-[480px]">
-                    <div className="space-y-4">
+                    <div className="space-y-6">
                       {dashboardData.saturatedMarkets.slice(0, 5).map((sat, i) => (
                         <motion.div
                           key={sat.category}
                           initial={{ opacity: 0, x: -10 }}
                           animate={{ opacity: 1, x: 0 }}
                           transition={{ delay: 0.3 + i * 0.05 }}
-                          className="rounded-lg border p-4 space-y-3 cursor-pointer hover:bg-muted/50 transition-colors"
+                          className="rounded-lg border p-4 space-y-3 overflow-hidden cursor-pointer hover:bg-muted/50 transition-colors"
                           onClick={() => {
                             setSelectedCategory(sat.category as any)
                             setActiveTab('analysis')
@@ -1323,7 +1323,7 @@ export function DashboardOverview() {
                           <SaturationMeter score={sat.score} size="md" />
 
                           {/* Factor breakdown as mini metric pills */}
-                          <div className="flex flex-wrap gap-1.5">
+                          <div className="flex flex-wrap gap-2">
                             <MetricPill icon={Database} label="products" value={sat.factors.similarProducts} />
                             <MetricPill icon={Zap} label="overlap" value={`${sat.factors.featureOverlap}%`} colorClass="bg-amber-50 text-amber-700 dark:bg-amber-950/30 dark:text-amber-400" />
                             <MetricPill icon={Rocket} label="launches/mo" value={sat.factors.launchFrequency} />
@@ -1359,10 +1359,10 @@ export function DashboardOverview() {
 
                           {/* Sub-niches as badges */}
                           {sat.subNiches && sat.subNiches.length > 0 && (
-                            <div className="flex flex-wrap gap-1.5">
+                            <div className="flex flex-wrap gap-2">
                               <span className="text-xs text-muted-foreground self-center">Sub-niches:</span>
                               {sat.subNiches.slice(0, 3).map((sn, j) => (
-                                <Badge key={j} variant="secondary" className="text-xs bg-green-100 text-green-700 dark:bg-green-950/30 dark:text-green-400">
+                                <Badge key={j} variant="secondary" className="text-xs bg-green-100 text-green-700 dark:bg-green-950/30 dark:text-green-400 shrink-0 whitespace-nowrap">
                                   {sn.name}
                                 </Badge>
                               ))}
@@ -1485,7 +1485,7 @@ export function DashboardOverview() {
                 </CardHeader>
                 <CardContent>
                   <ScrollArea className="max-h-[440px]">
-                    <div className="space-y-4">
+                    <div className="space-y-6">
                       {dashboardData.complaintTrends.map((cluster, i) => {
                         const clusterColors: Record<string, { bar: string; bg: string; text: string; badgeBg: string; quoteBorder: string; quoteBg: string }> = {
                           pricing: { bar: 'bg-red-500', bg: 'bg-red-100 dark:bg-red-950/30', text: 'text-red-600 dark:text-red-400', badgeBg: 'bg-red-100 text-red-700 dark:bg-red-950/40 dark:text-red-400', quoteBorder: 'border-red-400 dark:border-red-600', quoteBg: 'bg-red-50/60 dark:bg-red-950/10' },
@@ -1502,26 +1502,26 @@ export function DashboardOverview() {
                             initial={{ opacity: 0, x: -10 }}
                             animate={{ opacity: 1, x: 0 }}
                             transition={{ delay: i * 0.05, duration: 0.3 }}
-                            className="space-y-2.5"
+                            className="space-y-2.5 overflow-hidden"
                           >
                             {/* Cluster header: large percentage, label, count */}
                             <div className="flex items-center justify-between gap-2">
                               <div className="flex items-baseline gap-2.5">
-                                <span className={`text-3xl font-extrabold tabular-nums ${cc.text}`}>
+                                <span className={`text-3xl font-extrabold tabular-nums shrink-0 ${cc.text}`}>
                                   {cluster.percentage}%
                                 </span>
-                                <div className="flex flex-col">
-                                  <span className="text-sm font-semibold leading-tight">{cluster.label}</span>
+                                <div className="flex flex-col min-w-0">
+                                  <span className="text-sm font-semibold leading-tight whitespace-nowrap">{cluster.label}</span>
                                   <span className="text-xs text-muted-foreground">{cluster.count} complaints</span>
                                 </div>
                               </div>
-                              <Badge className={`text-xs tabular-nums ${cc.badgeBg}`}>
+                              <Badge className={`text-xs tabular-nums shrink-0 whitespace-nowrap ${cc.badgeBg}`}>
                                 {cluster.count.toLocaleString()}
                               </Badge>
                             </div>
 
                             {/* Colored progress bar — thicker & more prominent */}
-                            <div className={`h-4 rounded-full overflow-hidden ${cc.bg}`}>
+                            <div className={`h-4 rounded-full overflow-hidden shrink-0 ${cc.bg}`}>
                               <motion.div
                                 className={`h-full rounded-full ${cc.bar} relative`}
                                 initial={{ width: 0 }}
