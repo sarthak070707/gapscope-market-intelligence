@@ -80,6 +80,8 @@ import {
   FeasibilitySummaryBlock,
 } from '@/components/feature-blocks'
 import type { ComplaintCluster } from '@/types'
+import { ModuleErrorState } from '@/components/module-error-state'
+import { classifyError, type ModuleError } from '@/lib/error-handler'
 
 // ──────────────────────────────────────────────
 // Color helpers
@@ -714,6 +716,7 @@ export function OpportunitiesPanel() {
   const [view, setView] = useState<'all' | 'saved'>('all')
   const [showSuggestions, setShowSuggestions] = useState(false)
   const [loadingSaved, setLoadingSaved] = useState(false)
+  const [generationError, setGenerationError] = useState<ModuleError | null>(null)
 
   const opportunities = useAppStore((s) => s.opportunities)
   const setOpportunities = useAppStore((s) => s.setOpportunities)
@@ -777,19 +780,35 @@ export function OpportunitiesPanel() {
 
   const generateMutation = useMutation({
     mutationFn: async () => {
+      setGenerationError(null)
       const res = await fetch('/api/opportunities', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ category, focusArea: focusArea || undefined, timePeriod }),
       })
-      if (!res.ok) throw new Error('Generation failed')
+      if (!res.ok) {
+        let moduleError: ModuleError
+        try {
+          const errorBody = await res.json()
+          moduleError = errorBody.moduleError || classifyError(new Error(errorBody.error || `HTTP ${res.status}`), 'Opportunity Generator', '/api/opportunities')
+          moduleError.statusCode = res.status
+        } catch {
+          moduleError = classifyError(new Error(`HTTP ${res.status}`), 'Opportunity Generator', '/api/opportunities')
+          moduleError.statusCode = res.status
+        }
+        setGenerationError(moduleError)
+        throw new Error(moduleError.message)
+      }
       return res.json() as Promise<OpportunitySuggestion[]>
     },
     onSuccess: (data) => {
       setOpportunities(data)
       toast.success(`Generated ${data.length} opportunities!`)
     },
-    onError: () => {
+    onError: (err) => {
+      if (!generationError) {
+        setGenerationError(classifyError(err, 'Opportunity Generator', '/api/opportunities'))
+      }
       toast.error('Generation failed. Please try again.')
     },
   })
@@ -896,6 +915,15 @@ export function OpportunitiesPanel() {
           </CardContent>
         </Card>
       </motion.div>
+
+      {/* Error State */}
+      {generationError && !generateMutation.isPending && (
+        <ModuleErrorState
+          error={generationError}
+          onRetry={() => generateMutation.mutate()}
+          isRetrying={generateMutation.isPending}
+        />
+      )}
 
       {/* View Tabs */}
       <div className="flex items-center gap-4">

@@ -42,6 +42,8 @@ import { useAppStore } from '@/lib/store'
 import { SaturationMeter } from '@/components/ui/saturation-meter'
 import { WhyNowBlock, ExecutionDifficultyBlock, FalseOpportunityBlock, FounderFitBlock, SourceTransparencyBlock, WhyExistingProductsFailBlock, MarketQuadrantBlock, EnhancedEvidenceBlock, WhyOpportunityExistsBlock, UnderservedAudienceBlock, FeasibilitySummaryBlock } from '@/components/feature-blocks'
 import { CATEGORIES, type Category, type GapType, type GapAnalysis, type MarketSaturation, type ComplaintCluster, type TimePeriod, type ComplaintCategory, type WhyNowAnalysis, type ExecutionDifficulty, type FalseOpportunityAnalysis, type FounderFitSuggestion, type SourceTransparency, type WhyExistingProductsFail, type MarketQuadrantPosition } from '@/types'
+import { ModuleErrorState } from '@/components/module-error-state'
+import { classifyError, type ModuleError } from '@/lib/error-handler'
 
 // ─── Gap Type Visual Config ────────────────────────────────────────────────
 const GAP_TYPE_CONFIG: Record<GapType, { label: string; icon: React.ElementType; color: string; darkColor: string }> = {
@@ -708,6 +710,7 @@ function SaturationEntry({ sat, delay = 0 }: { sat: MarketSaturation; delay?: nu
 export function GapAnalysisPanel() {
   const [category, setCategory] = useState<Category | 'all'>('all')
   const [gapTypeFilter, setGapTypeFilter] = useState<GapType | 'all'>('all')
+  const [analysisError, setAnalysisError] = useState<ModuleError | null>(null)
 
   const analysisResults = useAppStore((s) => s.analysisResults)
   const setAnalysisResults = useAppStore((s) => s.setAnalysisResults)
@@ -720,12 +723,25 @@ export function GapAnalysisPanel() {
 
   const analyzeMutation = useMutation({
     mutationFn: async () => {
+      setAnalysisError(null)
       const res = await fetch('/api/analyze', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ category, analysisType: 'full', timePeriod }),
       })
-      if (!res.ok) throw new Error('Analysis failed')
+      if (!res.ok) {
+        let moduleError: ModuleError
+        try {
+          const errorBody = await res.json()
+          moduleError = errorBody.moduleError || classifyError(new Error(errorBody.error || `HTTP ${res.status}`), 'Gap Analysis', '/api/analyze')
+          moduleError.statusCode = res.status
+        } catch {
+          moduleError = classifyError(new Error(`HTTP ${res.status}`), 'Gap Analysis', '/api/analyze')
+          moduleError.statusCode = res.status
+        }
+        setAnalysisError(moduleError)
+        throw new Error(moduleError.message)
+      }
       return res.json() as Promise<{ gaps: GapAnalysis[]; saturation: MarketSaturation[]; complaints: unknown[]; complaintClusters: ComplaintCluster[] }>
     },
     onSuccess: (data) => {
@@ -734,7 +750,10 @@ export function GapAnalysisPanel() {
       setComplaintClusters(data.complaintClusters || [])
       toast.success(`Analysis complete! Found ${data.gaps.length} gaps.`)
     },
-    onError: () => {
+    onError: (err) => {
+      if (!analysisError) {
+        setAnalysisError(classifyError(err, 'Gap Analysis', '/api/analyze'))
+      }
       toast.error('Analysis failed. Please try again.')
     },
   })
@@ -827,6 +846,15 @@ export function GapAnalysisPanel() {
           </CardContent>
         </Card>
       </motion.div>
+
+      {/* Error State */}
+      {analysisError && !analyzeMutation.isPending && (
+        <ModuleErrorState
+          error={analysisError}
+          onRetry={() => analyzeMutation.mutate()}
+          isRetrying={analyzeMutation.isPending}
+        />
+      )}
 
       {/* ─── Complaint Clustering (before gap cards) ──────────── */}
       {complaintClusters.length > 0 && (

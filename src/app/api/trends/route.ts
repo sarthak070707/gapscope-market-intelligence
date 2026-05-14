@@ -1,7 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { webSearch, generateStructuredResponse } from '@/lib/zai';
+import { retryWithBackoff, withTimeout, logError, classifyError } from '@/lib/error-handler';
+import { safeJsonParse } from '@/lib/json';
 import type { TrendData, CompetitorComparison, SubNiche, UnderservedUserGroup } from '@/types';
+
+const LLM_TIMEOUT_MS = 90_000;
+const WEBSEARCH_TIMEOUT_MS = 30_000;
+const MAX_RETRIES = 2;
 
 /**
  * GET /api/trends
@@ -32,11 +38,12 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json(parsed);
   } catch (error) {
-    console.error('List trends error:', error);
+    logError('Trend Detection', error, { endpoint: '/api/trends', method: 'GET' });
+    const moduleError = classifyError(error, 'Trend Detection', '/api/trends');
     return NextResponse.json(
       {
-        error: 'Failed to list trends',
-        details: error instanceof Error ? error.message : 'Unknown error',
+        error: moduleError.message,
+        moduleError,
       },
       { status: 500 }
     );
@@ -76,11 +83,12 @@ export async function POST(request: NextRequest) {
       );
     }
   } catch (error) {
-    console.error('Trends POST error:', error);
+    logError('Trend Detection', error, { endpoint: '/api/trends', method: 'POST' });
+    const moduleError = classifyError(error, 'Trend Detection', '/api/trends');
     return NextResponse.json(
       {
-        error: 'Failed to process trends request',
-        details: error instanceof Error ? error.message : 'Unknown error',
+        error: moduleError.message,
+        moduleError,
       },
       { status: 500 }
     );
@@ -91,13 +99,35 @@ export async function POST(request: NextRequest) {
  * Detect trending categories on Product Hunt using web search + LLM
  */
 async function handleDetectTrends(category: string) {
-  // Search for trending products and categories on Product Hunt
+  // Search for trending products and categories on Product Hunt (with timeout + retry)
   const searchQuery1 = `site:producthunt.com trending ${category} 2025`;
   const searchQuery2 = `product hunt ${category} trends growth 2025`;
 
   const [searchResult1, searchResult2] = await Promise.all([
-    webSearch(searchQuery1, 10).catch(() => []),
-    webSearch(searchQuery2, 10).catch(() => []),
+    retryWithBackoff(
+      () => withTimeout(
+        () => webSearch(searchQuery1, 10),
+        WEBSEARCH_TIMEOUT_MS,
+        'Trend Detection'
+      ),
+      { maxRetries: MAX_RETRIES },
+      'Trend Detection'
+    ).catch((err) => {
+      logError('Trend Detection', err, { step: 'webSearch', query: searchQuery1 });
+      return [];
+    }),
+    retryWithBackoff(
+      () => withTimeout(
+        () => webSearch(searchQuery2, 10),
+        WEBSEARCH_TIMEOUT_MS,
+        'Trend Detection'
+      ),
+      { maxRetries: MAX_RETRIES },
+      'Trend Detection'
+    ).catch((err) => {
+      logError('Trend Detection', err, { step: 'webSearch', query: searchQuery2 });
+      return [];
+    }),
   ]);
 
   const allResults = [
@@ -129,9 +159,11 @@ async function handleDetectTrends(category: string) {
     .map((p) => `${p.name} (${p.pricing}, ${p.upvotes} upvotes, launched ${p.launchDate})`)
     .join('\n');
 
-  // Use LLM to detect trends from search results - with sub-niches and underserved users
-  const trends = await generateStructuredResponse<TrendData[]>(
-    `You are a market trend analyst specializing in Product Hunt and tech product trends. 
+  // Use LLM to detect trends from search results (with timeout + retry)
+  const trends = await retryWithBackoff(
+    () => withTimeout(
+      () => generateStructuredResponse<TrendData[]>(
+        `You are a market trend analyst specializing in Product Hunt and tech product trends. 
 Analyze the search results and existing product data to identify trending patterns.
 
 For each trend, provide:
@@ -165,8 +197,14 @@ Focus on:
 5. Technology adoption trends
 
 Identify 2-5 significant trends.`,
-    `Search results:\n${searchContext}\n\nExisting products in DB:\n${productContext || 'None'}`,
-    `Return a JSON array of objects with fields: category (string), name (string), description (string), growthRate (number), direction (string: "growing"|"declining"|"stable"), dataPoints (array of {label: string, value: number}), period (string), subNiches (array of {name: string, description: string, parentCategory: string, opportunityScore: number}), underservedUsers (array of {userGroup: string, description: string, evidence: string, opportunityScore: number})`
+        `Search results:\n${searchContext}\n\nExisting products in DB:\n${productContext || 'None'}`,
+        `Return a JSON array of objects with fields: category (string), name (string), description (string), growthRate (number), direction (string: "growing"|"declining"|"stable"), dataPoints (array of {label: string, value: number}), period (string), subNiches (array of {name: string, description: string, parentCategory: string, opportunityScore: number}), underservedUsers (array of {userGroup: string, description: string, evidence: string, opportunityScore: number})`
+      ),
+      LLM_TIMEOUT_MS,
+      'Trend Detection'
+    ),
+    { maxRetries: MAX_RETRIES },
+    'Trend Detection'
   );
 
   const safeTrends = Array.isArray(trends) ? trends : [];
@@ -193,7 +231,7 @@ Identify 2-5 significant trends.`,
         id: created.id,
       });
     } catch (err) {
-      console.error('Failed to save trend:', err);
+      logError('Trend Detection', err, { step: 'saveTrend', trendName: trend.name });
     }
   }
 
@@ -255,9 +293,11 @@ Gaps: ${p.gaps.map((g) => `${g.gapType}: ${g.title}`).join('; ') || 'None'}`;
     })
     .join('\n\n---\n\n');
 
-  // Use LLM to compare products - with underserved users
-  const comparison = await generateStructuredResponse<CompetitorComparison>(
-    `You are a competitive product analyst. Compare the following products in the "${category}" category.
+  // Use LLM to compare products (with timeout + retry)
+  const comparison = await retryWithBackoff(
+    () => withTimeout(
+      () => generateStructuredResponse<CompetitorComparison>(
+        `You are a competitive product analyst. Compare the following products in the "${category}" category.
 For each product, identify:
 - Key pricing information
 - Core features list (3-5 features)
@@ -278,20 +318,18 @@ Then provide an overall comparison summary highlighting:
 - Market positioning insights
 
 Be specific and evidence-based in your analysis.`,
-    `Compare these products:\n\n${comparisonContext}`,
-    `Return a JSON object with:
+        `Compare these products:\n\n${comparisonContext}`,
+        `Return a JSON object with:
 - products: array of { name (string), pricing (string), features (string[]), reviewScore (number), strengths (string[]), weaknesses (string[]) }
 - underservedUsers: array of { userGroup (string), description (string), evidence (string), opportunityScore (number) }
 - summary (string: overall comparison summary)`
+      ),
+      LLM_TIMEOUT_MS,
+      'Trend Detection'
+    ),
+    { maxRetries: MAX_RETRIES },
+    'Trend Detection'
   );
 
   return NextResponse.json(comparison);
-}
-
-function safeJsonParse(jsonStr: string, fallback: unknown): unknown {
-  try {
-    return JSON.parse(jsonStr || '[]');
-  } catch {
-    return fallback;
-  }
 }

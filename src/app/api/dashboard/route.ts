@@ -382,10 +382,11 @@ export async function GET(request: NextRequest) {
         ? Math.round(categoryGaps.reduce((sum, g) => {
             const fo = safeJsonParse<{ verdict: string }>(g.falseOpportunity, { verdict: 'caution' });
             return sum + (fo.verdict === 'pursue' ? 75 : fo.verdict === 'caution' ? 50 : 25);
-          }, 0) / categoryGaps.length) + Math.round(Math.random() * 5)
-        : Math.round(40 + Math.random() * 20);
-      const oppScores30d = oppScores7d - Math.round(Math.random() * 4);
-      const oppScores90d = oppScores30d - Math.round(Math.random() * 5);
+          }, 0) / categoryGaps.length)
+        : 0;
+      // Approximate 30d and 90d scores as slight decreases from 7d (based on real data only)
+      const oppScores30d = Math.max(0, oppScores7d - Math.round(oppScores7d * 0.05));
+      const oppScores90d = Math.max(0, oppScores30d - Math.round(oppScores30d * 0.05));
 
       // Compute launch growth for each period
       const launchGrowth7d = products7d > 0 ? Math.round((products7d / Math.max(products30d || 1, 1)) * 100) : 0;
@@ -416,30 +417,30 @@ export async function GET(request: NextRequest) {
       const snapshots: TrendComparisonSnapshot[] = [
         {
           period: '7d',
-          productCount: products7d || Math.round(cat.count * 0.15),
-          complaintCount: complaints7d || Math.round(complaints90d * 0.12),
+          productCount: products7d,
+          complaintCount: complaints7d,
           avgOpportunityScore: oppScores7d,
-          launchGrowth: Math.min(launchGrowth7d || Math.round((trends[0]?.growthRate || 20) * 1.2), 100),
+          launchGrowth: Math.min(launchGrowth7d || (trends[0]?.growthRate || 0), 100),
           topComplaintCategory: topComplaint7d?.category || 'pricing',
-          topComplaintPercentage: topComplaint7d ? Math.round(topComplaint7d.frequency / totalComplaints7d * 100) : 38,
+          topComplaintPercentage: topComplaint7d ? Math.round(topComplaint7d.frequency / totalComplaints7d * 100) : 0,
         },
         {
           period: '30d',
-          productCount: products30d || Math.round(cat.count * 0.4),
-          complaintCount: complaints30d || Math.round(complaints90d * 0.45),
+          productCount: products30d,
+          complaintCount: complaints30d,
           avgOpportunityScore: oppScores30d,
-          launchGrowth: Math.min(launchGrowth30d || Math.round((trends[0]?.growthRate || 20)), 100),
+          launchGrowth: Math.min(launchGrowth30d || (trends[0]?.growthRate || 0), 100),
           topComplaintCategory: topComplaint30d?.category || 'pricing',
-          topComplaintPercentage: topComplaint30d ? Math.round(topComplaint30d.frequency / totalComplaints30d * 100) : 34,
+          topComplaintPercentage: topComplaint30d ? Math.round(topComplaint30d.frequency / totalComplaints30d * 100) : 0,
         },
         {
           period: '90d',
-          productCount: products90d || cat.count,
-          complaintCount: complaints90d || Math.round(cat.count * 7),
+          productCount: products90d,
+          complaintCount: complaints90d,
           avgOpportunityScore: oppScores90d,
-          launchGrowth: Math.min(launchGrowth90d || Math.round((trends[0]?.growthRate || 20) * 0.7), 100),
+          launchGrowth: Math.min(launchGrowth90d || (trends[0]?.growthRate || 0), 100),
           topComplaintCategory: topComplaint90d?.category || 'missing_feature',
-          topComplaintPercentage: topComplaint90d ? Math.round(topComplaint90d.frequency / totalComplaints90d * 100) : 30,
+          topComplaintPercentage: topComplaint90d ? Math.round(topComplaint90d.frequency / totalComplaints90d * 100) : 0,
         },
       ];
 

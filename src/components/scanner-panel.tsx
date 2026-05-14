@@ -28,6 +28,8 @@ import {
 } from '@/components/ui/table'
 import { useAppStore } from '@/lib/store'
 import { CATEGORIES, SEARCH_SUGGESTIONS, type Category, type ScannedProduct } from '@/types'
+import { ModuleErrorState } from '@/components/module-error-state'
+import { classifyError, type ModuleError } from '@/lib/error-handler'
 
 export function ScannerPanel() {
   const [category, setCategory] = useState<Category | 'all'>('all')
@@ -37,24 +39,42 @@ export function ScannerPanel() {
   const [searchInput, setSearchInput] = useState('')
   const [showSuggestions, setShowSuggestions] = useState(false)
 
+  const [scanError, setScanError] = useState<ModuleError | null>(null)
+
   const scanResults = useAppStore((s) => s.scanResults)
   const setScanResults = useAppStore((s) => s.setScanResults)
 
   const scanMutation = useMutation({
     mutationFn: async () => {
+      setScanError(null)
       const res = await fetch('/api/scan', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ category, period }),
       })
-      if (!res.ok) throw new Error('Scan failed')
+      if (!res.ok) {
+        let moduleError: ModuleError
+        try {
+          const errorBody = await res.json()
+          moduleError = errorBody.moduleError || classifyError(new Error(errorBody.error || `HTTP ${res.status}`), 'Product Hunt Scanner', '/api/scan')
+          moduleError.statusCode = res.status
+        } catch {
+          moduleError = classifyError(new Error(`HTTP ${res.status}`), 'Product Hunt Scanner', '/api/scan')
+          moduleError.statusCode = res.status
+        }
+        setScanError(moduleError)
+        throw new Error(moduleError.message)
+      }
       return res.json() as Promise<ScannedProduct[]>
     },
     onSuccess: (data) => {
       setScanResults(data)
       toast.success(`Scan complete! Found ${data.length} products.`)
     },
-    onError: () => {
+    onError: (err) => {
+      if (!scanError) {
+        setScanError(classifyError(err, 'Product Hunt Scanner', '/api/scan'))
+      }
       toast.error('Scan failed. Please try again.')
     },
   })
@@ -210,6 +230,15 @@ export function ScannerPanel() {
           </CardContent>
         </Card>
       </motion.div>
+
+      {/* Error State */}
+      {scanError && !scanMutation.isPending && (
+        <ModuleErrorState
+          error={scanError}
+          onRetry={() => scanMutation.mutate()}
+          isRetrying={scanMutation.isPending}
+        />
+      )}
 
       {/* Results Table */}
       <motion.div

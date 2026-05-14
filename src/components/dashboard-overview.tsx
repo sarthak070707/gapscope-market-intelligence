@@ -75,388 +75,9 @@ const BAR_COLORS = [
   'oklch(0.58 0.12 42)',
 ]
 
-// ─── Mock / Fallback Data ─────────────────────────────────────────
-
-const MOCK_DASHBOARD_DATA: DashboardStats = {
-  totalProducts: 247,
-  totalGaps: 18,
-  totalOpportunities: 12,
-  avgSaturation: 62,
-  topCategories: [
-    { name: 'AI Tools', count: 48 },
-    { name: 'Productivity', count: 37 },
-    { name: 'Developer Tools', count: 33 },
-    { name: 'Marketing', count: 29 },
-    { name: 'No-Code', count: 24 },
-    { name: 'Education', count: 21 },
-  ],
-  trendingCategories: [
-    { name: 'AI Tools', growth: 34 },
-    { name: 'No-Code', growth: 28 },
-    { name: 'Automation', growth: 22 },
-  ],
-  recentGaps: [],
-  trendingGaps: [
-    {
-      gapType: 'missing_feature',
-      title: 'No AI-powered onboarding for SaaS products',
-      description: 'Most SaaS tools still use static checklists. Users expect personalized, AI-driven onboarding flows that adapt to their role and usage patterns.',
-      evidence: '142 complaints across Product Hunt and G2 reviews',
-      severity: 'high',
-      evidenceDetail: {
-        similarProducts: 8,
-        repeatedComplaints: 142,
-        launchFrequency: 3,
-        commentSnippets: ['I just want the tool to show me what I need', 'Onboarding is so generic it\'s useless', 'Why can\'t it adapt to my team size?'],
-        pricingOverlap: 67,
-        launchGrowth: 22,
-      },
-      whyThisMatters: 'Personalized onboarding can reduce churn by up to 40%. This gap represents a $2.3B market opportunity as SaaS companies compete on retention.',
-      subNiche: {
-        name: 'Adaptive SaaS Onboarding',
-        description: 'AI-driven onboarding that personalizes based on user role, team size, and usage patterns',
-        parentCategory: 'AI Tools',
-        opportunityScore: 82,
-      },
-      affectedProducts: [
-        { name: 'Userflow', pricing: '$240/mo', strengths: ['Visual builder', 'Good analytics'], weaknesses: ['No AI adaptation', 'Expensive'] },
-        { name: 'Appcues', pricing: '$299/mo', strengths: ['Segmentation', 'Integrations'], weaknesses: ['Static flows', 'Complex setup'] },
-        { name: 'Pendo', pricing: 'Enterprise', strengths: ['Deep analytics', 'Enterprise features'], weaknesses: ['Very expensive', 'No AI personalization'] },
-      ],
-      whyNow: {
-        marketGrowthDriver: 'The SaaS market is shifting from acquisition to retention, making onboarding a critical competitive differentiator.',
-        incumbentWeakness: 'Existing tools use rule-based flows that cannot adapt in real-time to user behavior.',
-        timingAdvantage: 'LLM costs have dropped 90% in the past year, making personalized onboarding economically viable.',
-        catalystEvents: ['OpenAI API price cuts', 'Growth of product-led growth movement'],
-      },
-      executionDifficulty: {
-        level: 'medium',
-        demandLevel: 'high',
-        competitionLevel: 'medium',
-        technicalComplexity: 'medium',
-        timeToMvp: '4-6 weeks',
-        estimatedBudget: '$5k-20k',
-        keyChallenges: ['Training behavior models', 'Integration with existing SaaS tools', 'Balancing personalization with privacy'],
-      },
-      falseOpportunity: {
-        isFalseOpportunity: false,
-        reason: 'Strong demand signal with clear willingness to pay from SaaS companies.',
-        estimatedMarketSize: '$100M+',
-        riskFactors: ['Enterprise sales cycle can be slow', 'Requires deep integration partnerships'],
-        verdict: 'pursue',
-      },
-      founderFit: {
-        bestFit: ['b2b_saas', 'solo_developer'],
-        rationale: 'B2B SaaS founders understand the pain point firsthand; solo developers can build a focused MVP quickly.',
-        requiredSkills: ['Frontend development', 'Basic ML/AI integration', 'API design'],
-        idealTeamSize: '2-3 people',
-      },
-      sourceTransparency: {
-        sourcePlatforms: ['Product Hunt', 'G2', 'Reddit'],
-        totalComments: 347,
-        complaintFrequency: 42,
-        reviewSources: [{ platform: 'G2', count: 189, avgScore: 3.2 }, { platform: 'Product Hunt', count: 98, avgScore: 4.1 }, { platform: 'Reddit', count: 60, avgScore: 2.8 }],
-        dataFreshness: 'Data from last 30 days',
-        confidenceLevel: 'high',
-      },
-      marketQuadrant: {
-        competitionScore: 55,
-        opportunityScore: 82,
-        quadrant: 'goldmine',
-        label: 'Goldmine — Low competition, high opportunity',
-      },
-    },
-    {
-      gapType: 'expensive',
-      title: 'Affordable analytics for indie makers',
-      description: 'Most analytics tools cost $100+/mo. Solo founders and indie hackers need powerful yet affordable alternatives.',
-      evidence: '89 complaints about pricing on Reddit and Indie Hackers',
-      severity: 'high',
-      evidenceDetail: {
-        similarProducts: 12,
-        repeatedComplaints: 89,
-        launchFrequency: 2,
-        commentSnippets: ['I can\'t justify $100/mo for analytics', 'Why is everything so expensive for solo founders?'],
-        pricingOverlap: 78,
-        launchGrowth: 15,
-      },
-      whyThisMatters: 'The indie maker market is growing 25% YoY. Affordable tools can capture this underserved segment before incumbents respond.',
-      subNiche: {
-        name: 'Indie Analytics',
-        description: 'Privacy-first, affordable analytics built for solo founders',
-        parentCategory: 'Developer Tools',
-        opportunityScore: 76,
-      },
-      affectedProducts: [
-        { name: 'Mixpanel', pricing: '$20+/mo', strengths: ['Powerful segmentation', 'Real-time'], weaknesses: ['Expensive at scale', 'Complex UI'] },
-        { name: 'Amplitude', pricing: 'Enterprise', strengths: ['Behavioral cohorts', 'Collaboration'], weaknesses: ['Free tier is limited', 'Overkill for indies'] },
-      ],
-      whyNow: {
-        marketGrowthDriver: 'The creator economy and indie SaaS movement are exploding, creating demand for budget-friendly tools.',
-        incumbentWeakness: 'Incumbents are focused on enterprise features, ignoring the low-end market.',
-        timingAdvantage: 'Privacy regulations (GDPR, CCPA) make lightweight, privacy-first analytics more attractive.',
-      },
-      executionDifficulty: {
-        level: 'low-medium',
-        demandLevel: 'high',
-        competitionLevel: 'low',
-        technicalComplexity: 'medium',
-        timeToMvp: '2-4 weeks',
-        estimatedBudget: '$0-500',
-        keyChallenges: ['Competing with free tiers of incumbents', 'Scaling infrastructure affordably'],
-      },
-      falseOpportunity: {
-        isFalseOpportunity: false,
-        reason: 'Clear willingness to pay from indie makers; low CAC through community channels.',
-        estimatedMarketSize: '$10-100M',
-        riskFactors: ['Low ARPU requires high volume', 'Free alternatives exist'],
-        verdict: 'pursue',
-      },
-      founderFit: {
-        bestFit: ['solo_developer', 'student_founder'],
-        rationale: 'Perfect first product for solo developers who understand the indie market.',
-        requiredSkills: ['Full-stack development', 'Basic data engineering', 'Community building'],
-        idealTeamSize: 'Solo',
-      },
-      sourceTransparency: {
-        sourcePlatforms: ['Reddit', 'Indie Hackers', 'Twitter/X'],
-        totalComments: 156,
-        complaintFrequency: 38,
-        reviewSources: [{ platform: 'Reddit', count: 87, avgScore: 2.9 }, { platform: 'Indie Hackers', count: 42, avgScore: 3.5 }],
-        dataFreshness: 'Data from last 30 days',
-        confidenceLevel: 'medium',
-      },
-      marketQuadrant: {
-        competitionScore: 35,
-        opportunityScore: 76,
-        quadrant: 'goldmine',
-        label: 'Goldmine — Low competition, high opportunity',
-      },
-    },
-    {
-      gapType: 'underserved',
-      title: 'No-code workflow builder for non-technical teams',
-      description: 'Non-technical teams in marketing, HR, and operations struggle to automate workflows without engineering help. Current tools are too complex.',
-      evidence: '67 complaints about complexity and lack of templates',
-      severity: 'high',
-      evidenceDetail: {
-        similarProducts: 6,
-        repeatedComplaints: 67,
-        launchFrequency: 4,
-        commentSnippets: ['I need something my marketing team can use without IT', 'Why do I need to learn variables and logic?'],
-        pricingOverlap: 45,
-        launchGrowth: 18,
-      },
-      whyThisMatters: '70% of knowledge workers want to automate tasks but only 15% can use current tools. This gap affects millions of workers.',
-      subNiche: {
-        name: 'Team Workflow Automation',
-        description: 'Template-driven workflow builder for non-technical teams',
-        parentCategory: 'Automation',
-        opportunityScore: 71,
-      },
-      affectedProducts: [
-        { name: 'Zapier', pricing: '$19.99/mo', strengths: ['5000+ integrations', 'Reliable'], weaknesses: ['Complex for non-tech', 'Expensive at scale'] },
-        { name: 'Make', pricing: '$9/mo', strengths: ['Visual builder', 'Affordable start'], weaknesses: ['Steep learning curve', 'Limited templates'] },
-      ],
-      whyNow: {
-        marketGrowthDriver: 'The no-code movement is mainstream; businesses want to empower non-technical employees.',
-        incumbentWeakness: 'Existing tools expose too much logic and complexity to end users.',
-        timingAdvantage: 'AI assistants can now generate workflows from natural language descriptions.',
-        catalystEvents: ['GPT-4 function calling API', 'Rise of citizen developer programs'],
-      },
-      executionDifficulty: {
-        level: 'medium-high',
-        demandLevel: 'high',
-        competitionLevel: 'high',
-        technicalComplexity: 'high',
-        timeToMvp: '2-3 months',
-        estimatedBudget: '$5k-20k',
-        keyChallenges: ['Building intuitive UX for complex logic', 'Integration breadth', 'Competing with Zapier'],
-      },
-      falseOpportunity: {
-        isFalseOpportunity: false,
-        reason: 'Large TAM with clear pain points, though execution risk is high.',
-        estimatedMarketSize: '$100M+',
-        riskFactors: ['Zapier has strong network effects', 'Integration maintenance is costly'],
-        verdict: 'caution',
-      },
-      founderFit: {
-        bestFit: ['b2b_saas', 'agency'],
-        rationale: 'B2B SaaS founders can leverage enterprise sales channels; agencies understand workflow pain points.',
-        requiredSkills: ['Product design', 'Integration engineering', 'Enterprise sales'],
-        idealTeamSize: '5+ team',
-      },
-      sourceTransparency: {
-        sourcePlatforms: ['G2', 'Capterra', 'LinkedIn'],
-        totalComments: 234,
-        complaintFrequency: 29,
-        reviewSources: [{ platform: 'G2', count: 145, avgScore: 3.8 }, { platform: 'Capterra', count: 89, avgScore: 3.5 }],
-        dataFreshness: 'Data from last 30 days',
-        confidenceLevel: 'medium',
-      },
-      marketQuadrant: {
-        competitionScore: 72,
-        opportunityScore: 71,
-        quadrant: 'crowded',
-        label: 'Crowded — High competition, moderate opportunity',
-      },
-    },
-  ],
-  saturatedMarkets: [
-    {
-      category: 'AI Tools',
-      score: 78,
-      level: 'high',
-      factors: { similarProducts: 48, featureOverlap: 72, launchFrequency: 16, userComplaints: 34, pricingSimilarity: 65 },
-      marketQuadrant: {
-        competitionScore: 78,
-        opportunityScore: 35,
-        quadrant: 'crowded',
-        label: 'Crowded — High competition, low differentiation',
-      },
-    },
-    {
-      category: 'Productivity',
-      score: 65,
-      level: 'medium',
-      factors: { similarProducts: 37, featureOverlap: 58, launchFrequency: 12, userComplaints: 22, pricingSimilarity: 48 },
-      marketQuadrant: {
-        competitionScore: 65,
-        opportunityScore: 45,
-        quadrant: 'crowded',
-        label: 'Crowded — Moderate-high competition',
-      },
-    },
-    {
-      category: 'Developer Tools',
-      score: 52,
-      level: 'medium',
-      factors: { similarProducts: 33, featureOverlap: 41, launchFrequency: 11, userComplaints: 18, pricingSimilarity: 55 },
-      marketQuadrant: {
-        competitionScore: 52,
-        opportunityScore: 55,
-        quadrant: 'blue_ocean',
-        label: 'Blue Ocean — Moderate competition, emerging opportunity',
-      },
-    },
-    {
-      category: 'Education',
-      score: 38,
-      level: 'low',
-      factors: { similarProducts: 21, featureOverlap: 32, launchFrequency: 7, userComplaints: 14, pricingSimilarity: 42 },
-      marketQuadrant: {
-        competitionScore: 38,
-        opportunityScore: 72,
-        quadrant: 'goldmine',
-        label: 'Goldmine — Low competition, high opportunity',
-      },
-    },
-  ],
-  emergingNiches: [
-    {
-      name: 'AI-Powered Code Review',
-      description: 'Automated code review tools that catch bugs, security issues, and style violations using LLMs',
-      parentCategory: 'Developer Tools',
-      opportunityScore: 84,
-    },
-    {
-      name: 'Personalized Learning Paths',
-      description: 'Adaptive education platforms that adjust curriculum based on learner progress and goals',
-      parentCategory: 'Education',
-      opportunityScore: 73,
-    },
-    {
-      name: 'Micro-SaaS for Niche Industries',
-      description: 'Vertical SaaS solutions for underserved industries like plumbing, landscaping, and pet care',
-      parentCategory: 'No-Code',
-      opportunityScore: 68,
-    },
-  ],
-  complaintTrends: [
-    {
-      category: 'pricing',
-      label: 'Expensive Pricing',
-      percentage: 34,
-      count: 287,
-      exampleSnippets: ['Way too expensive for what it does', 'The free tier is basically useless', 'Pricing doesn\'t scale with small teams'],
-    },
-    {
-      category: 'missing_feature',
-      label: 'Missing Features',
-      percentage: 28,
-      count: 238,
-      exampleSnippets: ['Still no dark mode in 2025?', 'Missing basic export functionality', 'No API access on the standard plan'],
-    },
-    {
-      category: 'ux',
-      label: 'Bad UX',
-      percentage: 21,
-      count: 178,
-      exampleSnippets: ['Navigation is a maze', 'Settings are buried three levels deep', 'Every update makes it harder to use'],
-    },
-    {
-      category: 'performance',
-      label: 'Poor Performance',
-      percentage: 17,
-      count: 144,
-      exampleSnippets: ['Takes 30 seconds to load the dashboard', 'Crashes every time I import a CSV', 'Mobile app is incredibly slow'],
-    },
-  ],
-  fastestGrowingCategories: [
-    { name: 'AI Tools', growth: 34, productCount: 48 },
-    { name: 'No-Code', growth: 28, productCount: 24 },
-    { name: 'Automation', growth: 22, productCount: 19 },
-  ],
-  underservedUsers: [
-    {
-      userGroup: 'Solo Founders',
-      description: 'Individual entrepreneurs building their first product who need affordable, simple tools',
-      evidence: '89 complaints about pricing and complexity from indie maker communities',
-      opportunityScore: 82,
-    },
-    {
-      userGroup: 'Non-Technical Marketing Teams',
-      description: 'Marketing teams without engineering support who need automation and analytics',
-      evidence: '67 complaints about needing developer help for basic tasks',
-      opportunityScore: 74,
-    },
-    {
-      userGroup: 'Small Business Owners',
-      description: 'Businesses with fewer than 10 employees who need enterprise-grade tools at SMB prices',
-      evidence: '53 complaints about enterprise-only features and pricing',
-      opportunityScore: 69,
-    },
-  ],
-  marketMetrics: {
-    avgLaunchGrowth: 23,
-    totalComplaints: 847,
-    highOpportunityCount: 7,
-    avgOpportunityScore: 68,
-    marketHealth: 'expanding',
-  },
-  trendComparisons: [
-    {
-      category: 'AI Tools',
-      snapshots: [
-        { period: '7d', productCount: 8, complaintCount: 42, avgOpportunityScore: 62, launchGrowth: 34, topComplaintCategory: 'pricing', topComplaintPercentage: 38 },
-        { period: '30d', productCount: 28, complaintCount: 156, avgOpportunityScore: 58, launchGrowth: 28, topComplaintCategory: 'pricing', topComplaintPercentage: 34 },
-        { period: '90d', productCount: 48, complaintCount: 347, avgOpportunityScore: 55, launchGrowth: 22, topComplaintCategory: 'missing_feature', topComplaintPercentage: 30 },
-      ],
-      trendDirection: 'improving',
-      summary: 'Opportunity score improved 12% from 7d to 90d as complaint volume shifted from pricing to missing features, indicating evolving user needs.',
-    },
-    {
-      category: 'Productivity',
-      snapshots: [
-        { period: '7d', productCount: 5, complaintCount: 18, avgOpportunityScore: 48, launchGrowth: 12, topComplaintCategory: 'ux', topComplaintPercentage: 32 },
-        { period: '30d', productCount: 18, complaintCount: 67, avgOpportunityScore: 45, launchGrowth: 15, topComplaintCategory: 'ux', topComplaintPercentage: 28 },
-        { period: '90d', productCount: 37, complaintCount: 142, avgOpportunityScore: 42, launchGrowth: 18, topComplaintCategory: 'missing_feature', topComplaintPercentage: 25 },
-      ],
-      trendDirection: 'stable',
-      summary: 'Productivity tools show stable opportunity with consistent UX complaints and gradual shift toward missing feature requests.',
-    },
-  ],
-}
+// ─── No Mock Data ─────────────────────────────────────────
+// Dashboard only displays real data from the API.
+// When no data exists, an empty state is shown instead.
 
 // ─── Utility Functions ─────────────────────────────────────────────
 
@@ -777,23 +398,63 @@ export function DashboardOverview() {
   const [expandedRecent, setExpandedRecent] = useState<number | null>(null)
   const [expandedTrend, setExpandedTrend] = useState<number | null>(null)
 
-  const { data, isLoading, isError } = useQuery<DashboardStats>({
+  const { data, isLoading, isError, refetch } = useQuery<DashboardStats>({
     queryKey: ['dashboard', timePeriod],
     queryFn: async () => {
       const res = await fetch(`/api/dashboard?timePeriod=${timePeriod}`)
-      if (!res.ok) throw new Error('Failed to fetch dashboard data')
+      if (!res.ok) {
+        let errorMsg = `Failed to fetch dashboard data (HTTP ${res.status})`
+        try {
+          const errorBody = await res.json()
+          errorMsg = errorBody.error || errorMsg
+        } catch {}
+        throw new Error(errorMsg)
+      }
       return res.json()
     },
-    placeholderData: () => MOCK_DASHBOARD_DATA,
-    retry: 3,
+    retry: 2,
     retryDelay: (attemptIndex) => Math.min(1000 * 2 ** attemptIndex, 10000),
   })
 
-  // Use mock data as fallback when the API fails
-  const dashboardData = data ?? MOCK_DASHBOARD_DATA
+  // Use real data only — never fall back to mock data
+  const dashboardData = data
 
-  // Only show skeleton on the very first load (no placeholderData yet)
+  // Show skeleton while loading
   if (isLoading && !data) return <DashboardSkeleton />
+
+  // Show error state with retry when the API fails
+  if (isError && !data) {
+    return (
+      <div className="flex flex-col items-center justify-center py-16 text-center">
+        <AlertTriangle className="h-12 w-12 text-red-500 mb-4" />
+        <h3 className="text-lg font-semibold mb-2">Dashboard Unavailable</h3>
+        <p className="text-sm text-muted-foreground mb-4 max-w-md">
+          Could not load dashboard data. This may be a temporary issue. Try refreshing or scan some products first.
+        </p>
+        <Button onClick={() => refetch()} variant="outline" className="gap-2">
+          <Search className="h-4 w-4" />
+          Retry
+        </Button>
+      </div>
+    )
+  }
+
+  // If we have no data at all (empty DB), show the welcome state
+  if (!dashboardData) {
+    return (
+      <div className="flex flex-col items-center justify-center py-16 text-center">
+        <Database className="h-12 w-12 text-muted-foreground/30 mb-4" />
+        <h3 className="text-lg font-semibold mb-2">No Data Yet</h3>
+        <p className="text-sm text-muted-foreground mb-4 max-w-md">
+          Scan products on Product Hunt first to populate the dashboard with real market intelligence data.
+        </p>
+        <Button onClick={() => setActiveTab('scanner')} className="bg-orange-600 hover:bg-orange-700 text-white gap-2">
+          <Search className="h-4 w-4" />
+          Start Scanning
+        </Button>
+      </div>
+    )
+  }
 
   const saturationChartData = dashboardData.topCategories.map((cat) => ({
     name: cat.name,

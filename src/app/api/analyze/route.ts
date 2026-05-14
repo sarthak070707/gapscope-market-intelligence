@@ -2,7 +2,11 @@ import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { generateStructuredResponse } from '@/lib/zai';
 import { safeJsonParse } from '@/lib/json';
+import { retryWithBackoff, withTimeout, logError, classifyError } from '@/lib/error-handler';
 import type { GapAnalysis, MarketSaturation, ComplaintAnalysis, ComplaintCluster, EvidenceDetail, SubNiche, ProductReference, UnderservedUserGroup, WhyNowAnalysis, ExecutionDifficulty, FalseOpportunityAnalysis, FounderFitSuggestion, SourceTransparency, WhyExistingProductsFail, MarketQuadrantPosition } from '@/types';
+
+const LLM_TIMEOUT_MS = 90_000;
+const MAX_RETRIES = 2;
 
 export async function POST(request: NextRequest) {
   try {
@@ -51,6 +55,7 @@ export async function POST(request: NextRequest) {
       saturation: MarketSaturation[];
       complaints: ComplaintAnalysis[];
       complaintClusters: ComplaintCluster[];
+      partialErrors?: Record<string, unknown>;
     } = {
       gaps: [],
       saturation: [],
@@ -74,30 +79,57 @@ export async function POST(request: NextRequest) {
 
     const productsContext = JSON.stringify(productSummaries, null, 2);
 
-    // Run gaps analysis
+    // Track partial errors so one failing analysis doesn't break the others
+    const partialErrors: Record<string, unknown> = {};
+
+    // Run gaps analysis (individual try/catch)
     if (analysisType === 'gaps' || analysisType === 'full') {
-      result.gaps = await analyzeGaps(productsContext, effectiveProducts, timePeriod);
+      try {
+        result.gaps = await analyzeGaps(productsContext, effectiveProducts, timePeriod);
+      } catch (error) {
+        logError('Gap Analysis', error, { endpoint: '/api/analyze', step: 'analyzeGaps', category });
+        const moduleError = classifyError(error, 'Gap Analysis', '/api/analyze');
+        partialErrors.gaps = moduleError;
+      }
     }
 
-    // Run saturation analysis
+    // Run saturation analysis (individual try/catch)
     if (analysisType === 'saturation' || analysisType === 'full') {
-      result.saturation = await analyzeSaturation(productsContext, category, effectiveProducts);
+      try {
+        result.saturation = await analyzeSaturation(productsContext, category, effectiveProducts);
+      } catch (error) {
+        logError('Gap Analysis', error, { endpoint: '/api/analyze', step: 'analyzeSaturation', category });
+        const moduleError = classifyError(error, 'Gap Analysis', '/api/analyze');
+        partialErrors.saturation = moduleError;
+      }
     }
 
-    // Run complaints analysis
+    // Run complaints analysis (individual try/catch)
     if (analysisType === 'complaints' || analysisType === 'full') {
-      const complaintResult = await analyzeComplaints(productsContext, effectiveProducts);
-      result.complaints = complaintResult.complaints;
-      result.complaintClusters = complaintResult.clusters;
+      try {
+        const complaintResult = await analyzeComplaints(productsContext, effectiveProducts);
+        result.complaints = complaintResult.complaints;
+        result.complaintClusters = complaintResult.clusters;
+      } catch (error) {
+        logError('Gap Analysis', error, { endpoint: '/api/analyze', step: 'analyzeComplaints', category });
+        const moduleError = classifyError(error, 'Gap Analysis', '/api/analyze');
+        partialErrors.complaints = moduleError;
+      }
+    }
+
+    // Attach partial errors if any
+    if (Object.keys(partialErrors).length > 0) {
+      result.partialErrors = partialErrors;
     }
 
     return NextResponse.json(result);
   } catch (error) {
-    console.error('Analyze error:', error);
+    logError('Gap Analysis', error, { endpoint: '/api/analyze' });
+    const moduleError = classifyError(error, 'Gap Analysis', '/api/analyze');
     return NextResponse.json(
       {
-        error: 'Failed to analyze products',
-        details: error instanceof Error ? error.message : 'Unknown error',
+        error: moduleError.message,
+        moduleError,
       },
       { status: 500 }
     );
@@ -109,8 +141,10 @@ async function analyzeGaps(
   products: { id: string; name: string; category: string; pricing: string; comments: string; features: string }[],
   timePeriod: string
 ): Promise<GapAnalysis[]> {
-  const gaps = await generateStructuredResponse<GapAnalysis[]>(
-    `You are a rigorous product market analyst specializing in identifying gaps in product markets. You work for a market intelligence firm and your analysis must be evidence-backed, specific, and actionable — the kind of analysis a venture capitalist would trust.
+  const gaps = await retryWithBackoff(
+    () => withTimeout(
+      () => generateStructuredResponse<GapAnalysis[]>(
+        `You are a rigorous product market analyst specializing in identifying gaps in product markets. You work for a market intelligence firm and your analysis must be evidence-backed, specific, and actionable — the kind of analysis a venture capitalist would trust.
 
 Analyze the given products and identify market gaps. Focus on these gap types:
 - missing_feature: Features that users commonly need but are absent across products
@@ -188,8 +222,14 @@ Rule 5: For "whyThisMatters", think like a venture capitalist explaining to a fo
   - opportunityScore: 0-100 score
 
 Identify 3-8 meaningful gaps. Base your analysis ONLY on the product data provided. Every number must come from or be derived from the data.`,
-    `Analyze these products for market gaps (time period: ${timePeriod}):\n\n${productsContext}`,
-    `Return a JSON array of objects with fields: gapType (string), title (string), description (string), evidence (string), severity (string: "low"|"medium"|"high"), evidenceDetail (object: { similarProducts: number, repeatedComplaints: number, launchFrequency: number, commentSnippets: string[], pricingOverlap: number, launchGrowth: number }), whyThisMatters (string), subNiche (object: { name: string, description: string, parentCategory: string, opportunityScore: number }), affectedProducts (array of { name: string, pricing: string, strengths: string[], weaknesses: string[] }), underservedUsers (array of { userGroup: string, description: string, evidence: string, opportunityScore: number }), whyNow (object: { marketGrowthDriver: string, incumbentWeakness: string, timingAdvantage: string, catalystEvents: string[] }), executionDifficulty (object: { level: string, demandLevel: string, competitionLevel: string, technicalComplexity: string, timeToMvp: string, estimatedBudget: string, keyChallenges: string[] }), falseOpportunity (object: { isFalseOpportunity: boolean, reason: string, estimatedMarketSize: string, riskFactors: string[], verdict: string }), founderFit (object: { bestFit: string[], rationale: string, requiredSkills: string[], idealTeamSize: string }), sourceTransparency (object: { sourcePlatforms: string[], totalComments: number, complaintFrequency: number, reviewSources: array of { platform: string, count: number, avgScore: number }, dataFreshness: string, confidenceLevel: string }), whyExistingProductsFail (object: { rootCause: string, userImpact: string, missedByCompetitors: string }), marketQuadrant (object: { competitionScore: number, opportunityScore: number, quadrant: string, label: string })`
+        `Analyze these products for market gaps (time period: ${timePeriod}):\n\n${productsContext}`,
+        `Return a JSON array of objects with fields: gapType (string), title (string), description (string), evidence (string), severity (string: "low"|"medium"|"high"), evidenceDetail (object: { similarProducts: number, repeatedComplaints: number, launchFrequency: number, commentSnippets: string[], pricingOverlap: number, launchGrowth: number }), whyThisMatters (string), subNiche (object: { name: string, description: string, parentCategory: string, opportunityScore: number }), affectedProducts (array of { name: string, pricing: string, strengths: string[], weaknesses: string[] }), underservedUsers (array of { userGroup: string, description: string, evidence: string, opportunityScore: number }), whyNow (object: { marketGrowthDriver: string, incumbentWeakness: string, timingAdvantage: string, catalystEvents: string[] }), executionDifficulty (object: { level: string, demandLevel: string, competitionLevel: string, technicalComplexity: string, timeToMvp: string, estimatedBudget: string, keyChallenges: string[] }), falseOpportunity (object: { isFalseOpportunity: boolean, reason: string, estimatedMarketSize: string, riskFactors: string[], verdict: string }), founderFit (object: { bestFit: string[], rationale: string, requiredSkills: string[], idealTeamSize: string }), sourceTransparency (object: { sourcePlatforms: string[], totalComments: number, complaintFrequency: number, reviewSources: array of { platform: string, count: number, avgScore: number }, dataFreshness: string, confidenceLevel: string }), whyExistingProductsFail (object: { rootCause: string, userImpact: string, missedByCompetitors: string }), marketQuadrant (object: { competitionScore: number, opportunityScore: number, quadrant: string, label: string })`
+      ),
+      LLM_TIMEOUT_MS,
+      'Gap Analysis'
+    ),
+    { maxRetries: MAX_RETRIES },
+    'Gap Analysis'
   );
 
   const safeGaps = Array.isArray(gaps) ? gaps : [];
@@ -212,18 +252,18 @@ Identify 3-8 meaningful gaps. Base your analysis ONLY on the product data provid
             affectedProducts: JSON.stringify(gap.affectedProducts || []),
             underservedUsers: JSON.stringify(gap.underservedUsers || []),
             severity: gap.severity || 'medium',
-            whyNow: JSON.stringify((gap as any).whyNow || {}),
-            executionDifficulty: JSON.stringify((gap as any).executionDifficulty || {}),
-            falseOpportunity: JSON.stringify((gap as any).falseOpportunity || {}),
-            founderFit: JSON.stringify((gap as any).founderFit || {}),
-            sourceTransparency: JSON.stringify((gap as any).sourceTransparency || {}),
-            whyExistingProductsFail: JSON.stringify((gap as any).whyExistingProductsFail || {}),
-            marketQuadrant: JSON.stringify((gap as any).marketQuadrant || {}),
+            whyNow: JSON.stringify(gap.whyNow || {}),
+            executionDifficulty: JSON.stringify(gap.executionDifficulty || {}),
+            falseOpportunity: JSON.stringify(gap.falseOpportunity || {}),
+            founderFit: JSON.stringify(gap.founderFit || {}),
+            sourceTransparency: JSON.stringify(gap.sourceTransparency || {}),
+            whyExistingProductsFail: JSON.stringify(gap.whyExistingProductsFail || {}),
+            marketQuadrant: JSON.stringify(gap.marketQuadrant || {}),
           },
         });
       }
     } catch (err) {
-      console.error('Failed to save gap:', err);
+      logError('Gap Analysis', err, { step: 'saveGap', gapTitle: gap.title });
     }
   }
 
@@ -370,11 +410,13 @@ async function analyzeSaturation(
     const score = Math.max(0, Math.min(100, rawScore));
     const level = score < 33 ? 'low' : score < 66 ? 'medium' : 'high';
 
-    // Generate competitor breakdown using LLM
+    // Generate competitor breakdown using LLM (with timeout + retry)
     let topCompetitors: ProductReference[] = [];
     try {
-      topCompetitors = await generateStructuredResponse<ProductReference[]>(
-        `You are a rigorous competitive analyst. Based on the product data, identify the top competitors in the "${cat}" category.
+      topCompetitors = await retryWithBackoff(
+        () => withTimeout(
+          () => generateStructuredResponse<ProductReference[]>(
+            `You are a rigorous competitive analyst. Based on the product data, identify the top competitors in the "${cat}" category.
 
 RULES:
 1. You MUST list at least 3 competitors if 3+ products exist in the data. If fewer, list all of them.
@@ -390,19 +432,28 @@ For each competitor, provide:
 - pricing: Their actual pricing model as listed
 - strengths: Array of 2-3 SPECIFIC competitive strengths with evidence
 - weaknesses: Array of 2-3 SPECIFIC weaknesses with evidence`,
-        `Products in category "${cat}" (${catProducts.length} total):\n${JSON.stringify(catProducts.map(p => ({ name: p.name, pricing: p.pricing, tagline: p.tagline, upvotes: p.upvotes, reviewScore: p.reviewScore })), null, 2)}`,
-        `Return a JSON array of objects with fields: name (string), pricing (string), strengths (string[]), weaknesses (string[])`
+            `Products in category "${cat}" (${catProducts.length} total):\n${JSON.stringify(catProducts.map(p => ({ name: p.name, pricing: p.pricing, tagline: p.tagline, upvotes: p.upvotes, reviewScore: p.reviewScore })), null, 2)}`,
+            `Return a JSON array of objects with fields: name (string), pricing (string), strengths (string[]), weaknesses (string[])`
+          ),
+          LLM_TIMEOUT_MS,
+          'Gap Analysis'
+        ),
+        { maxRetries: MAX_RETRIES },
+        'Gap Analysis'
       );
       if (!Array.isArray(topCompetitors)) topCompetitors = [];
-    } catch {
+    } catch (err) {
+      logError('Gap Analysis', err, { step: 'saturation-topCompetitors', category: cat });
       topCompetitors = [];
     }
 
-    // Generate sub-niches using LLM
+    // Generate sub-niches using LLM (with timeout + retry)
     let subNiches: SubNiche[] = [];
     try {
-      subNiches = await generateStructuredResponse<SubNiche[]>(
-        `You are a market niche analyst specializing in finding hyper-specific, underserved sub-niches.
+      subNiches = await retryWithBackoff(
+        () => withTimeout(
+          () => generateStructuredResponse<SubNiche[]>(
+            `You are a market niche analyst specializing in finding hyper-specific, underserved sub-niches.
 
 Based on the product data, identify 2-3 SUB-NICHES within the "${cat}" category.
 
@@ -421,11 +472,18 @@ For each sub-niche:
 - description: What this sub-niche encompasses and why existing products don't serve it well. Cite specific product gaps from the data.
 - parentCategory: "${cat}"
 - opportunityScore: 0-100 score. Justify with data: how many products serve this niche? How many complaints mention it?`,
-        `Products in category "${cat}" (${catProducts.length} total):\n${JSON.stringify(catProducts.map(p => ({ name: p.name, pricing: p.pricing, tagline: p.tagline, description: p.description.substring(0, 200) })), null, 2)}`,
-        `Return a JSON array of objects with fields: name (string), description (string), parentCategory (string), opportunityScore (number)`
+            `Products in category "${cat}" (${catProducts.length} total):\n${JSON.stringify(catProducts.map(p => ({ name: p.name, pricing: p.pricing, tagline: p.tagline, description: p.description.substring(0, 200) })), null, 2)}`,
+            `Return a JSON array of objects with fields: name (string), description (string), parentCategory (string), opportunityScore (number)`
+          ),
+          LLM_TIMEOUT_MS,
+          'Gap Analysis'
+        ),
+        { maxRetries: MAX_RETRIES },
+        'Gap Analysis'
       );
       if (!Array.isArray(subNiches)) subNiches = [];
-    } catch {
+    } catch (err) {
+      logError('Gap Analysis', err, { step: 'saturation-subNiches', category: cat });
       subNiches = [];
     }
 
@@ -452,8 +510,10 @@ async function analyzeComplaints(
   productsContext: string,
   products: { id: string; name: string; category: string; comments: string }[]
 ): Promise<{ complaints: ComplaintAnalysis[]; clusters: ComplaintCluster[] }> {
-  const complaints = await generateStructuredResponse<ComplaintAnalysis[]>(
-    `You are a rigorous product review analyst. Analyze the product data below and extract common complaints.
+  const complaints = await retryWithBackoff(
+    () => withTimeout(
+      () => generateStructuredResponse<ComplaintAnalysis[]>(
+        `You are a rigorous product review analyst. Analyze the product data below and extract common complaints.
 
 RULES FOR SPECIFIC OUTPUT:
 1. Each complaint text must be SPECIFIC and cite real details from the data — not a vague summary.
@@ -470,17 +530,25 @@ For each complaint, provide:
 - frequency: How many distinct users/comments express this complaint (1-10 scale)
 
 Extract 3-10 distinct complaints. Base your analysis ONLY on the actual product comments and reviews data provided.`,
-    `Analyze these products for common complaints:\n\n${productsContext}`,
-    `Return a JSON array of objects with fields: text (string), category (string), sentiment (string), frequency (number)`
+        `Analyze these products for common complaints:\n\n${productsContext}`,
+        `Return a JSON array of objects with fields: text (string), category (string), sentiment (string), frequency (number)`
+      ),
+      LLM_TIMEOUT_MS,
+      'Gap Analysis'
+    ),
+    { maxRetries: MAX_RETRIES },
+    'Gap Analysis'
   );
 
   const safeComplaints = Array.isArray(complaints) ? complaints : [];
 
-  // Generate complaint clusters
+  // Generate complaint clusters (with timeout + retry)
   let clusters: ComplaintCluster[] = [];
   try {
-    clusters = await generateStructuredResponse<ComplaintCluster[]>(
-      `You are a data analyst specializing in complaint clustering. Group the following complaints into clusters by theme.
+    clusters = await retryWithBackoff(
+      () => withTimeout(
+        () => generateStructuredResponse<ComplaintCluster[]>(
+          `You are a data analyst specializing in complaint clustering. Group the following complaints into clusters by theme.
 
 RULES:
 1. Each cluster's "percentage" must represent what share of total complaints fall in this cluster.
@@ -497,11 +565,18 @@ For each cluster, provide:
 - percentage: What % of total complaints this cluster represents (clusters must total ~100%)
 - count: Number of complaints in this cluster
 - exampleSnippets: 1-2 ACTUAL QUOTED snippets from the complaint text above (copy verbatim, do not paraphrase)`,
-      `Complaints to cluster (${safeComplaints.length} total):\n${safeComplaints.map(c => `[${c.category}] "${c.text}" (frequency: ${c.frequency})`).join('\n')}`,
-      `Return a JSON array of objects with fields: category (string), label (string), percentage (number), count (number), exampleSnippets (string[])`
+          `Complaints to cluster (${safeComplaints.length} total):\n${safeComplaints.map(c => `[${c.category}] "${c.text}" (frequency: ${c.frequency})`).join('\n')}`,
+          `Return a JSON array of objects with fields: category (string), label (string), percentage (number), count (number), exampleSnippets (string[])`
+        ),
+        LLM_TIMEOUT_MS,
+        'Gap Analysis'
+      ),
+      { maxRetries: MAX_RETRIES },
+      'Gap Analysis'
     );
     if (!Array.isArray(clusters)) clusters = [];
-  } catch {
+  } catch (err) {
+    logError('Gap Analysis', err, { step: 'complaintClusters' });
     clusters = [];
   }
 
@@ -521,7 +596,7 @@ For each cluster, provide:
         });
       }
     } catch (err) {
-      console.error('Failed to save complaint:', err);
+      logError('Gap Analysis', err, { step: 'saveComplaint' });
     }
   }
 
