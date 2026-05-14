@@ -5,7 +5,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { ThemeProvider } from 'next-themes'
 import { Toaster } from '@/components/ui/sonner'
 import { TooltipProvider } from '@/components/ui/tooltip'
-import { GapFinderApp } from '@/components/gap-finder-app'
+import { GapScopeApp } from '@/components/gap-finder-app'
 
 function Providers({ children }: { children: React.ReactNode }) {
   const queryClient = useMemo(
@@ -36,7 +36,7 @@ function Providers({ children }: { children: React.ReactNode }) {
 export default function Home() {
   return (
     <Providers>
-      <GapFinderApp />
+      <GapScopeApp />
     </Providers>
   )
 }

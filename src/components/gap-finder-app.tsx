@@ -90,7 +90,7 @@ function TabContent({ activeTab }: { activeTab: TabId }) {
   )
 }
 
-export function GapFinderApp() {
+export function GapScopeApp() {
   const activeTab = useAppStore((s) => s.activeTab)
   const setActiveTab = useAppStore((s) => s.setActiveTab)
 
@@ -105,9 +105,9 @@ export function GapFinderApp() {
                 <Crosshair className="h-4 w-4 sm:h-5 sm:w-5" />
               </div>
               <div>
-                <h1 className="text-lg sm:text-xl font-bold leading-tight">GapFinder</h1>
+                <h1 className="text-lg sm:text-xl font-bold leading-tight">GapScope</h1>
                 <p className="text-xs text-muted-foreground hidden sm:block">
-                  AI-Powered Market Gap Detection
+                  Startup Opportunity Intelligence
                 </p>
               </div>
             </div>
@@ -143,8 +143,8 @@ export function GapFinderApp() {
       <footer className="mt-auto border-t bg-muted/30">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
           <div className="flex items-center justify-between text-xs text-muted-foreground">
-            <span>GapFinder — Market Intelligence Software</span>
-            <span>Insights backed by real data, not AI fluff</span>
+            <span>GapScope — Startup Opportunity Intelligence</span>
+            <span>Discover overlooked opportunities using real launch data</span>
           </div>
         </div>
       </footer>

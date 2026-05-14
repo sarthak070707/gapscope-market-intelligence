@@ -13,9 +13,9 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "GapFinder - AI-Powered Market Gap Detection",
-  description: "Discover market opportunities by scanning Product Hunt for gaps, analyzing saturation, and generating AI-powered product ideas.",
-  keywords: ["GapFinder", "market gaps", "Product Hunt", "AI analysis", "opportunity detection"],
+  title: "GapScope — Startup Opportunity Intelligence",
+  description: "Discover overlooked startup opportunities using real launch data. Scan Product Hunt for gaps, analyze saturation, and find market opportunities backed by evidence.",
+  keywords: ["GapScope", "market gaps", "Product Hunt", "opportunity detection", "startup ideas", "market intelligence"],
   icons: {
     icon: "https://z-cdn.chatglm.cn/z-ai/static/logo.svg",
   },

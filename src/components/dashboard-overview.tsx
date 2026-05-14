@@ -270,14 +270,14 @@ export function DashboardOverview() {
               <div className="flex-1 p-6 sm:p-8 space-y-4">
                 <div className="flex items-center gap-2">
                   <Badge className="bg-orange-600 text-white hover:bg-orange-700">New</Badge>
-                  <span className="text-xs text-muted-foreground">AI-Powered Market Research</span>
+                  <span className="text-xs text-muted-foreground">Market Research Platform</span>
                 </div>
                 <h2 className="text-2xl sm:text-3xl font-bold leading-tight">
-                  Find Your Next <span className="text-orange-600 dark:text-orange-400">Startup Idea</span>
+                  Discover Overlooked <span className="text-orange-600 dark:text-orange-400">Startup Opportunities</span>
                 </h2>
                 <p className="text-muted-foreground text-sm sm:text-base max-w-lg">
-                  Scan Product Hunt for real products, detect market gaps, analyze complaints, 
-                  and discover opportunities backed by actual data — not random AI ideas.
+                  Scan real product launches, detect market gaps, analyze user complaints, 
+                  and find opportunities backed by evidence — not guesswork.
                 </p>
                 <div className="flex flex-wrap gap-3 pt-2">
                   <Button
@@ -301,8 +301,8 @@ export function DashboardOverview() {
               </div>
               <div className="w-full md:w-64 h-48 md:h-full relative flex items-center justify-center p-6 bg-gradient-to-br from-orange-50 to-orange-100/50 dark:from-orange-950/20 dark:to-orange-900/10">
                 <img
-                  src="/gapfinder-hero.png"
-                  alt="GapFinder"
+                  src="/gapscope-hero.png"
+                  alt="GapScope"
                   className="w-32 h-32 sm:w-40 sm:h-40 object-contain rounded-xl opacity-90"
                 />
               </div>
