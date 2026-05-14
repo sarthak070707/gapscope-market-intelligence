@@ -1,0 +1,97 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model Product {
+  id           String   @id @default(cuid())
+  name         String
+  tagline      String
+  description  String
+  url          String
+  category     String
+  upvotes      Int      @default(0)
+  launchDate   String
+  features     String   @default("[]") // JSON string of features
+  pricing      String   @default("Unknown")
+  comments     String   @default("[]") // JSON string of comment summaries
+  reviewScore  Float    @default(0)
+  sourceUrl    String   @default("")
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  gaps         Gap[]
+  complaints   Complaint[]
+}
+
+model Gap {
+  id           String   @id @default(cuid())
+  productId    String
+  product      Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  gapType      String   // missing_feature, weak_ux, expensive, underserved, overcrowded
+  title        String
+  description  String
+  evidence     String   @default("")
+  severity     String   @default("medium") // low, medium, high
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
+
+model Complaint {
+  id           String   @id @default(cuid())
+  productId    String
+  product      Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  text         String
+  category     String   // pricing, missing_feature, performance, ux, support, integration
+  sentiment    String   @default("negative") // negative, neutral, mixed
+  frequency    Int      @default(1)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
+
+model Opportunity {
+  id             String   @id @default(cuid())
+  title          String
+  description    String
+  category       String
+  saturation     String   @default("medium") // low, medium, high
+  saturationScore Float   @default(50)
+  gapEvidence    String   @default("[]") // JSON string of gap evidence
+  complaintRefs  String   @default("[]") // JSON string of complaint references
+  trendSignals   String   @default("[]") // JSON string of trend signals
+  qualityScore   Float    @default(0)
+  isSaved        Boolean  @default(false)
+  isGenerated    Boolean  @default(false)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+}
+
+model Trend {
+  id          String   @id @default(cuid())
+  category    String
+  name        String
+  description String
+  growthRate  Float    @default(0)
+  direction   String   @default("growing") // growing, declining, stable
+  dataPoints  String   @default("[]") // JSON string of data points
+  period      String   @default("") // e.g., "3 months", "6 months"
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model ScanJob {
+  id          String   @id @default(cuid())
+  status      String   @default("pending") // pending, running, completed, failed
+  category    String
+  resultCount Int      @default(0)
+  errors      String   @default("[]") // JSON string of errors
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
