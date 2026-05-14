@@ -45,7 +45,8 @@ import {
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { useAppStore } from '@/lib/store'
 import { SaturationMeter } from '@/components/ui/saturation-meter'
-import { CATEGORIES, type Category, type GapType, type GapAnalysis, type MarketSaturation, type ComplaintCluster, type TimePeriod, type ComplaintCategory } from '@/types'
+import { WhyNowBlock, ExecutionDifficultyBlock, FalseOpportunityBlock, FounderFitBlock, SourceTransparencyBlock, WhyExistingProductsFailBlock, MarketQuadrantBlock } from '@/components/feature-blocks'
+import { CATEGORIES, type Category, type GapType, type GapAnalysis, type MarketSaturation, type ComplaintCluster, type TimePeriod, type ComplaintCategory, type WhyNowAnalysis, type ExecutionDifficulty, type FalseOpportunityAnalysis, type FounderFitSuggestion, type SourceTransparency, type WhyExistingProductsFail, type MarketQuadrantPosition } from '@/types'
 
 // ─── Gap Type Visual Config ────────────────────────────────────────────────
 const GAP_TYPE_CONFIG: Record<GapType, { label: string; icon: React.ElementType; color: string; darkColor: string }> = {
@@ -321,6 +322,27 @@ function GapCard({ gap, delay = 0 }: { gap: GapAnalysis; delay?: number }) {
             <Badge variant="outline" className={SEVERITY_COLORS[gap.severity]}>
               {gap.severity} severity
             </Badge>
+            {/* ─── Verdict Badge ──────────────────────────────── */}
+            {gap.falseOpportunity?.verdict === 'avoid' && (
+              <Badge className="bg-red-100 text-red-700 dark:bg-red-950/40 dark:text-red-400 text-xs gap-1">
+                ⚠ Avoid
+              </Badge>
+            )}
+            {gap.falseOpportunity?.verdict === 'caution' && (
+              <Badge className="bg-amber-100 text-amber-700 dark:bg-amber-950/40 dark:text-amber-400 text-xs gap-1">
+                ⚡ Caution
+              </Badge>
+            )}
+            {gap.marketQuadrant?.quadrant === 'goldmine' && (
+              <Badge className="bg-green-100 text-green-700 dark:bg-green-950/40 dark:text-green-400 text-xs gap-1">
+                🔥 Goldmine
+              </Badge>
+            )}
+            {gap.marketQuadrant?.quadrant === 'dead_zone' && (
+              <Badge className="bg-red-100 text-red-700 dark:bg-red-950/40 dark:text-red-400 text-xs gap-1">
+                💀 Dead Zone
+              </Badge>
+            )}
           </div>
 
           {/* ─── Title ─────────────────────────────────────────── */}
@@ -446,6 +468,29 @@ function GapCard({ gap, delay = 0 }: { gap: GapAnalysis; delay?: number }) {
                     <p className="text-xs font-semibold text-muted-foreground mb-1">Supporting Evidence</p>
                     <p className="text-xs leading-relaxed">{gap.evidence}</p>
                   </div>
+                )}
+
+                {/* ─── Feature Blocks ──────────────────────────── */}
+                {gap.whyNow && (
+                  <WhyNowBlock whyNow={gap.whyNow} />
+                )}
+                {gap.falseOpportunity && gap.falseOpportunity.verdict && (
+                  <FalseOpportunityBlock falseOpp={gap.falseOpportunity} />
+                )}
+                {gap.marketQuadrant && gap.marketQuadrant.quadrant && (
+                  <MarketQuadrantBlock quadrant={gap.marketQuadrant} />
+                )}
+                {gap.whyExistingProductsFail && gap.whyExistingProductsFail.rootCause && (
+                  <WhyExistingProductsFailBlock whyFail={gap.whyExistingProductsFail} />
+                )}
+                {gap.executionDifficulty && gap.executionDifficulty.level && (
+                  <ExecutionDifficultyBlock difficulty={gap.executionDifficulty} />
+                )}
+                {gap.founderFit && gap.founderFit.bestFit && (
+                  <FounderFitBlock founderFit={gap.founderFit} />
+                )}
+                {gap.sourceTransparency && gap.sourceTransparency.sourcePlatforms && (
+                  <SourceTransparencyBlock source={gap.sourceTransparency} />
                 )}
               </motion.div>
             )}

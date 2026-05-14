@@ -39,17 +39,39 @@ model Gap {
   title        String
   description  String
   evidence     String   @default("")
-  // PRIORITY 1: Evidence Detail (JSON)
+  // Evidence Detail (JSON)
   evidenceDetail  String   @default("{}") // JSON: { similarProducts, repeatedComplaints, launchFrequency, commentSnippets, pricingOverlap }
-  // PRIORITY 6: Why This Matters
+  // Why This Matters
   whyThisMatters  String   @default("")
-  // PRIORITY 7: Sub-Niche (JSON)
+  // Sub-Niche (JSON)
   subNiche        String   @default("{}") // JSON: { name, description, parentCategory, opportunityScore }
-  // PRIORITY 8: Affected Products (JSON array)
+  // Affected Products (JSON array)
   affectedProducts String  @default("[]") // JSON: [{ name, pricing, strengths, weaknesses }]
-  // PRIORITY 12: Underserved Users (JSON array)
+  // Underserved Users (JSON array)
   underservedUsers String  @default("[]") // JSON: [{ userGroup, description, evidence, opportunityScore }]
   severity     String   @default("medium") // low, medium, high
+
+  // NEW: "WHY NOW?" Analysis (JSON)
+  whyNow          String   @default("{}") // JSON: { marketGrowthDriver, incumbentWeakness, timingAdvantage, catalystEvents }
+
+  // NEW: Execution Difficulty (JSON)
+  executionDifficulty String @default("{}") // JSON: { level, demandLevel, competitionLevel, technicalComplexity, timeToMvp, estimatedBudget, keyChallenges }
+
+  // NEW: False Opportunity Detection (JSON)
+  falseOpportunity  String @default("{}") // JSON: { isFalseOpportunity, reason, estimatedMarketSize, riskFactors, verdict }
+
+  // NEW: Founder Fit Suggestions (JSON)
+  founderFit        String @default("{}") // JSON: { bestFit, rationale, requiredSkills, idealTeamSize }
+
+  // NEW: Source Transparency (JSON)
+  sourceTransparency String @default("{}") // JSON: { sourcePlatforms, totalComments, complaintFrequency, reviewSources, dataFreshness, confidenceLevel }
+
+  // NEW: Why Existing Products Fail (JSON)
+  whyExistingProductsFail String @default("{}") // JSON: { rootCause, userImpact, missedByCompetitors }
+
+  // NEW: Market Quadrant Position (JSON)
+  marketQuadrant    String @default("{}") // JSON: { competitionScore, opportunityScore, quadrant, label }
+
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 }
@@ -77,18 +99,40 @@ model Opportunity {
   complaintRefs  String   @default("[]") // JSON string of complaint references
   trendSignals   String   @default("[]") // JSON string of trend signals
   qualityScore   Float    @default(0)
-  // PRIORITY 1: Evidence Detail (JSON)
+  // Evidence Detail (JSON)
   evidenceDetail  String   @default("{}") // JSON: { similarProducts, repeatedComplaints, launchFrequency, commentSnippets, pricingOverlap }
-  // PRIORITY 5: Opportunity Score (JSON)
+  // Opportunity Score (JSON)
   opportunityScore String  @default("{}") // JSON: { complaintFrequency, competitionDensity, pricingDissatisfaction, launchGrowth, underservedAudience, total, explanation }
-  // PRIORITY 6: Why This Matters
+  // Why This Matters
   whyThisMatters  String   @default("")
-  // PRIORITY 7: Sub-Niche (JSON)
+  // Sub-Niche (JSON)
   subNiche        String   @default("{}") // JSON: { name, description, parentCategory, opportunityScore }
-  // PRIORITY 8: Affected Products (JSON array)
+  // Affected Products (JSON array)
   affectedProducts String  @default("[]") // JSON: [{ name, pricing, strengths, weaknesses }]
-  // PRIORITY 12: Underserved Users (JSON array)
+  // Underserved Users (JSON array)
   underservedUsers String  @default("[]") // JSON: [{ userGroup, description, evidence, opportunityScore }]
+
+  // NEW: "WHY NOW?" Analysis (JSON)
+  whyNow          String   @default("{}") // JSON: { marketGrowthDriver, incumbentWeakness, timingAdvantage, catalystEvents }
+
+  // NEW: Execution Difficulty (JSON)
+  executionDifficulty String @default("{}") // JSON: { level, demandLevel, competitionLevel, technicalComplexity, timeToMvp, estimatedBudget, keyChallenges }
+
+  // NEW: False Opportunity Detection (JSON)
+  falseOpportunity  String @default("{}") // JSON: { isFalseOpportunity, reason, estimatedMarketSize, riskFactors, verdict }
+
+  // NEW: Founder Fit Suggestions (JSON)
+  founderFit        String @default("{}") // JSON: { bestFit, rationale, requiredSkills, idealTeamSize }
+
+  // NEW: Source Transparency (JSON)
+  sourceTransparency String @default("{}") // JSON: { sourcePlatforms, totalComments, complaintFrequency, reviewSources, dataFreshness, confidenceLevel }
+
+  // NEW: Why Existing Products Fail (JSON)
+  whyExistingProductsFail String @default("{}") // JSON: { rootCause, userImpact, missedByCompetitors }
+
+  // NEW: Market Quadrant Position (JSON)
+  marketQuadrant    String @default("{}") // JSON: { competitionScore, opportunityScore, quadrant, label }
+
   isSaved        Boolean  @default(false)
   isGenerated    Boolean  @default(false)
   createdAt      DateTime @default(now())
@@ -104,10 +148,17 @@ model Trend {
   direction   String   @default("growing") // growing, declining, stable
   dataPoints  String   @default("[]") // JSON string of data points
   period      String   @default("") // e.g., "3 months", "6 months"
-  // PRIORITY 7: Sub-Niches (JSON array)
+  // Sub-Niches (JSON array)
   subNiches      String   @default("[]") // JSON: [{ name, description, parentCategory, opportunityScore }]
-  // PRIORITY 12: Underserved Users (JSON array)
-  underservedUsers String  @default("[]") // JSON: [{ userGroup, description, evidence, opportunityScore }]
+  // Underserved Users (JSON array)
+  underservedUsers String @default("[]") // JSON: [{ userGroup, description, evidence, opportunityScore }]
+
+  // NEW: "WHY NOW?" Analysis (JSON)
+  whyNow          String   @default("{}") // JSON: { marketGrowthDriver, incumbentWeakness, timingAdvantage, catalystEvents }
+
+  // NEW: Source Transparency (JSON)
+  sourceTransparency String @default("{}") // JSON: { sourcePlatforms, totalComments, complaintFrequency, reviewSources, dataFreshness, confidenceLevel }
+
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 }

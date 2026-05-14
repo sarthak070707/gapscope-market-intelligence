@@ -46,6 +46,7 @@ import { ChartContainer, ChartTooltip, ChartTooltipContent, type ChartConfig } f
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { SaturationMeter } from '@/components/ui/saturation-meter'
 import { useAppStore } from '@/lib/store'
+import { WhyNowBlock, FalseOpportunityBlock, MarketQuadrantBlock, WhyExistingProductsFailBlock, ExecutionDifficultyBlock, FounderFitBlock, SourceTransparencyBlock, MarketQuadrantChart } from '@/components/feature-blocks'
 import type { DashboardStats, TimePeriod, GapAnalysis, MarketSaturation, SubNiche, ComplaintCluster, UnderservedUserGroup } from '@/types'
 
 const chartConfig = {
@@ -577,6 +578,59 @@ export function DashboardOverview() {
           </motion.div>
         )}
 
+        {/* ═══ 1.5 Market Quadrant Visualization ═══ */}
+        {data.saturatedMarkets.length > 0 && hasData && (
+          <motion.div
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.4, delay: 0.2 }}
+          >
+            <Card>
+              <CardHeader>
+                <div className="flex items-center gap-2">
+                  <BarChart3 className="h-5 w-5 text-orange-500" />
+                  <CardTitle>Market Quadrant Map</CardTitle>
+                </div>
+                <CardDescription>Competition vs. opportunity positioning across categories</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="flex flex-col lg:flex-row items-center gap-6">
+                  <MarketQuadrantChart
+                    items={data.saturatedMarkets
+                      .filter(sm => sm.marketQuadrant)
+                      .map(sm => ({ name: sm.category, quadrant: sm.marketQuadrant! }))}
+                  />
+                  <div className="flex-1 space-y-3 w-full">
+                    {data.saturatedMarkets.filter(sm => sm.marketQuadrant).map((sm, i) => {
+                      const q = sm.marketQuadrant!
+                      const quadrantColors: Record<string, string> = {
+                        goldmine: 'bg-green-100 text-green-700 dark:bg-green-950/40 dark:text-green-400',
+                        blue_ocean: 'bg-sky-100 text-sky-700 dark:bg-sky-950/40 dark:text-sky-400',
+                        crowded: 'bg-amber-100 text-amber-700 dark:bg-amber-950/40 dark:text-amber-400',
+                        dead_zone: 'bg-red-100 text-red-700 dark:bg-red-950/40 dark:text-red-400',
+                      }
+                      return (
+                        <div key={sm.category} className="flex items-center justify-between rounded-lg border p-2.5">
+                          <div>
+                            <span className="text-sm font-semibold">{sm.category}</span>
+                            <div className="flex items-center gap-2 mt-0.5">
+                              <span className="text-xs text-muted-foreground">Competition: <span className="font-medium">{q.competitionScore}/100</span></span>
+                              <span className="text-xs text-muted-foreground">Opportunity: <span className="font-medium">{q.opportunityScore}/100</span></span>
+                            </div>
+                          </div>
+                          <Badge variant="outline" className={quadrantColors[q.quadrant] || ''}>
+                            {q.label || q.quadrant.replace('_', ' ')}
+                          </Badge>
+                        </div>
+                      )
+                    })}
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          </motion.div>
+        )}
+
         {/* ═══ 2. Enhanced Trending Gaps with Structured Evidence Blocks ═══ */}
         {data.trendingGaps.length > 0 && (
           <motion.div
@@ -666,6 +720,51 @@ export function DashboardOverview() {
                                 <span className="text-xs font-semibold text-green-600 dark:text-green-400">
                                   {gap.subNiche.opportunityScore}/100
                                 </span>
+                              )}
+                            </div>
+                          )}
+
+                          {/* NEW: Verdict + Quadrant badges */}
+                          {(gap.marketQuadrant?.quadrant || gap.falseOpportunity?.verdict) && (
+                            <div className="flex flex-wrap gap-1.5">
+                              {gap.marketQuadrant?.quadrant === 'goldmine' && (
+                                <Badge className="text-xs bg-green-600 text-white gap-1">🔥 Goldmine</Badge>
+                              )}
+                              {gap.marketQuadrant?.quadrant === 'dead_zone' && (
+                                <Badge className="text-xs bg-red-600 text-white gap-1">💀 Dead Zone</Badge>
+                              )}
+                              {gap.falseOpportunity?.verdict === 'avoid' && (
+                                <Badge className="text-xs bg-red-600 text-white gap-1">⚠ Avoid</Badge>
+                              )}
+                              {gap.falseOpportunity?.verdict === 'caution' && (
+                                <Badge className="text-xs bg-amber-600 text-white gap-1">⚡ Caution</Badge>
+                              )}
+                            </div>
+                          )}
+
+                          {/* NEW: Why Now — compact inline version */}
+                          {gap.whyNow?.marketGrowthDriver && (
+                            <div className="rounded-md border border-amber-200 dark:border-amber-800/40 bg-amber-50/50 dark:bg-amber-950/20 p-2 space-y-1">
+                              <p className="text-[10px] font-bold text-amber-700 dark:text-amber-400 uppercase tracking-wider">Why Now?</p>
+                              <p className="text-xs text-foreground leading-relaxed">{gap.whyNow.marketGrowthDriver}</p>
+                              {gap.whyNow.incumbentWeakness && (
+                                <p className="text-xs text-muted-foreground leading-relaxed">{gap.whyNow.incumbentWeakness}</p>
+                              )}
+                            </div>
+                          )}
+
+                          {/* NEW: Source Transparency — compact inline */}
+                          {gap.sourceTransparency?.sourcePlatforms && (
+                            <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                              <MessageSquare className="h-3 w-3" />
+                              <span>Sources: {gap.sourceTransparency.sourcePlatforms.join(', ')}</span>
+                              <span>·</span>
+                              <span>{gap.sourceTransparency.totalComments} comments</span>
+                              {gap.sourceTransparency.confidenceLevel && (
+                                <>
+                                  <span>·</span>
+                                  <Badge variant="outline" className="text-[10px] h-4">{gap.sourceTransparency.confidenceLevel} confidence</Badge>
+                                </>
                               )}
                             </div>
                           )}

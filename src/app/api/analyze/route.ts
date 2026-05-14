@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { generateStructuredResponse } from '@/lib/zai';
 import { safeJsonParse } from '@/lib/json';
-import type { GapAnalysis, MarketSaturation, ComplaintAnalysis, ComplaintCluster, EvidenceDetail, SubNiche, ProductReference, UnderservedUserGroup } from '@/types';
+import type { GapAnalysis, MarketSaturation, ComplaintAnalysis, ComplaintCluster, EvidenceDetail, SubNiche, ProductReference, UnderservedUserGroup, WhyNowAnalysis, ExecutionDifficulty, FalseOpportunityAnalysis, FounderFitSuggestion, SourceTransparency, WhyExistingProductsFail, MarketQuadrantPosition } from '@/types';
 
 export async function POST(request: NextRequest) {
   try {
@@ -183,7 +183,7 @@ Rule 4: For titles, be SPECIFIC about WHO is affected and WHAT is missing:
 
 Identify 3-8 meaningful gaps. Base your analysis ONLY on the product data provided. Every number must come from or be derived from the data.`,
     `Analyze these products for market gaps (time period: ${timePeriod}):\n\n${productsContext}`,
-    `Return a JSON array of objects with fields: gapType (string), title (string), description (string), evidence (string), severity (string: "low"|"medium"|"high"), evidenceDetail (object: { similarProducts: number, repeatedComplaints: number, launchFrequency: number, commentSnippets: string[], pricingOverlap: number, launchGrowth: number }), whyThisMatters (string), subNiche (object: { name: string, description: string, parentCategory: string, opportunityScore: number }), affectedProducts (array of { name: string, pricing: string, strengths: string[], weaknesses: string[] }), underservedUsers (array of { userGroup: string, description: string, evidence: string, opportunityScore: number })`
+    `Return a JSON array of objects with fields: gapType (string), title (string), description (string), evidence (string), severity (string: "low"|"medium"|"high"), evidenceDetail (object: { similarProducts: number, repeatedComplaints: number, launchFrequency: number, commentSnippets: string[], pricingOverlap: number, launchGrowth: number }), whyThisMatters (string), subNiche (object: { name: string, description: string, parentCategory: string, opportunityScore: number }), affectedProducts (array of { name: string, pricing: string, strengths: string[], weaknesses: string[] }), underservedUsers (array of { userGroup: string, description: string, evidence: string, opportunityScore: number }), whyNow (object: { marketGrowthDriver: string, incumbentWeakness: string, timingAdvantage: string, catalystEvents: string[] }), executionDifficulty (object: { level: string, demandLevel: string, competitionLevel: string, technicalComplexity: string, timeToMvp: string, estimatedBudget: string, keyChallenges: string[] }), falseOpportunity (object: { isFalseOpportunity: boolean, reason: string, estimatedMarketSize: string, riskFactors: string[], verdict: string }), founderFit (object: { bestFit: string[], rationale: string, requiredSkills: string[], idealTeamSize: string }), sourceTransparency (object: { sourcePlatforms: string[], totalComments: number, complaintFrequency: number, reviewSources: array of { platform: string, count: number, avgScore: number }, dataFreshness: string, confidenceLevel: string }), whyExistingProductsFail (object: { rootCause: string, userImpact: string, missedByCompetitors: string }), marketQuadrant (object: { competitionScore: number, opportunityScore: number, quadrant: string, label: string })`
   );
 
   const safeGaps = Array.isArray(gaps) ? gaps : [];
@@ -206,6 +206,13 @@ Identify 3-8 meaningful gaps. Base your analysis ONLY on the product data provid
             affectedProducts: JSON.stringify(gap.affectedProducts || []),
             underservedUsers: JSON.stringify(gap.underservedUsers || []),
             severity: gap.severity || 'medium',
+            whyNow: JSON.stringify((gap as any).whyNow || {}),
+            executionDifficulty: JSON.stringify((gap as any).executionDifficulty || {}),
+            falseOpportunity: JSON.stringify((gap as any).falseOpportunity || {}),
+            founderFit: JSON.stringify((gap as any).founderFit || {}),
+            sourceTransparency: JSON.stringify((gap as any).sourceTransparency || {}),
+            whyExistingProductsFail: JSON.stringify((gap as any).whyExistingProductsFail || {}),
+            marketQuadrant: JSON.stringify((gap as any).marketQuadrant || {}),
           },
         });
       }

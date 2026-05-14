@@ -1,10 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
-import type { DashboardStats, GapAnalysis, MarketSaturation, SubNiche, ComplaintCluster, UnderservedUserGroup } from '@/types';
+import type { DashboardStats, GapAnalysis, MarketSaturation, SubNiche, ComplaintCluster, UnderservedUserGroup, WhyNowAnalysis, ExecutionDifficulty, FalseOpportunityAnalysis, FounderFitSuggestion, SourceTransparency, WhyExistingProductsFail, MarketQuadrantPosition } from '@/types';
 
 /**
  * GET /api/dashboard
- * Returns dashboard statistics with enriched data and market metrics
+ * Returns dashboard statistics with enriched data including all 8 new features
  */
 export async function GET(request: NextRequest) {
   try {
@@ -13,11 +13,7 @@ export async function GET(request: NextRequest) {
 
     // Total products count
     const totalProducts = await db.product.count();
-
-    // Total gaps count
     const totalGaps = await db.gap.count();
-
-    // Total opportunities count
     const totalOpportunities = await db.opportunity.count();
 
     // Average saturation score from opportunities
@@ -44,35 +40,72 @@ export async function GET(request: NextRequest) {
       count: item._count.category,
     }));
 
-    // Recent gaps (last 10) - with enriched data
+    // Helper to safely parse JSON fields
+    function safeJsonParse<T>(jsonStr: string | null | undefined, fallback: T): T {
+      try {
+        if (!jsonStr || jsonStr === '{}') return fallback;
+        const parsed = JSON.parse(jsonStr);
+        // Check if parsed is effectively empty
+        if (typeof parsed === 'object' && parsed !== null && Object.keys(parsed).length === 0) return fallback;
+        return parsed as T;
+      } catch {
+        return fallback;
+      }
+    }
+
+    // Helper to map gap data with all new fields
+    function mapGapData(g: {
+      gapType: string;
+      title: string;
+      description: string;
+      evidence: string;
+      severity: string;
+      evidenceDetail: string | null;
+      whyThisMatters: string | null;
+      subNiche: string | null;
+      affectedProducts: string | null;
+      underservedUsers: string | null;
+      whyNow: string | null;
+      executionDifficulty: string | null;
+      falseOpportunity: string | null;
+      founderFit: string | null;
+      sourceTransparency: string | null;
+      whyExistingProductsFail: string | null;
+      marketQuadrant: string | null;
+    }): GapAnalysis {
+      return {
+        gapType: g.gapType as GapAnalysis['gapType'],
+        title: g.title,
+        description: g.description,
+        evidence: g.evidence,
+        severity: g.severity as GapAnalysis['severity'],
+        evidenceDetail: safeJsonParse<GapAnalysis['evidenceDetail']>(g.evidenceDetail, undefined),
+        whyThisMatters: g.whyThisMatters || undefined,
+        subNiche: safeJsonParse<GapAnalysis['subNiche']>(g.subNiche, undefined),
+        affectedProducts: safeJsonParse<GapAnalysis['affectedProducts']>(g.affectedProducts, undefined),
+        underservedUsers: safeJsonParse<GapAnalysis['underservedUsers']>(g.underservedUsers, undefined),
+        whyNow: safeJsonParse<WhyNowAnalysis>(g.whyNow, undefined),
+        executionDifficulty: safeJsonParse<ExecutionDifficulty>(g.executionDifficulty, undefined),
+        falseOpportunity: safeJsonParse<FalseOpportunityAnalysis>(g.falseOpportunity, undefined),
+        founderFit: safeJsonParse<FounderFitSuggestion>(g.founderFit, undefined),
+        sourceTransparency: safeJsonParse<SourceTransparency>(g.sourceTransparency, undefined),
+        whyExistingProductsFail: safeJsonParse<WhyExistingProductsFail>(g.whyExistingProductsFail, undefined),
+        marketQuadrant: safeJsonParse<MarketQuadrantPosition>(g.marketQuadrant, undefined),
+      };
+    }
+
+    // Recent gaps (last 10)
     const recentGapsData = await db.gap.findMany({
       take: 10,
       orderBy: { createdAt: 'desc' },
       select: {
-        gapType: true,
-        title: true,
-        description: true,
-        evidence: true,
-        severity: true,
-        evidenceDetail: true,
-        whyThisMatters: true,
-        subNiche: true,
-        affectedProducts: true,
-        underservedUsers: true,
+        gapType: true, title: true, description: true, evidence: true, severity: true,
+        evidenceDetail: true, whyThisMatters: true, subNiche: true, affectedProducts: true, underservedUsers: true,
+        whyNow: true, executionDifficulty: true, falseOpportunity: true, founderFit: true,
+        sourceTransparency: true, whyExistingProductsFail: true, marketQuadrant: true,
       },
     });
-    const recentGaps: GapAnalysis[] = recentGapsData.map((g) => ({
-      gapType: g.gapType as GapAnalysis['gapType'],
-      title: g.title,
-      description: g.description,
-      evidence: g.evidence,
-      severity: g.severity as GapAnalysis['severity'],
-      evidenceDetail: safeJsonParse(g.evidenceDetail, {}) as GapAnalysis['evidenceDetail'],
-      whyThisMatters: g.whyThisMatters || undefined,
-      subNiche: safeJsonParse(g.subNiche, {}) as GapAnalysis['subNiche'],
-      affectedProducts: safeJsonParse(g.affectedProducts, []) as GapAnalysis['affectedProducts'],
-      underservedUsers: safeJsonParse(g.underservedUsers, []) as GapAnalysis['underservedUsers'],
-    }));
+    const recentGaps: GapAnalysis[] = recentGapsData.map(mapGapData);
 
     // Trending Gaps - gaps with high severity
     const trendingGapsData = await db.gap.findMany({
@@ -80,32 +113,15 @@ export async function GET(request: NextRequest) {
       take: 5,
       orderBy: { createdAt: 'desc' },
       select: {
-        gapType: true,
-        title: true,
-        description: true,
-        evidence: true,
-        severity: true,
-        evidenceDetail: true,
-        whyThisMatters: true,
-        subNiche: true,
-        affectedProducts: true,
-        underservedUsers: true,
+        gapType: true, title: true, description: true, evidence: true, severity: true,
+        evidenceDetail: true, whyThisMatters: true, subNiche: true, affectedProducts: true, underservedUsers: true,
+        whyNow: true, executionDifficulty: true, falseOpportunity: true, founderFit: true,
+        sourceTransparency: true, whyExistingProductsFail: true, marketQuadrant: true,
       },
     });
-    const trendingGaps: GapAnalysis[] = trendingGapsData.map((g) => ({
-      gapType: g.gapType as GapAnalysis['gapType'],
-      title: g.title,
-      description: g.description,
-      evidence: g.evidence,
-      severity: g.severity as GapAnalysis['severity'],
-      evidenceDetail: safeJsonParse(g.evidenceDetail, {}) as GapAnalysis['evidenceDetail'],
-      whyThisMatters: g.whyThisMatters || undefined,
-      subNiche: safeJsonParse(g.subNiche, {}) as GapAnalysis['subNiche'],
-      affectedProducts: safeJsonParse(g.affectedProducts, []) as GapAnalysis['affectedProducts'],
-      underservedUsers: safeJsonParse(g.underservedUsers, []) as GapAnalysis['underservedUsers'],
-    }));
+    const trendingGaps: GapAnalysis[] = trendingGapsData.map(mapGapData);
 
-    // Saturated Markets - compute from products with deterministic values
+    // Saturated Markets
     const saturatedMarkets: MarketSaturation[] = [];
     for (const catItem of productsByCategory) {
       const catProducts = await db.product.findMany({
@@ -115,7 +131,6 @@ export async function GET(request: NextRequest) {
       const productCount = catProducts.length;
       const complaintCount = catProducts.reduce((sum, p) => sum + p.complaints.length, 0);
 
-      // Calculate feature overlap deterministically
       let featureOverlap = 0;
       try {
         const allFeatures = catProducts.map((p) => {
@@ -128,7 +143,6 @@ export async function GET(request: NextRequest) {
           : 0;
       } catch { featureOverlap = 0; }
 
-      // Calculate pricing similarity deterministically
       let pricingSimilarity = 0;
       try {
         const pricingModels = catProducts.map((p) => p.pricing.toLowerCase());
@@ -139,6 +153,28 @@ export async function GET(request: NextRequest) {
       const rawScore = Math.min(100, Math.round(productCount * 8 + complaintCount * 3 + featureOverlap * 0.2));
       const score = Math.max(0, rawScore);
       const level = score < 33 ? 'low' : score < 66 ? 'medium' : 'high';
+
+      // Calculate market quadrant position from gaps in this category
+      const categoryGaps = catProducts.flatMap(p => p.gaps);
+      let marketQuadrant: MarketQuadrantPosition | undefined;
+      if (categoryGaps.length > 0) {
+        const firstGapWithQuadrant = categoryGaps.find(g => {
+          const q = safeJsonParse<MarketQuadrantPosition>(g.marketQuadrant, undefined);
+          return q && q.quadrant;
+        });
+        if (firstGapWithQuadrant) {
+          marketQuadrant = safeJsonParse<MarketQuadrantPosition>(firstGapWithQuadrant.marketQuadrant, undefined);
+        }
+      }
+      if (!marketQuadrant) {
+        marketQuadrant = {
+          competitionScore: score,
+          opportunityScore: 100 - score,
+          quadrant: score > 66 ? 'crowded' : score > 33 ? 'blue_ocean' : 'goldmine',
+          label: score > 66 ? 'Crowded — High competition' : score > 33 ? 'Blue Ocean — Moderate competition' : 'Goldmine — Low competition',
+        };
+      }
+
       saturatedMarkets.push({
         category: catItem.category,
         score,
@@ -150,6 +186,7 @@ export async function GET(request: NextRequest) {
           userComplaints: complaintCount,
           pricingSimilarity,
         },
+        marketQuadrant,
       });
     }
 
@@ -168,24 +205,20 @@ export async function GET(request: NextRequest) {
     });
     const emergingNiches: SubNiche[] = emergingTrends
       .flatMap((t) => {
-        const parsed = safeJsonParse(t.subNiches, []) as SubNiche[];
-        return parsed.map(sn => ({ ...sn, parentCategory: t.category }));
+        const parsed = safeJsonParse<SubNiche[]>(t.subNiches, []);
+        if (parsed.length > 0) {
+          return parsed.map(sn => ({ ...sn, parentCategory: t.category }));
+        }
+        return [{
+          name: t.name,
+          description: t.description,
+          parentCategory: t.category,
+          opportunityScore: Math.round(t.growthRate),
+        }];
       })
       .slice(0, 5);
 
-    // If no sub-niches from DB, generate from trend names
-    if (emergingNiches.length === 0) {
-      for (const trend of emergingTrends) {
-        emergingNiches.push({
-          name: trend.name,
-          description: trend.description,
-          parentCategory: trend.category,
-          opportunityScore: Math.round(trend.growthRate),
-        });
-      }
-    }
-
-    // Complaint Trends - aggregate from complaints with better clustering
+    // Complaint Trends
     const allComplaints = await db.complaint.findMany({
       take: 100,
       orderBy: { frequency: 'desc' },
@@ -246,25 +279,24 @@ export async function GET(request: NextRequest) {
       select: { underservedUsers: true, title: true, description: true },
     });
     const underservedUsers: UnderservedUserGroup[] = allGapsWithUnderserved
-      .flatMap((g) => safeJsonParse(g.underservedUsers, []) as UnderservedUserGroup[])
+      .flatMap((g) => safeJsonParse<UnderservedUserGroup[]>(g.underservedUsers, []))
       .slice(0, 5);
 
-    // Market metrics - computed deterministically
+    // Market metrics
     const highSeverityGaps = await db.gap.count({ where: { severity: 'high' } });
     const avgGrowthRate = trends.length > 0
       ? Math.round(trends.reduce((sum, t) => sum + t.growthRate, 0) / trends.length)
       : 0;
 
-    // Calculate average opportunity score from DB
     const oppScores = await db.opportunity.findMany({
       select: { opportunityScore: true },
     });
     let avgOpportunityScore = 0;
     try {
       const scores = oppScores
-        .map(o => safeJsonParse(o.opportunityScore, {}) as Record<string, unknown>)
+        .map(o => safeJsonParse<{ total: number }>(o.opportunityScore, { total: 0 }))
         .filter(s => s && typeof s === 'object' && 'total' in s)
-        .map(s => (s.total as number) || 0);
+        .map(s => s.total || 0);
       avgOpportunityScore = scores.length > 0
         ? Math.round(scores.reduce((a, b) => a + b, 0) / scores.length)
         : 0;
@@ -277,6 +309,9 @@ export async function GET(request: NextRequest) {
       avgOpportunityScore,
       marketHealth: (avgGrowthRate > 20 ? 'expanding' : avgGrowthRate > 5 ? 'stable' : 'contracting') as 'expanding' | 'stable' | 'contracting',
     };
+
+    // Market quadrants overview
+    const marketQuadrants = saturatedMarkets.map(sm => sm.marketQuadrant).filter(Boolean) as MarketQuadrantPosition[];
 
     const stats: DashboardStats = {
       totalProducts,
@@ -293,6 +328,7 @@ export async function GET(request: NextRequest) {
       fastestGrowingCategories: fastestGrowing,
       underservedUsers,
       marketMetrics,
+      marketQuadrants,
     };
 
     return NextResponse.json(stats);
@@ -318,12 +354,4 @@ function formatComplaintLabel(category: string): string {
     integration: 'Missing Integrations',
   };
   return labels[category] || category;
-}
-
-function safeJsonParse(jsonStr: string, fallback: unknown): unknown {
-  try {
-    return JSON.parse(jsonStr || '[]');
-  } catch {
-    return fallback;
-  }
 }

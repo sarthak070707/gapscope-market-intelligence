@@ -1,4 +1,4 @@
-// Types for ProductHunt Gap Finder Agent
+// Types for GapScope — Startup Opportunity Intelligence
 
 export type GapType = 'missing_feature' | 'weak_ux' | 'expensive' | 'underserved' | 'overcrowded';
 export type SaturationLevel = 'low' | 'medium' | 'high';
@@ -8,6 +8,8 @@ export type ScanStatus = 'pending' | 'running' | 'completed' | 'failed';
 export type ComplaintCategory = 'pricing' | 'missing_feature' | 'performance' | 'ux' | 'support' | 'integration';
 export type Sentiment = 'negative' | 'neutral' | 'mixed';
 export type TimePeriod = '7d' | '30d' | '90d';
+export type ExecutionDifficultyLevel = 'low' | 'low-medium' | 'medium' | 'medium-high' | 'high';
+export type FounderFitType = 'solo_developer' | 'b2b_saas' | 'content_creator' | 'student_founder' | 'agency' | 'enterprise';
 
 export const CATEGORIES = [
   'AI Tools',
@@ -25,6 +27,15 @@ export const CATEGORIES = [
 ] as const;
 
 export type Category = (typeof CATEGORIES)[number];
+
+export const FOUNDER_FIT_LABELS: Record<FounderFitType, string> = {
+  solo_developer: 'Solo Developers',
+  b2b_saas: 'B2B SaaS Founders',
+  content_creator: 'Content Creators',
+  student_founder: 'Student Founders',
+  agency: 'Agencies',
+  enterprise: 'Enterprise Teams',
+};
 
 export const SEARCH_SUGGESTIONS = [
   'ATS resume builders',
@@ -57,17 +68,17 @@ export interface ScannedProduct {
   sourceUrl: string;
 }
 
-// PRIORITY 1: Evidence Layer - structured evidence under every gap insight
+// ─── Evidence Layer ───────────────────────────────────────────────
 export interface EvidenceDetail {
   similarProducts: number;
   repeatedComplaints: number;
   launchFrequency: number;
   commentSnippets: string[];
   pricingOverlap: number;
-  launchGrowth?: number; // percentage growth in product launches
+  launchGrowth?: number;
 }
 
-// PRIORITY 7: Sub-Niche Detection
+// ─── Sub-Niche Detection ──────────────────────────────────────────
 export interface SubNiche {
   name: string;
   description: string;
@@ -75,7 +86,7 @@ export interface SubNiche {
   opportunityScore: number;
 }
 
-// PRIORITY 8: Real Product Examples
+// ─── Product References ───────────────────────────────────────────
 export interface ProductReference {
   name: string;
   pricing: string;
@@ -83,7 +94,7 @@ export interface ProductReference {
   weaknesses: string[];
 }
 
-// PRIORITY 12: Underserved Users
+// ─── Underserved Users ────────────────────────────────────────────
 export interface UnderservedUserGroup {
   userGroup: string;
   description: string;
@@ -91,7 +102,7 @@ export interface UnderservedUserGroup {
   opportunityScore: number;
 }
 
-// PRIORITY 2: Complaint Clustering
+// ─── Complaint Clustering ─────────────────────────────────────────
 export interface ComplaintCluster {
   category: string;
   label: string;
@@ -100,27 +111,96 @@ export interface ComplaintCluster {
   exampleSnippets: string[];
 }
 
+// ─── NEW: "WHY NOW?" Analysis ────────────────────────────────────
+export interface WhyNowAnalysis {
+  marketGrowthDriver: string; // why this market is growing NOW
+  incumbentWeakness: string; // why incumbents are weak NOW
+  timingAdvantage: string; // why timing matters
+  catalystEvents?: string[]; // recent events enabling this opportunity
+}
+
+// ─── NEW: Execution Difficulty ────────────────────────────────────
+export interface ExecutionDifficulty {
+  level: ExecutionDifficultyLevel;
+  demandLevel: 'low' | 'medium' | 'high';
+  competitionLevel: 'low' | 'medium' | 'high';
+  technicalComplexity: 'low' | 'medium' | 'high';
+  timeToMvp: string; // e.g., "2-4 weeks", "3-6 months"
+  estimatedBudget: string; // e.g., "$0-500", "$5k-20k", "$50k+"
+  keyChallenges: string[]; // top 2-3 challenges
+}
+
+// ─── NEW: False Opportunity Detection ─────────────────────────────
+export interface FalseOpportunityAnalysis {
+  isFalseOpportunity: boolean;
+  reason?: string; // e.g., "Low opportunity despite complaints due to limited market size"
+  estimatedMarketSize?: string; // e.g., "<$1M", "$1-10M", "$10-100M", "$100M+"
+  riskFactors?: string[]; // reasons this might not be worth pursuing
+  verdict: 'pursue' | 'caution' | 'avoid'; // simple traffic light
+}
+
+// ─── NEW: Founder Fit Suggestions ─────────────────────────────────
+export interface FounderFitSuggestion {
+  bestFit: FounderFitType[];
+  rationale: string; // why these founder types are best suited
+  requiredSkills: string[]; // skills needed to execute
+  idealTeamSize: string; // "Solo", "2-3 people", "5+ team"
+}
+
+// ─── NEW: Source Transparency ─────────────────────────────────────
+export interface SourceTransparency {
+  sourcePlatforms: string[]; // e.g., ["Product Hunt", "G2", "Reddit"]
+  totalComments: number;
+  complaintFrequency: number; // complaints per 100 reviews
+  reviewSources: { platform: string; count: number; avgScore: number }[];
+  dataFreshness: string; // e.g., "Data from last 30 days"
+  confidenceLevel: 'high' | 'medium' | 'low';
+}
+
+// ─── NEW: Why Existing Products Fail ──────────────────────────────
+export interface WhyExistingProductsFail {
+  rootCause: string; // business reasoning, not feature listing
+  userImpact: string; // how this affects users
+  missedByCompetitors: string; // why competitors haven't addressed this
+}
+
+// ─── NEW: Market Quadrant Position ────────────────────────────────
+export interface MarketQuadrantPosition {
+  competitionScore: number; // 0-100 (higher = more competition)
+  opportunityScore: number; // 0-100 (higher = more opportunity)
+  quadrant: 'goldmine' | 'blue_ocean' | 'crowded' | 'dead_zone';
+  // goldmine: low competition, high opportunity
+  // blue_ocean: low competition, moderate opportunity
+  // crowded: high competition, low differentiation
+  // dead_zone: high competition, low opportunity
+  label: string; // human-readable quadrant label
+}
+
+// ─── Gap Analysis ─────────────────────────────────────────────────
 export interface GapAnalysis {
   gapType: GapType;
   title: string;
   description: string;
   evidence: string;
   severity: Severity;
-  // PRIORITY 1: Evidence Layer
   evidenceDetail?: EvidenceDetail;
-  // PRIORITY 6: Why This Matters
   whyThisMatters?: string;
-  // PRIORITY 7: Sub-Niche Detection
   subNiche?: SubNiche;
-  // PRIORITY 8: Real Product Examples
   affectedProducts?: ProductReference[];
-  // PRIORITY 12: Underserved Users
   underservedUsers?: UnderservedUserGroup[];
+  // NEW features
+  whyNow?: WhyNowAnalysis;
+  executionDifficulty?: ExecutionDifficulty;
+  falseOpportunity?: FalseOpportunityAnalysis;
+  founderFit?: FounderFitSuggestion;
+  sourceTransparency?: SourceTransparency;
+  whyExistingProductsFail?: WhyExistingProductsFail;
+  marketQuadrant?: MarketQuadrantPosition;
 }
 
 export interface MarketSaturation {
   category: string;
-  score: number; // 0-100
+  score: number;
   level: SaturationLevel;
   factors: {
     similarProducts: number;
@@ -129,10 +209,10 @@ export interface MarketSaturation {
     userComplaints: number;
     pricingSimilarity: number;
   };
-  // PRIORITY 3: Competitor Breakdown
   topCompetitors?: ProductReference[];
-  // PRIORITY 7: Sub-Niche Detection
   subNiches?: SubNiche[];
+  // NEW
+  marketQuadrant?: MarketQuadrantPosition;
 }
 
 export interface ComplaintAnalysis {
@@ -142,7 +222,7 @@ export interface ComplaintAnalysis {
   frequency: number;
 }
 
-// PRIORITY 5: Opportunity Score
+// ─── Opportunity Score Breakdown ──────────────────────────────────
 export interface OpportunityScoreBreakdown {
   complaintFrequency: number; // 0-20
   competitionDensity: number; // 0-20
@@ -164,18 +244,20 @@ export interface OpportunitySuggestion {
   complaintRefs: string[];
   trendSignals: string[];
   qualityScore: number;
-  // PRIORITY 1: Evidence Layer
   evidenceDetail?: EvidenceDetail;
-  // PRIORITY 5: Opportunity Score
   opportunityScore?: OpportunityScoreBreakdown;
-  // PRIORITY 6: Why This Matters
   whyThisMatters?: string;
-  // PRIORITY 7: Sub-Niche Detection
   subNiche?: SubNiche;
-  // PRIORITY 8: Real Product Examples
   affectedProducts?: ProductReference[];
-  // PRIORITY 12: Underserved Users
   underservedUsers?: UnderservedUserGroup[];
+  // NEW features
+  whyNow?: WhyNowAnalysis;
+  executionDifficulty?: ExecutionDifficulty;
+  falseOpportunity?: FalseOpportunityAnalysis;
+  founderFit?: FounderFitSuggestion;
+  sourceTransparency?: SourceTransparency;
+  whyExistingProductsFail?: WhyExistingProductsFail;
+  marketQuadrant?: MarketQuadrantPosition;
   // DB fields
   isSaved?: boolean;
   isGenerated?: boolean;
@@ -192,18 +274,18 @@ export interface TrendData {
   direction: TrendDirection;
   dataPoints: { label: string; value: number }[];
   period: string;
-  // PRIORITY 7: Sub-Niche Detection
   subNiches?: SubNiche[];
-  // PRIORITY 12: Underserved Users
   underservedUsers?: UnderservedUserGroup[];
-  // Market Context
   marketContext?: {
     productCount: number;
     avgUpvotes: number;
-    launchFrequency: number; // new products per week
+    launchFrequency: number;
     highComplaintActivity: boolean;
     rapidGrowth: boolean;
   };
+  // NEW
+  whyNow?: WhyNowAnalysis;
+  sourceTransparency?: SourceTransparency;
 }
 
 export interface CompetitorComparison {
@@ -216,8 +298,10 @@ export interface CompetitorComparison {
     weaknesses: string[];
   }[];
   summary: string;
-  // PRIORITY 12: Underserved Users
   underservedUsers?: UnderservedUserGroup[];
+  // NEW
+  whyExistingProductsFail?: WhyExistingProductsFail;
+  founderFit?: FounderFitSuggestion;
 }
 
 export interface ScanRequest {
@@ -242,7 +326,7 @@ export interface CompareRequest {
   category: string;
 }
 
-// Dashboard stats - Enhanced dashboard with market metrics
+// ─── Dashboard Stats ──────────────────────────────────────────────
 export interface DashboardStats {
   totalProducts: number;
   totalGaps: number;
@@ -259,10 +343,12 @@ export interface DashboardStats {
   underservedUsers: UnderservedUserGroup[];
   // Market overview metrics
   marketMetrics?: {
-    avgLaunchGrowth: number; // average % growth in launches
+    avgLaunchGrowth: number;
     totalComplaints: number;
-    highOpportunityCount: number; // gaps with high severity
+    highOpportunityCount: number;
     avgOpportunityScore: number;
     marketHealth: 'expanding' | 'stable' | 'contracting';
   };
+  // NEW: Market quadrant overview for all categories
+  marketQuadrants?: MarketQuadrantPosition[];
 }

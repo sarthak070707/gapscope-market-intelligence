@@ -56,7 +56,23 @@ import {
   type TimePeriod,
   type ProductReference,
   type UnderservedUserGroup,
+  type WhyNowAnalysis,
+  type ExecutionDifficulty,
+  type FalseOpportunityAnalysis,
+  type FounderFitSuggestion,
+  type SourceTransparency,
+  type WhyExistingProductsFail,
+  type MarketQuadrantPosition,
 } from '@/types'
+import {
+  WhyNowBlock,
+  ExecutionDifficultyBlock,
+  FalseOpportunityBlock,
+  FounderFitBlock,
+  SourceTransparencyBlock,
+  WhyExistingProductsFailBlock,
+  MarketQuadrantBlock,
+} from '@/components/feature-blocks'
 
 // ──────────────────────────────────────────────
 // Color helpers
@@ -471,6 +487,32 @@ function OpportunityCard({
             </div>
           )}
 
+          {/* ── Row 6b: Verdict badge row — always visible ── */}
+          {(opp.marketQuadrant?.quadrant === 'goldmine' || opp.falseOpportunity?.verdict === 'avoid' || opp.falseOpportunity?.verdict === 'caution' || opp.marketQuadrant?.quadrant === 'dead_zone') && (
+            <div className="flex flex-wrap gap-1.5">
+              {opp.marketQuadrant?.quadrant === 'goldmine' && (
+                <Badge className="bg-green-600 text-white border-0 gap-1 font-semibold text-xs">
+                  🔥 Goldmine
+                </Badge>
+              )}
+              {opp.falseOpportunity?.verdict === 'avoid' && (
+                <Badge className="bg-red-600 text-white border-0 gap-1 font-semibold text-xs">
+                  ⚠ Avoid
+                </Badge>
+              )}
+              {opp.falseOpportunity?.verdict === 'caution' && (
+                <Badge className="bg-amber-500 text-white border-0 gap-1 font-semibold text-xs">
+                  ⚡ Caution
+                </Badge>
+              )}
+              {opp.marketQuadrant?.quadrant === 'dead_zone' && (
+                <Badge className="bg-red-600 text-white border-0 gap-1 font-semibold text-xs">
+                  💀 Dead Zone
+                </Badge>
+              )}
+            </div>
+          )}
+
           {/* ── Row 7: Product references — always visible ── */}
           {opp.affectedProducts && opp.affectedProducts.length > 0 && (
             <div className="space-y-1.5">
@@ -589,6 +631,50 @@ function OpportunityCard({
                       ))}
                     </ul>
                   </div>
+                )}
+
+                {/* Feature Blocks */}
+                {opp.whyNow?.marketGrowthDriver && (
+                  <>
+                    <Separator />
+                    <WhyNowBlock whyNow={opp.whyNow} />
+                  </>
+                )}
+                {opp.falseOpportunity?.verdict && (
+                  <>
+                    <Separator />
+                    <FalseOpportunityBlock falseOpp={opp.falseOpportunity} />
+                  </>
+                )}
+                {opp.marketQuadrant?.quadrant && (
+                  <>
+                    <Separator />
+                    <MarketQuadrantBlock quadrant={opp.marketQuadrant} />
+                  </>
+                )}
+                {opp.whyExistingProductsFail?.rootCause && (
+                  <>
+                    <Separator />
+                    <WhyExistingProductsFailBlock whyFail={opp.whyExistingProductsFail} />
+                  </>
+                )}
+                {opp.executionDifficulty?.level && (
+                  <>
+                    <Separator />
+                    <ExecutionDifficultyBlock difficulty={opp.executionDifficulty} />
+                  </>
+                )}
+                {opp.founderFit?.bestFit && (
+                  <>
+                    <Separator />
+                    <FounderFitBlock founderFit={opp.founderFit} />
+                  </>
+                )}
+                {opp.sourceTransparency?.sourcePlatforms && (
+                  <>
+                    <Separator />
+                    <SourceTransparencyBlock source={opp.sourceTransparency} />
+                  </>
                 )}
 
                 {/* Category tag */}
