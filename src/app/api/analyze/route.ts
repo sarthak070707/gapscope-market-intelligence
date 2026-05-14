@@ -145,6 +145,8 @@ Rule 4: For titles, be SPECIFIC about WHO is affected and WHAT is missing:
 - WRONG: "Pricing issues in productivity"
 - RIGHT: "Freelancers priced out of project management tools that bundle features they don't need"
 
+Rule 5: For "whyThisMatters", think like a venture capitalist explaining to a founder WHY this specific market gap exists. Focus on the BUSINESS MECHANISM — not what the gap is, but WHY it exists as a commercial opportunity. Use specific numbers, pricing data, and market structure analysis.
+
 === REQUIRED FIELDS FOR EACH GAP ===
 
 - gapType: One of the gap types listed above
@@ -161,7 +163,11 @@ Rule 4: For titles, be SPECIFIC about WHO is affected and WHAT is missing:
   - pricingOverlap: percentage (0-100) of products with similar pricing, calculated from the data
   - launchGrowth: percentage growth in launches compared to prior period (estimated from data)
 
-- whyThisMatters: A business-oriented explanation citing specific numbers and a CAUSAL MECHANISM. Format: "[WHO] [DOES WHAT] because [SPECIFIC REASON WITH NUMBERS]." Example: "Freelancers avoid premium AI writing tools because the $29/month subscription exceeds the $15/month average revenue per article for low-volume writers, creating a pricing ceiling that limits market expansion."
+- whyThisMatters: This field is titled "Why This Opportunity Exists" — it must contain BUSINESS REASONING, not AI summarization. Explain WHY this gap represents a real market opportunity using one of these patterns:
+  Pattern A (Market Structure): "Existing products focus heavily on [SEGMENT], leaving [UNSERVED_SEGMENT] completely underserved because [BUSINESS_REASON_WITH_NUMBERS]"
+  Pattern B (Pricing Gap): "Current solutions price at [AMOUNT] which exceeds [SPECIFIC_USER_SEGMENT]'s budget by [AMOUNT], creating a pricing ceiling that limits market expansion to [MARKET_SIZE]"
+  Pattern C (Technology Shift): "Recent [TECHNOLOGY_CHANGE] makes [NEW_APPROACH] economically viable for [SPECIFIC_AUDIENCE], but incumbents haven't adapted because [BUSINESS_REASON]"
+  NEVER write generic statements like "There is an opportunity" or "The market is growing". Instead state the SPECIFIC BUSINESS MECHANISM that creates this opportunity.
 
 - subNiche: Object with:
   - name: HYPER-SPECIFIC sub-niche name that names the WHO, WHAT, and CONTEXT. NOT "AI coding tools" but "AI debugging assistants for junior developers who write Python". NOT "resume tools" but "ATS resume optimizers for engineering graduates entering FAANG". NOT "home workout apps" but "postpartum fitness trackers for new mothers recovering from C-sections".

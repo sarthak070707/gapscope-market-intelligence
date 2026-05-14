@@ -22,12 +22,13 @@ import {
   Link2,
   ShieldCheck,
   CircleDot,
-  Database,
   DollarSign,
   Rocket,
   Target,
   Quote,
   ArrowUpRight,
+  Wrench,
+  Zap,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
@@ -72,7 +73,13 @@ import {
   SourceTransparencyBlock,
   WhyExistingProductsFailBlock,
   MarketQuadrantBlock,
+  SharedComplaintClusteringSection,
+  EnhancedEvidenceBlock,
+  WhyOpportunityExistsBlock,
+  UnderservedAudienceBlock,
+  FeasibilitySummaryBlock,
 } from '@/components/feature-blocks'
+import type { ComplaintCluster } from '@/types'
 
 // ──────────────────────────────────────────────
 // Color helpers
@@ -199,17 +206,6 @@ function FullScoreDisplay({ score }: { score: OpportunityScoreBreakdown }) {
   )
 }
 
-/** Evidence metric pill with icon */
-function EvidencePill({ icon: Icon, value, label, accent }: { icon: React.ElementType; value: string | number; label: string; accent?: string }) {
-  return (
-    <div className={`inline-flex items-center gap-1.5 rounded-md border bg-muted/30 px-2 py-1 text-xs transition-colors hover:bg-muted/60 ${accent ?? ''}`}>
-      <Icon className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
-      <span className="font-bold tabular-nums">{value}</span>
-      <span className="text-muted-foreground">{label}</span>
-    </div>
-  )
-}
-
 /** Colored opportunity score dot */
 function ScoreDot({ score }: { score: number }) {
   const color = score >= 75 ? 'bg-green-500' : score >= 50 ? 'bg-amber-500' : 'bg-red-500'
@@ -239,20 +235,6 @@ function CompactProductRef({ product }: { product: ProductReference }) {
         <span className="text-red-600 dark:text-red-400 flex items-center gap-0.5 shrink-0" title={product.weaknesses[0]}>
           <XIcon className="h-3 w-3" />
         </span>
-      )}
-    </div>
-  )
-}
-
-/** Compact underserved user row — always visible */
-function CompactUserRow({ user }: { user: UnderservedUserGroup }) {
-  return (
-    <div className="flex items-center gap-2 rounded-md border border-purple-200/60 dark:border-purple-800/30 bg-purple-50/20 dark:bg-purple-950/10 px-2.5 py-1">
-      <UserCircle className="h-3.5 w-3.5 text-purple-500 shrink-0" />
-      <span className="text-xs font-semibold text-purple-700 dark:text-purple-400 truncate">{user.userGroup}</span>
-      {user.opportunityScore > 0 && <ScoreDot score={user.opportunityScore} />}
-      {user.evidence && (
-        <span className="text-[10px] text-muted-foreground truncate flex-1">{user.evidence}</span>
       )}
     </div>
   )
@@ -362,6 +344,16 @@ function OpportunityCard({
 
   const hasScore = opp.opportunityScore && opp.opportunityScore.total > 0
 
+  // Execution difficulty badge config
+  const difficultyConfig: Record<string, { label: string; color: string }> = {
+    low: { label: 'Easy', color: 'bg-green-100 text-green-700 dark:bg-green-950/40 dark:text-green-400' },
+    'low-medium': { label: 'Easy-Med', color: 'bg-lime-100 text-lime-700 dark:bg-lime-950/40 dark:text-lime-400' },
+    medium: { label: 'Medium', color: 'bg-amber-100 text-amber-700 dark:bg-amber-950/40 dark:text-amber-400' },
+    'medium-high': { label: 'Med-Hard', color: 'bg-orange-100 text-orange-700 dark:bg-orange-950/40 dark:text-orange-400' },
+    high: { label: 'Hard', color: 'bg-red-100 text-red-700 dark:bg-red-950/40 dark:text-red-400' },
+  }
+  const diffConf = opp.executionDifficulty?.level ? difficultyConfig[opp.executionDifficulty.level] : null
+
   return (
     <motion.div
       initial={{ opacity: 0, y: 20 }}
@@ -372,7 +364,7 @@ function OpportunityCard({
     >
       <Card className="h-full hover:shadow-lg transition-all duration-200 border-border/80 group">
         <CardContent className="p-4 sm:p-5 space-y-3.5">
-          {/* ── Row 1: Score gauge + Saturation badge + Save button ── */}
+          {/* ── Row 1: Score gauge + Saturation badge + Difficulty badge + Save button ── */}
           <div className="flex items-start justify-between gap-2">
             <div className="flex items-center gap-2 flex-wrap">
               {hasScore ? (
@@ -383,6 +375,12 @@ function OpportunityCard({
               <Badge variant="outline" className={SATURATION_COLORS[opp.saturation]}>
                 {opp.saturation} saturation
               </Badge>
+              {diffConf && (
+                <Badge variant="outline" className={`${diffConf.color} gap-1 font-semibold text-xs`}>
+                  <Wrench className="h-3 w-3" />
+                  {diffConf.label}
+                </Badge>
+              )}
             </div>
             <div className="flex items-center gap-1 shrink-0">
               <Button
@@ -426,48 +424,44 @@ function OpportunityCard({
             <p className="text-xs text-muted-foreground mt-1.5 line-clamp-3 leading-relaxed">{opp.description}</p>
           </div>
 
-          {/* ── Row 4: Evidence Layer — always visible ── */}
-          {opp.evidenceDetail && (
-            <div className="rounded-lg border border-dashed border-border/60 bg-muted/10 p-2.5 space-y-1.5">
-              <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Evidence</p>
-              <div className="flex flex-wrap gap-1.5">
-                {opp.evidenceDetail.similarProducts > 0 && (
-                  <EvidencePill icon={Database} value={opp.evidenceDetail.similarProducts} label="similar products" />
-                )}
-                {opp.evidenceDetail.repeatedComplaints > 0 && (
-                  <EvidencePill icon={MessageSquare} value={opp.evidenceDetail.repeatedComplaints} label="complaints" />
-                )}
-                {opp.evidenceDetail.pricingOverlap > 0 && (
-                  <EvidencePill icon={DollarSign} value={`${opp.evidenceDetail.pricingOverlap}%`} label="pricing overlap" />
-                )}
-                {opp.evidenceDetail.launchFrequency > 0 && (
-                  <EvidencePill icon={Rocket} value={opp.evidenceDetail.launchFrequency} label="recent launches" />
-                )}
-                {opp.evidenceDetail.launchGrowth && opp.evidenceDetail.launchGrowth > 0 && (
-                  <EvidencePill
-                    icon={TrendingUp}
-                    value={`+${opp.evidenceDetail.launchGrowth}%`}
-                    label="growth"
-                    accent="text-green-600 dark:text-green-400 border-green-200 dark:border-green-800/40 bg-green-50/30 dark:bg-green-950/10"
-                  />
-                )}
-              </div>
-              {opp.affectedProducts && opp.affectedProducts.length > 0 && (
-                <p className="text-[10px] text-muted-foreground">
-                  Affected: {opp.affectedProducts.map((p) => p.name).join(', ')}
-                </p>
-              )}
-            </div>
+          {/* ── Feasibility Summary (always visible) ── */}
+          <FeasibilitySummaryBlock
+            executionDifficulty={opp.executionDifficulty}
+            opportunityScore={opp.opportunityScore}
+            falseOpportunity={opp.falseOpportunity}
+          />
+
+          {/* ── Why This Opportunity Exists (always visible) ── */}
+          {opp.whyThisMatters && (
+            <WhyOpportunityExistsBlock text={opp.whyThisMatters} />
           )}
 
-          {/* ── Row 5: "Why This Matters" — always visible ── */}
-          {opp.whyThisMatters && (
-            <div className="rounded-lg border-2 border-orange-300 dark:border-orange-700/50 bg-gradient-to-r from-orange-50 to-amber-50 dark:from-orange-950/20 dark:to-amber-950/20 p-3">
-              <div className="flex items-center gap-1.5 mb-1">
-                <ShieldCheck className="h-4 w-4 text-orange-600 dark:text-orange-400 shrink-0" />
-                <p className="text-xs font-bold text-orange-700 dark:text-orange-400">Why This Matters</p>
+          {/* ── Evidence Block (always visible) ── */}
+          {opp.evidenceDetail && (
+            <EnhancedEvidenceBlock
+              evidence={opp.evidenceDetail}
+              affectedProductNames={opp.affectedProducts?.map(p => p.name)}
+            />
+          )}
+
+          {/* ── Row 5b: "Why Now?" compact — always visible ── */}
+          {opp.whyNow?.timingAdvantage && (
+            <div className="relative rounded-xl border-2 border-amber-400/70 dark:border-amber-600/50 bg-gradient-to-br from-amber-50 via-yellow-50 to-amber-50 dark:from-amber-950/30 dark:via-yellow-950/20 dark:to-amber-950/30 p-3.5 shadow-sm">
+              <div className="absolute -top-2 left-3">
+                <span className="inline-flex items-center gap-1 rounded-full bg-amber-500 px-2 py-0.5 text-[10px] font-bold text-white shadow-sm">
+                  <Zap className="h-3 w-3" />
+                  WHY NOW
+                </span>
               </div>
-              <p className="text-xs text-foreground leading-relaxed">{opp.whyThisMatters}</p>
+              <div className="mt-1.5 space-y-1">
+                <p className="text-xs text-foreground leading-relaxed">{opp.whyNow.timingAdvantage}</p>
+                {opp.whyNow.marketGrowthDriver && (
+                  <p className="text-[10px] text-green-700 dark:text-green-400 flex items-start gap-1">
+                    <TrendingUp className="h-3 w-3 shrink-0 mt-0.5" />
+                    <span>{opp.whyNow.marketGrowthDriver}</span>
+                  </p>
+                )}
+              </div>
             </div>
           )}
 
@@ -525,19 +519,9 @@ function OpportunityCard({
             </div>
           )}
 
-          {/* ── Row 8: Underserved Users — always visible ── */}
+          {/* ── Underserved Audience (always visible) ── */}
           {opp.underservedUsers && opp.underservedUsers.length > 0 && (
-            <div className="space-y-1.5">
-              <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Underserved Users</p>
-              <div className="space-y-1">
-                {opp.underservedUsers.slice(0, 3).map((user, j) => (
-                  <CompactUserRow key={j} user={user} />
-                ))}
-                {opp.underservedUsers.length > 3 && (
-                  <p className="text-[10px] text-muted-foreground pl-1">+{opp.underservedUsers.length - 3} more user groups</p>
-                )}
-              </div>
-            </div>
+            <UnderservedAudienceBlock users={opp.underservedUsers} />
           )}
 
           {/* ── Row 9: Expand toggle ── */}
@@ -729,6 +713,7 @@ export function OpportunitiesPanel() {
   const removeSavedOpportunity = useAppStore((s) => s.removeSavedOpportunity)
   const timePeriod = useAppStore((s) => s.timePeriod)
   const setTimePeriod = useAppStore((s) => s.setTimePeriod)
+  const complaintClusters = useAppStore((s) => s.complaintClusters)
 
   // Fetch saved opportunities from DB on load
   const fetchSavedOpportunities = useCallback(async () => {
@@ -968,6 +953,11 @@ export function OpportunitiesPanel() {
             )}
           </div>
         </Card>
+      )}
+
+      {/* Complaint Clustering Section */}
+      {!generateMutation.isPending && complaintClusters.length > 0 && displayedOpportunities.length > 0 && (
+        <SharedComplaintClusteringSection clusters={complaintClusters} />
       )}
 
       {/* Opportunity Cards Grid */}

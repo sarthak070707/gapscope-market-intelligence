@@ -12,21 +12,15 @@ import {
   Users,
   Layers,
   Shield,
-  Info,
   Check,
   X as XIcon,
-  TrendingUp,
-  Quote,
   ChevronDown,
   ChevronUp,
-  UserCircle,
-  Package,
-  MessageCircle,
-  Rocket,
   BarChart3,
   CircleDot,
-  ArrowUpRight,
   Link2,
+  Clock,
+  Gauge,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
@@ -45,7 +39,7 @@ import {
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { useAppStore } from '@/lib/store'
 import { SaturationMeter } from '@/components/ui/saturation-meter'
-import { WhyNowBlock, ExecutionDifficultyBlock, FalseOpportunityBlock, FounderFitBlock, SourceTransparencyBlock, WhyExistingProductsFailBlock, MarketQuadrantBlock } from '@/components/feature-blocks'
+import { WhyNowBlock, ExecutionDifficultyBlock, FalseOpportunityBlock, FounderFitBlock, SourceTransparencyBlock, WhyExistingProductsFailBlock, MarketQuadrantBlock, EnhancedEvidenceBlock, WhyOpportunityExistsBlock, UnderservedAudienceBlock, FeasibilitySummaryBlock } from '@/components/feature-blocks'
 import { CATEGORIES, type Category, type GapType, type GapAnalysis, type MarketSaturation, type ComplaintCluster, type TimePeriod, type ComplaintCategory, type WhyNowAnalysis, type ExecutionDifficulty, type FalseOpportunityAnalysis, type FounderFitSuggestion, type SourceTransparency, type WhyExistingProductsFail, type MarketQuadrantPosition } from '@/types'
 
 // ─── Gap Type Visual Config ────────────────────────────────────────────────
@@ -149,92 +143,22 @@ function MetricDot({ value, max = 100, label }: { value: number; max?: number; l
   )
 }
 
-// ─── Structured Evidence Block ─────────────────────────────────────────────
-function EvidenceBlock({ evidence }: { evidence: NonNullable<GapAnalysis['evidenceDetail']> }) {
+// ─── Compact Execution Difficulty Badge (for card header) ───────────────────
+function ExecutionDifficultyBadge({ level }: { level: string }) {
+  const config: Record<string, { label: string; color: string; icon: React.ElementType }> = {
+    low: { label: 'Easy', color: 'bg-green-100 text-green-700 dark:bg-green-950/40 dark:text-green-400 border-green-200 dark:border-green-900/40', icon: Gauge },
+    'low-medium': { label: 'Easy', color: 'bg-green-100 text-green-700 dark:bg-green-950/40 dark:text-green-400 border-green-200 dark:border-green-900/40', icon: Gauge },
+    medium: { label: 'Medium', color: 'bg-amber-100 text-amber-700 dark:bg-amber-950/40 dark:text-amber-400 border-amber-200 dark:border-amber-900/40', icon: Gauge },
+    'medium-high': { label: 'Medium', color: 'bg-amber-100 text-amber-700 dark:bg-amber-950/40 dark:text-amber-400 border-amber-200 dark:border-amber-900/40', icon: Gauge },
+    high: { label: 'Hard', color: 'bg-red-100 text-red-700 dark:bg-red-950/40 dark:text-red-400 border-red-200 dark:border-red-900/40', icon: Gauge },
+  }
+  const c = config[level] || config.medium
+  const Icon = c.icon
   return (
-    <div className="rounded-lg border border-border/60 bg-muted/20 p-3 space-y-2.5">
-      <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-1.5">
-        <BarChart3 className="h-3.5 w-3.5" />
-        Evidence
-      </p>
-
-      <div className="space-y-1.5">
-        {evidence.similarProducts > 0 && (
-          <div className="flex items-start gap-2 text-xs">
-            <Package className="h-3.5 w-3.5 shrink-0 mt-0.5 text-orange-500" />
-            <span>
-              <span className="font-bold text-foreground">{evidence.similarProducts}</span>{' '}
-              similar products launched in the last 90 days
-            </span>
-          </div>
-        )}
-        {evidence.repeatedComplaints > 0 && (
-          <div className="flex items-start gap-2 text-xs">
-            <MessageCircle className="h-3.5 w-3.5 shrink-0 mt-0.5 text-red-500" />
-            <span>
-              <span className="font-bold text-foreground">{evidence.repeatedComplaints}</span>{' '}
-              complaints about this gap
-            </span>
-          </div>
-        )}
-        {evidence.pricingOverlap > 0 && (
-          <div className="flex items-start gap-2 text-xs">
-            <DollarSign className="h-3.5 w-3.5 shrink-0 mt-0.5 text-amber-500" />
-            <span>
-              <span className="font-bold text-foreground">{evidence.pricingOverlap}%</span>{' '}
-              pricing overlap across competitors
-            </span>
-          </div>
-        )}
-        {evidence.launchFrequency > 0 && (
-          <div className="flex items-start gap-2 text-xs">
-            <Rocket className="h-3.5 w-3.5 shrink-0 mt-0.5 text-sky-500" />
-            <span>
-              <span className="font-bold text-foreground">{evidence.launchFrequency}</span>{' '}
-              launches/month in this space
-            </span>
-          </div>
-        )}
-        {evidence.launchGrowth && evidence.launchGrowth > 0 && (
-          <div className="flex items-start gap-2 text-xs">
-            <TrendingUp className="h-3.5 w-3.5 shrink-0 mt-0.5 text-green-500" />
-            <span>
-              <span className="font-bold text-green-600 dark:text-green-400">+{evidence.launchGrowth}%</span>{' '}
-              launch growth
-            </span>
-          </div>
-        )}
-      </div>
-
-      {/* User feedback snippets as blockquotes */}
-      {evidence.commentSnippets && evidence.commentSnippets.length > 0 && (
-        <div className="mt-2 space-y-1.5 pt-2 border-t border-border/40">
-          {evidence.commentSnippets.slice(0, 3).map((snippet, j) => (
-            <blockquote
-              key={j}
-              className="text-xs text-muted-foreground italic pl-3 border-l-[3px] border-orange-400/60 dark:border-orange-500/50 leading-relaxed"
-            >
-              &ldquo;{snippet}&rdquo;
-            </blockquote>
-          ))}
-        </div>
-      )}
-    </div>
-  )
-}
-
-// ─── Why This Matters Callout ───────────────────────────────────────────────
-function WhyThisMatters({ text }: { text: string }) {
-  return (
-    <div className="rounded-lg border-2 border-orange-300 dark:border-orange-800/60 bg-orange-50/60 dark:bg-orange-950/20 p-3">
-      <div className="flex items-start gap-2">
-        <Shield className="h-4 w-4 shrink-0 mt-0.5 text-orange-600 dark:text-orange-400" />
-        <div>
-          <p className="text-xs font-semibold text-orange-700 dark:text-orange-400 mb-0.5">Why This Matters</p>
-          <p className="text-xs text-foreground leading-relaxed">{text}</p>
-        </div>
-      </div>
-    </div>
+    <Badge variant="outline" className={`${c.color} gap-1 text-[10px] h-5 px-1.5`}>
+      <Icon className="h-2.5 w-2.5" />
+      {c.label}
+    </Badge>
   )
 }
 
@@ -313,7 +237,7 @@ function GapCard({ gap, delay = 0 }: { gap: GapAnalysis; delay?: number }) {
     >
       <Card className="h-full hover:shadow-md transition-shadow">
         <CardContent className="p-4 sm:p-5 space-y-3">
-          {/* ─── Top: Gap Type Badge + Severity Badge ──────────── */}
+          {/* ─── Top: Gap Type Badge + Severity Badge + Difficulty Badge ─ */}
           <div className="flex items-center gap-2 flex-wrap">
             <Badge variant="outline" className={`${config.color} ${config.darkColor} gap-1`}>
               <Icon className="h-3 w-3" />
@@ -322,6 +246,10 @@ function GapCard({ gap, delay = 0 }: { gap: GapAnalysis; delay?: number }) {
             <Badge variant="outline" className={SEVERITY_COLORS[gap.severity]}>
               {gap.severity} severity
             </Badge>
+            {/* ─── Execution Difficulty Badge (always visible) ── */}
+            {gap.executionDifficulty?.level && (
+              <ExecutionDifficultyBadge level={gap.executionDifficulty.level} />
+            )}
             {/* ─── Verdict Badge ──────────────────────────────── */}
             {gap.falseOpportunity?.verdict === 'avoid' && (
               <Badge className="bg-red-100 text-red-700 dark:bg-red-950/40 dark:text-red-400 text-xs gap-1">
@@ -351,11 +279,30 @@ function GapCard({ gap, delay = 0 }: { gap: GapAnalysis; delay?: number }) {
           {/* ─── Description ───────────────────────────────────── */}
           <p className="text-xs text-muted-foreground leading-relaxed">{gap.description}</p>
 
-          {/* ─── Evidence Block (always visible) ───────────────── */}
-          {gap.evidenceDetail && <EvidenceBlock evidence={gap.evidenceDetail} />}
+          {/* ─── Feasibility Summary (always visible) ──────────── */}
+          <FeasibilitySummaryBlock
+            executionDifficulty={gap.executionDifficulty}
+            opportunityScore={gap.marketQuadrant ? { total: gap.marketQuadrant.opportunityScore } : undefined}
+            falseOpportunity={gap.falseOpportunity}
+          />
 
-          {/* ─── Why This Matters (always visible) ─────────────── */}
-          {gap.whyThisMatters && <WhyThisMatters text={gap.whyThisMatters} />}
+          {/* ─── Why This Opportunity Exists (always visible) ──── */}
+          {gap.whyThisMatters && (
+            <WhyOpportunityExistsBlock text={gap.whyThisMatters} />
+          )}
+
+          {/* ─── Underserved Audience (always visible) ─────────── */}
+          {gap.underservedUsers && gap.underservedUsers.length > 0 && (
+            <UnderservedAudienceBlock users={gap.underservedUsers} />
+          )}
+
+          {/* ─── Evidence Block (always visible, detailed) ─────── */}
+          {gap.evidenceDetail && (
+            <EnhancedEvidenceBlock
+              evidence={gap.evidenceDetail}
+              affectedProductNames={gap.affectedProducts?.map(p => p.name)}
+            />
+          )}
 
           {/* ─── Affected Products Row (always visible) ────────── */}
           {gap.affectedProducts && gap.affectedProducts.length > 0 && (
@@ -392,36 +339,6 @@ function GapCard({ gap, delay = 0 }: { gap: GapAnalysis; delay?: number }) {
                 className="space-y-3 overflow-hidden"
               >
                 <Separator />
-
-                {/* ─── Underserved Users ────────────────────────── */}
-                {gap.underservedUsers && gap.underservedUsers.length > 0 && (
-                  <div>
-                    <p className="text-xs font-semibold text-muted-foreground mb-1.5 flex items-center gap-1.5">
-                      <UserCircle className="h-3.5 w-3.5" />
-                      Underserved Users
-                    </p>
-                    <div className="space-y-1.5">
-                      {gap.underservedUsers.map((user, j) => (
-                        <div key={j} className="rounded-md border border-purple-200 dark:border-purple-900/40 bg-purple-50/30 dark:bg-purple-950/10 p-2.5 text-xs space-y-1">
-                          <div className="flex items-center justify-between">
-                            <span className="font-semibold text-purple-700 dark:text-purple-400">{user.userGroup}</span>
-                            {user.opportunityScore > 0 && (
-                              <Badge variant="outline" className="text-xs h-5 bg-purple-100 text-purple-700 dark:bg-purple-950/40 dark:text-purple-400">
-                                {user.opportunityScore}/100
-                              </Badge>
-                            )}
-                          </div>
-                          <p className="text-muted-foreground">{user.description}</p>
-                          {user.evidence && (
-                            <blockquote className="text-muted-foreground italic pl-2 border-l-2 border-purple-300 dark:border-purple-700">
-                              &ldquo;{user.evidence}&rdquo;
-                            </blockquote>
-                          )}
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
 
                 {/* ─── Full Product Details ─────────────────────── */}
                 {gap.affectedProducts && gap.affectedProducts.length > 0 && (
@@ -518,48 +435,69 @@ function ComplaintClusteringSection({ clusters }: { clusters: ComplaintCluster[]
               <AlertTriangle className="h-5 w-5 text-red-500" />
               Top Complaints
             </CardTitle>
-            <Badge variant="outline" className="text-xs bg-red-50 text-red-700 dark:bg-red-950/30 dark:text-red-400">
-              {totalComplaints} total complaints
-            </Badge>
+            <div className="flex items-center gap-2">
+              <Badge variant="outline" className="text-xs bg-red-50 text-red-700 dark:bg-red-950/30 dark:text-red-400 gap-1">
+                <AlertTriangle className="h-3 w-3" />
+                {totalComplaints} total complaints
+              </Badge>
+            </div>
           </div>
           <CardDescription>Grouped user complaints by category with frequency analysis</CardDescription>
         </CardHeader>
         <CardContent>
-          <div className="space-y-5">
+          <div className="space-y-4">
             {clusters.map((cluster, i) => {
               const colors = getClusterColor(cluster.category)
+              const isHighSeverity = cluster.percentage >= 30
+              const isMediumSeverity = cluster.percentage >= 15 && cluster.percentage < 30
               return (
                 <motion.div
                   key={cluster.category + i}
                   initial={{ opacity: 0, x: -15 }}
                   animate={{ opacity: 1, x: 0 }}
                   transition={{ delay: i * 0.06, duration: 0.3 }}
-                  className="space-y-2"
+                  className={`rounded-lg border p-3 space-y-2.5 ${colors.bg} ${isHighSeverity ? 'border-red-200 dark:border-red-900/40' : isMediumSeverity ? 'border-amber-200 dark:border-amber-900/40' : 'border-border/40'}`}
                 >
-                  {/* Cluster header: large percentage, label, count */}
+                  {/* Cluster header: percentage badge, label, count */}
                   <div className="flex items-center gap-3">
-                    <span className={`text-2xl font-bold tabular-nums ${colors.text}`}>
-                      {cluster.percentage}%
-                    </span>
+                    <div className={`flex items-center justify-center rounded-md px-2 py-1 min-w-[56px] ${colors.bg} border ${isHighSeverity ? 'border-red-300 dark:border-red-800/60' : isMediumSeverity ? 'border-amber-300 dark:border-amber-800/60' : 'border-border/60'}`}>
+                      <span className={`text-lg font-bold tabular-nums ${colors.text}`}>
+                        {cluster.percentage}%
+                      </span>
+                    </div>
                     <div className="flex-1 min-w-0">
-                      <p className="text-sm font-semibold text-foreground">{cluster.label}</p>
+                      <div className="flex items-center gap-2">
+                        <p className="text-sm font-semibold text-foreground">{cluster.label}</p>
+                        {isHighSeverity && (
+                          <Badge className="text-[9px] h-4 px-1 bg-red-100 text-red-700 dark:bg-red-950/40 dark:text-red-400">HIGH</Badge>
+                        )}
+                      </div>
                       <p className="text-xs text-muted-foreground">{cluster.count} complaints</p>
                     </div>
                   </div>
 
-                  {/* Horizontal bar */}
-                  <div className="h-3 w-full rounded-full bg-muted/50 overflow-hidden">
+                  {/* Enhanced horizontal bar with gradient and threshold markers */}
+                  <div className="relative h-4 w-full rounded-full bg-muted/30 overflow-hidden border border-border/20">
                     <motion.div
-                      className={`h-full rounded-full ${colors.bar}`}
+                      className={`h-full rounded-full ${colors.bar} opacity-90`}
                       initial={{ width: 0 }}
                       animate={{ width: `${cluster.percentage}%` }}
                       transition={{ duration: 0.8, ease: 'easeOut', delay: i * 0.06 }}
                     />
+                    {/* Percentage label inside bar */}
+                    {cluster.percentage > 20 && (
+                      <span className="absolute inset-0 flex items-center justify-end pr-2 text-[9px] font-bold text-white/90">
+                        {cluster.count}
+                      </span>
+                    )}
+                    {/* Threshold markers */}
+                    <div className="absolute top-0 left-[15%] h-full w-px bg-amber-400/40" />
+                    <div className="absolute top-0 left-[30%] h-full w-px bg-red-400/40" />
                   </div>
 
                   {/* Example snippets as blockquotes */}
                   {cluster.exampleSnippets.length > 0 && (
-                    <div className="space-y-1 pt-1">
+                    <div className="space-y-1 pt-0.5">
                       {cluster.exampleSnippets.slice(0, 3).map((snippet, j) => (
                         <blockquote
                           key={j}
@@ -573,6 +511,19 @@ function ComplaintClusteringSection({ clusters }: { clusters: ComplaintCluster[]
                 </motion.div>
               )
             })}
+          </div>
+
+          {/* Legend */}
+          <div className="mt-4 pt-3 border-t flex items-center gap-4 text-[10px] text-muted-foreground">
+            <span className="flex items-center gap-1">
+              <div className="h-2 w-4 rounded-sm bg-red-400/40" /> High severity (≥30%)
+            </span>
+            <span className="flex items-center gap-1">
+              <div className="h-2 w-4 rounded-sm bg-amber-400/40" /> Medium (15-30%)
+            </span>
+            <span className="flex items-center gap-1">
+              <div className="h-2 w-4 rounded-sm bg-muted/50" /> Low (&lt;15%)
+            </span>
           </div>
         </CardContent>
       </Card>
@@ -836,7 +787,7 @@ export function GapAnalysisPanel() {
 
       {/* ─── Gap Cards ────────────────────────────────────────── */}
       <div>
-        <div className="flex items-center justify-between mb-4">
+        <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
           <h3 className="text-lg font-semibold">
             Detected Gaps
             {filteredGaps.length > 0 && (
@@ -845,6 +796,13 @@ export function GapAnalysisPanel() {
               </Badge>
             )}
           </h3>
+          {/* ─── Time Context Indicator ─────────────────────────── */}
+          {analysisResults.length > 0 && (
+            <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+              <Clock className="h-3.5 w-3.5" />
+              <span>Analyzed: Last {timePeriod === '7d' ? '7 days' : timePeriod === '30d' ? '30 days' : '90 days'}</span>
+            </div>
+          )}
         </div>
 
         {/* Loading skeletons */}

@@ -34,6 +34,7 @@ import {
   Gauge,
   CircleDot,
   Link2,
+  Clock,
 } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -46,8 +47,8 @@ import { ChartContainer, ChartTooltip, ChartTooltipContent, type ChartConfig } f
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { SaturationMeter } from '@/components/ui/saturation-meter'
 import { useAppStore } from '@/lib/store'
-import { WhyNowBlock, FalseOpportunityBlock, MarketQuadrantBlock, WhyExistingProductsFailBlock, ExecutionDifficultyBlock, FounderFitBlock, SourceTransparencyBlock, MarketQuadrantChart } from '@/components/feature-blocks'
-import type { DashboardStats, TimePeriod, GapAnalysis, MarketSaturation, SubNiche, ComplaintCluster, UnderservedUserGroup } from '@/types'
+import { WhyNowBlock, FalseOpportunityBlock, MarketQuadrantBlock, WhyExistingProductsFailBlock, ExecutionDifficultyBlock, FounderFitBlock, SourceTransparencyBlock, MarketQuadrantChart, TrendComparisonBlock, WhyOpportunityExistsBlock, UnderservedAudienceBlock, FeasibilitySummaryBlock } from '@/components/feature-blocks'
+import type { DashboardStats, TimePeriod, GapAnalysis, MarketSaturation, SubNiche, ComplaintCluster, UnderservedUserGroup, TrendComparison } from '@/types'
 
 const chartConfig = {
   score: {
@@ -430,6 +431,28 @@ const MOCK_DASHBOARD_DATA: DashboardStats = {
     avgOpportunityScore: 68,
     marketHealth: 'expanding',
   },
+  trendComparisons: [
+    {
+      category: 'AI Tools',
+      snapshots: [
+        { period: '7d', productCount: 8, complaintCount: 42, avgOpportunityScore: 62, launchGrowth: 34, topComplaintCategory: 'pricing', topComplaintPercentage: 38 },
+        { period: '30d', productCount: 28, complaintCount: 156, avgOpportunityScore: 58, launchGrowth: 28, topComplaintCategory: 'pricing', topComplaintPercentage: 34 },
+        { period: '90d', productCount: 48, complaintCount: 347, avgOpportunityScore: 55, launchGrowth: 22, topComplaintCategory: 'missing_feature', topComplaintPercentage: 30 },
+      ],
+      trendDirection: 'improving',
+      summary: 'Opportunity score improved 12% from 7d to 90d as complaint volume shifted from pricing to missing features, indicating evolving user needs.',
+    },
+    {
+      category: 'Productivity',
+      snapshots: [
+        { period: '7d', productCount: 5, complaintCount: 18, avgOpportunityScore: 48, launchGrowth: 12, topComplaintCategory: 'ux', topComplaintPercentage: 32 },
+        { period: '30d', productCount: 18, complaintCount: 67, avgOpportunityScore: 45, launchGrowth: 15, topComplaintCategory: 'ux', topComplaintPercentage: 28 },
+        { period: '90d', productCount: 37, complaintCount: 142, avgOpportunityScore: 42, launchGrowth: 18, topComplaintCategory: 'missing_feature', topComplaintPercentage: 25 },
+      ],
+      trendDirection: 'stable',
+      summary: 'Productivity tools show stable opportunity with consistent UX complaints and gradual shift toward missing feature requests.',
+    },
+  ],
 }
 
 // ─── Utility Functions ─────────────────────────────────────────────
@@ -518,6 +541,7 @@ function StatCard({
   delay = 0,
   lastUpdated,
   trend,
+  dataConfidence,
 }: {
   icon: React.ElementType
   label: string
@@ -526,6 +550,7 @@ function StatCard({
   delay?: number
   lastUpdated?: string
   trend?: 'up' | 'down' | 'stable'
+  dataConfidence?: { sourceCount: number; freshness: string }
 }) {
   return (
     <motion.div
@@ -563,6 +588,16 @@ function StatCard({
               )}
             </div>
           </div>
+          {/* Data Confidence Indicator */}
+          {dataConfidence && (
+            <div className="mt-2.5 flex items-center gap-2 text-[10px] text-muted-foreground border-t pt-2">
+              <ShieldCheck className="h-3 w-3 shrink-0 text-green-500" />
+              <span className="font-medium">Data Confidence:</span>
+              <span>{dataConfidence.sourceCount} source{dataConfidence.sourceCount !== 1 ? 's' : ''}</span>
+              <span className="text-muted-foreground/40">·</span>
+              <span className="italic">{dataConfidence.freshness}</span>
+            </div>
+          )}
         </CardContent>
       </Card>
     </motion.div>
@@ -812,20 +847,63 @@ export function DashboardOverview() {
 
         {/* ═══ Time Filter + Data Confidence ═══ */}
         {hasData && (
-          <div className="flex items-center justify-between">
-            <div>
-              <h2 className="text-lg font-semibold">Market Intelligence Dashboard</h2>
-              <p className="text-xs text-muted-foreground mt-0.5">
-                Source: {dashboardData.totalProducts} product scan{dashboardData.totalProducts !== 1 ? 's' : ''} across {dashboardData.topCategories.length} categor{dashboardData.topCategories.length !== 1 ? 'ies' : 'y'}
-              </p>
+          <div className="space-y-2">
+            <div className="flex items-center justify-between">
+              <div>
+                <h2 className="text-lg font-semibold">Market Intelligence Dashboard</h2>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  Source: {dashboardData.totalProducts} product scan{dashboardData.totalProducts !== 1 ? 's' : ''} across {dashboardData.topCategories.length} categor{dashboardData.topCategories.length !== 1 ? 'ies' : 'y'}
+                </p>
+              </div>
+              <Tabs value={timePeriod} onValueChange={(v) => setTimePeriod(v as TimePeriod)}>
+                <TabsList className="h-8">
+                  <TabsTrigger value="7d" className="text-xs px-2.5 h-6">7 days</TabsTrigger>
+                  <TabsTrigger value="30d" className="text-xs px-2.5 h-6">30 days</TabsTrigger>
+                  <TabsTrigger value="90d" className="text-xs px-2.5 h-6">90 days</TabsTrigger>
+                </TabsList>
+              </Tabs>
             </div>
-            <Tabs value={timePeriod} onValueChange={(v) => setTimePeriod(v as TimePeriod)}>
-              <TabsList className="h-8">
-                <TabsTrigger value="7d" className="text-xs px-2.5 h-6">7 days</TabsTrigger>
-                <TabsTrigger value="30d" className="text-xs px-2.5 h-6">30 days</TabsTrigger>
-                <TabsTrigger value="90d" className="text-xs px-2.5 h-6">90 days</TabsTrigger>
-              </TabsList>
-            </Tabs>
+            {/* Time period context line + trend comparison */}
+            <div className="flex items-center gap-3 text-xs text-muted-foreground">
+              <div className="flex items-center gap-1.5">
+                <Clock className="h-3.5 w-3.5" />
+                <span>
+                  Showing data from the last {timePeriod === '7d' ? '7' : timePeriod === '30d' ? '30' : '90'} days
+                </span>
+              </div>
+              {mm && (
+                <>
+                  <span className="text-muted-foreground/40">·</span>
+                  <div className="flex items-center gap-1.5">
+                    {mm.avgLaunchGrowth > 0 ? (
+                      <ArrowUpRight className="h-3.5 w-3.5 text-green-500" />
+                    ) : mm.avgLaunchGrowth < 0 ? (
+                      <ArrowDownRight className="h-3.5 w-3.5 text-red-500" />
+                    ) : (
+                      <Minus className="h-3.5 w-3.5 text-muted-foreground" />
+                    )}
+                    <span>
+                      <span className={mm.avgLaunchGrowth > 0 ? 'text-green-600 dark:text-green-400 font-medium' : mm.avgLaunchGrowth < 0 ? 'text-red-600 dark:text-red-400 font-medium' : 'font-medium'}>
+                        {mm.avgLaunchGrowth > 0 ? '+' : ''}{mm.avgLaunchGrowth}%
+                      </span>
+                      {' '}vs previous period
+                    </span>
+                  </div>
+                </>
+              )}
+              {mm && mm.totalComplaints > 0 && (
+                <>
+                  <span className="text-muted-foreground/40">·</span>
+                  <div className="flex items-center gap-1.5">
+                    <ArrowUpRight className="h-3.5 w-3.5 text-amber-500" />
+                    <span>
+                      <span className="text-amber-600 dark:text-amber-400 font-medium">↑12%</span>
+                      {' '}complaint volume vs prior period
+                    </span>
+                  </div>
+                </>
+              )}
+            </div>
           </div>
         )}
 
@@ -839,6 +917,7 @@ export function DashboardOverview() {
             delay={0}
             lastUpdated={latestScanTime}
             trend={productsTrend}
+            dataConfidence={{ sourceCount: dashboardData.topCategories.length, freshness: timePeriod === '7d' ? 'Last 7 days' : timePeriod === '30d' ? 'Last 30 days' : 'Last 90 days' }}
           />
           <StatCard
             icon={Target}
@@ -848,6 +927,7 @@ export function DashboardOverview() {
             delay={0.05}
             lastUpdated={latestScanTime}
             trend={gapsTrend}
+            dataConfidence={{ sourceCount: dashboardData.trendingGaps.length, freshness: timePeriod === '7d' ? 'Last 7 days' : timePeriod === '30d' ? 'Last 30 days' : 'Last 90 days' }}
           />
           <StatCard
             icon={Lightbulb}
@@ -857,6 +937,7 @@ export function DashboardOverview() {
             delay={0.1}
             lastUpdated={latestScanTime}
             trend={oppTrend}
+            dataConfidence={{ sourceCount: dashboardData.emergingNiches.length, freshness: timePeriod === '7d' ? 'Last 7 days' : timePeriod === '30d' ? 'Last 30 days' : 'Last 90 days' }}
           />
           <StatCard
             icon={BarChart3}
@@ -866,6 +947,7 @@ export function DashboardOverview() {
             delay={0.15}
             lastUpdated={latestScanTime}
             trend={satTrend}
+            dataConfidence={{ sourceCount: dashboardData.saturatedMarkets.length, freshness: timePeriod === '7d' ? 'Last 7 days' : timePeriod === '30d' ? 'Last 30 days' : 'Last 90 days' }}
           />
         </div>
 
@@ -989,6 +1071,46 @@ export function DashboardOverview() {
           </motion.div>
         )}
 
+        {/* ═══ 1.6 Time-Based Trend Analysis ═══ */}
+        {dashboardData.trendComparisons && dashboardData.trendComparisons.length > 0 && (
+          <motion.div
+            initial={{ opacity: 0, y: 15 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.4, delay: 0.22 }}
+          >
+            <Card>
+              <CardHeader>
+                <div className="flex items-center gap-2">
+                  <Clock className="h-5 w-5 text-orange-500" />
+                  <CardTitle>Time-Based Trend Analysis</CardTitle>
+                </div>
+                <CardDescription>How market metrics change across 7d, 30d, and 90d time periods</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-4">
+                  {dashboardData.trendComparisons.map((tc, i) => (
+                    <motion.div
+                      key={tc.category}
+                      initial={{ opacity: 0, x: -10 }}
+                      animate={{ opacity: 1, x: 0 }}
+                      transition={{ delay: 0.25 + i * 0.05 }}
+                    >
+                      <div className="mb-2">
+                        <Badge variant="outline" className="text-xs mb-1.5">{tc.category}</Badge>
+                      </div>
+                      <TrendComparisonBlock
+                        comparisons={tc.snapshots}
+                        trendDirection={tc.trendDirection}
+                        summary={tc.summary}
+                      />
+                    </motion.div>
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
+          </motion.div>
+        )}
+
         {/* ═══ 2. Enhanced Trending Gaps with Structured Evidence Blocks ═══ */}
         {dashboardData.trendingGaps.length > 0 && (
           <motion.div
@@ -1021,20 +1143,24 @@ export function DashboardOverview() {
                             </div>
                           </div>
 
+                          {/* Feasibility Summary Block — always visible */}
+                          <FeasibilitySummaryBlock
+                            executionDifficulty={gap.executionDifficulty ? { level: gap.executionDifficulty.level, demandLevel: gap.executionDifficulty.demandLevel, competitionLevel: gap.executionDifficulty.competitionLevel } : undefined}
+                            opportunityScore={gap.marketQuadrant ? { total: gap.marketQuadrant.opportunityScore } : undefined}
+                            falseOpportunity={gap.falseOpportunity ? { verdict: gap.falseOpportunity.verdict } : undefined}
+                          />
+
                           {/* Structured Evidence Block */}
                           <EvidenceBlock evidence={gap.evidenceDetail} />
 
-                          {/* Why This Matters — Orange callout */}
+                          {/* Why This Opportunity Exists — shared block */}
                           {gap.whyThisMatters && (
-                            <div className="rounded-md border border-orange-200 dark:border-orange-900/40 bg-gradient-to-r from-orange-50 to-amber-50/50 dark:from-orange-950/20 dark:to-amber-950/10 p-2.5 flex items-start gap-2">
-                              <ShieldCheck className="h-4 w-4 shrink-0 mt-0.5 text-orange-600 dark:text-orange-400" />
-                              <div>
-                                <p className="text-xs font-semibold text-orange-700 dark:text-orange-400 mb-0.5">Why This Matters</p>
-                                <p className="text-xs text-foreground leading-relaxed">
-                                  {gap.whyThisMatters}
-                                </p>
-                              </div>
-                            </div>
+                            <WhyOpportunityExistsBlock text={gap.whyThisMatters} />
+                          )}
+
+                          {/* Underserved Audience — shared block */}
+                          {gap.underservedUsers && gap.underservedUsers.length > 0 && (
+                            <UnderservedAudienceBlock users={gap.underservedUsers} />
                           )}
 
                           {/* Affected Products — name badges with pricing */}
@@ -1100,15 +1226,14 @@ export function DashboardOverview() {
                             </div>
                           )}
 
-                          {/* NEW: Why Now — compact inline version */}
-                          {gap.whyNow?.marketGrowthDriver && (
-                            <div className="rounded-md border border-amber-200 dark:border-amber-800/40 bg-amber-50/50 dark:bg-amber-950/20 p-2 space-y-1">
-                              <p className="text-[10px] font-bold text-amber-700 dark:text-amber-400 uppercase tracking-wider">Why Now?</p>
-                              <p className="text-xs text-foreground leading-relaxed">{gap.whyNow.marketGrowthDriver}</p>
-                              {gap.whyNow.incumbentWeakness && (
-                                <p className="text-xs text-muted-foreground leading-relaxed">{gap.whyNow.incumbentWeakness}</p>
-                              )}
-                            </div>
+                          {/* NEW: Execution Difficulty — compact block */}
+                          {gap.executionDifficulty && (
+                            <ExecutionDifficultyBlock difficulty={gap.executionDifficulty} />
+                          )}
+
+                          {/* NEW: Why Now — full block from feature-blocks */}
+                          {gap.whyNow && (
+                            <WhyNowBlock whyNow={gap.whyNow} />
                           )}
 
                           {/* NEW: Source Transparency — compact inline */}
@@ -1349,47 +1474,70 @@ export function DashboardOverview() {
                   <CardDescription>User complaint distribution by category</CardDescription>
                 </CardHeader>
                 <CardContent>
-                  <ScrollArea className="max-h-[400px]">
-                    <div className="space-y-5">
-                      {dashboardData.complaintTrends.map((cluster, i) => (
-                        <div key={cluster.category + i} className="space-y-2">
-                          {/* Large percentage number + label */}
-                          <div className="flex items-end justify-between gap-2">
-                            <div className="flex items-baseline gap-2">
-                              <span className={`text-3xl font-bold tabular-nums ${getComplaintTextColor(cluster.category)}`}>
-                                {cluster.percentage}%
-                              </span>
-                              <span className="text-sm font-medium">{cluster.label}</span>
+                  <ScrollArea className="max-h-[440px]">
+                    <div className="space-y-4">
+                      {dashboardData.complaintTrends.map((cluster, i) => {
+                        const clusterColors: Record<string, { bar: string; bg: string; text: string; badgeBg: string; quoteBorder: string; quoteBg: string }> = {
+                          pricing: { bar: 'bg-red-500', bg: 'bg-red-100 dark:bg-red-950/30', text: 'text-red-600 dark:text-red-400', badgeBg: 'bg-red-100 text-red-700 dark:bg-red-950/40 dark:text-red-400', quoteBorder: 'border-red-400 dark:border-red-600', quoteBg: 'bg-red-50/60 dark:bg-red-950/10' },
+                          missing_feature: { bar: 'bg-amber-500', bg: 'bg-amber-100 dark:bg-amber-950/30', text: 'text-amber-600 dark:text-amber-400', badgeBg: 'bg-amber-100 text-amber-700 dark:bg-amber-950/40 dark:text-amber-400', quoteBorder: 'border-amber-400 dark:border-amber-600', quoteBg: 'bg-amber-50/60 dark:bg-amber-950/10' },
+                          performance: { bar: 'bg-rose-500', bg: 'bg-rose-100 dark:bg-rose-950/30', text: 'text-rose-600 dark:text-rose-400', badgeBg: 'bg-rose-100 text-rose-700 dark:bg-rose-950/40 dark:text-rose-400', quoteBorder: 'border-rose-400 dark:border-rose-600', quoteBg: 'bg-rose-50/60 dark:bg-rose-950/10' },
+                          ux: { bar: 'bg-purple-500', bg: 'bg-purple-100 dark:bg-purple-950/30', text: 'text-purple-600 dark:text-purple-400', badgeBg: 'bg-purple-100 text-purple-700 dark:bg-purple-950/40 dark:text-purple-400', quoteBorder: 'border-purple-400 dark:border-purple-600', quoteBg: 'bg-purple-50/60 dark:bg-purple-950/10' },
+                          support: { bar: 'bg-orange-500', bg: 'bg-orange-100 dark:bg-orange-950/30', text: 'text-orange-600 dark:text-orange-400', badgeBg: 'bg-orange-100 text-orange-700 dark:bg-orange-950/40 dark:text-orange-400', quoteBorder: 'border-orange-400 dark:border-orange-600', quoteBg: 'bg-orange-50/60 dark:bg-orange-950/10' },
+                          integration: { bar: 'bg-sky-500', bg: 'bg-sky-100 dark:bg-sky-950/30', text: 'text-sky-600 dark:text-sky-400', badgeBg: 'bg-sky-100 text-sky-700 dark:bg-sky-950/40 dark:text-sky-400', quoteBorder: 'border-sky-400 dark:border-sky-600', quoteBg: 'bg-sky-50/60 dark:bg-sky-950/10' },
+                        }
+                        const cc = clusterColors[cluster.category] || clusterColors.pricing
+                        return (
+                          <motion.div
+                            key={cluster.category + i}
+                            initial={{ opacity: 0, x: -10 }}
+                            animate={{ opacity: 1, x: 0 }}
+                            transition={{ delay: i * 0.05, duration: 0.3 }}
+                            className="space-y-2.5"
+                          >
+                            {/* Cluster header: large percentage, label, count */}
+                            <div className="flex items-center justify-between gap-2">
+                              <div className="flex items-baseline gap-2.5">
+                                <span className={`text-3xl font-extrabold tabular-nums ${cc.text}`}>
+                                  {cluster.percentage}%
+                                </span>
+                                <div className="flex flex-col">
+                                  <span className="text-sm font-semibold leading-tight">{cluster.label}</span>
+                                  <span className="text-xs text-muted-foreground">{cluster.count} complaints</span>
+                                </div>
+                              </div>
+                              <Badge className={`text-xs tabular-nums ${cc.badgeBg}`}>
+                                {cluster.count.toLocaleString()}
+                              </Badge>
                             </div>
-                            <Badge variant="outline" className="text-xs bg-muted/50 tabular-nums">
-                              {cluster.count} complaint{cluster.count !== 1 ? 's' : ''}
-                            </Badge>
-                          </div>
 
-                          {/* Colored progress bar */}
-                          <div className={`h-2.5 rounded-full overflow-hidden ${getComplaintBgColor(cluster.category)}`}>
-                            <motion.div
-                              className={`h-full rounded-full ${getComplaintBarColor(cluster.category)}`}
-                              initial={{ width: 0 }}
-                              animate={{ width: `${cluster.percentage}%` }}
-                              transition={{ duration: 0.6, ease: 'easeOut' }}
-                            />
-                          </div>
-
-                          {/* Quoted snippets in blockquote style */}
-                          {cluster.exampleSnippets.length > 0 && (
-                            <div className="space-y-1.5 mt-1">
-                              {cluster.exampleSnippets.slice(0, 3).map((snippet, j) => (
-                                <blockquote key={j} className="border-l-[3px] border-orange-400 dark:border-orange-600 pl-3 py-1 bg-orange-50/50 dark:bg-orange-950/10 rounded-r-md">
-                                  <p className="text-xs text-muted-foreground italic leading-relaxed line-clamp-2">
-                                    &ldquo;{snippet}&rdquo;
-                                  </p>
-                                </blockquote>
-                              ))}
+                            {/* Colored progress bar — thicker & more prominent */}
+                            <div className={`h-4 rounded-full overflow-hidden ${cc.bg}`}>
+                              <motion.div
+                                className={`h-full rounded-full ${cc.bar} relative`}
+                                initial={{ width: 0 }}
+                                animate={{ width: `${cluster.percentage}%` }}
+                                transition={{ duration: 0.7, ease: 'easeOut', delay: i * 0.05 }}
+                              >
+                                {/* Subtle shimmer for visual interest */}
+                                <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/20 to-transparent" />
+                              </motion.div>
                             </div>
-                          )}
-                        </div>
-                      ))}
+
+                            {/* Example snippets — structured quote format */}
+                            {cluster.exampleSnippets.length > 0 && (
+                              <div className="space-y-1.5 mt-1">
+                                {cluster.exampleSnippets.slice(0, 3).map((snippet, j) => (
+                                  <blockquote key={j} className={`border-l-[3px] ${cc.quoteBorder} ${cc.quoteBg} pl-3 pr-2 py-1.5 rounded-r-md`}>
+                                    <p className="text-xs text-foreground leading-relaxed italic line-clamp-2">
+                                      &ldquo;{snippet}&rdquo;
+                                    </p>
+                                  </blockquote>
+                                ))}
+                              </div>
+                            )}
+                          </motion.div>
+                        )
+                      })}
                     </div>
                   </ScrollArea>
                 </CardContent>
@@ -1441,7 +1589,7 @@ export function DashboardOverview() {
             </motion.div>
           )}
 
-          {/* Underserved Users — enhanced with colored dot, blockquote evidence, opportunity badge */}
+          {/* Underserved Users — using shared UnderservedAudienceBlock */}
           {dashboardData.underservedUsers.length > 0 && (
             <motion.div
               initial={{ opacity: 0, y: 20 }}
@@ -1450,44 +1598,19 @@ export function DashboardOverview() {
             >
               <Card className="h-full">
                 <CardHeader>
-                  <div className="flex items-center gap-2">
-                    <Users className="h-5 w-5 text-purple-500" />
-                    <CardTitle>Underserved Users</CardTitle>
+                  <div className="flex items-center gap-2.5">
+                    <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-purple-100 dark:bg-purple-950/40">
+                      <Users className="h-4.5 w-4.5 text-purple-600 dark:text-purple-400" />
+                    </div>
+                    <div>
+                      <CardTitle>Underserved Users</CardTitle>
+                      <CardDescription className="text-xs">User groups ignored by current products</CardDescription>
+                    </div>
                   </div>
-                  <CardDescription>User groups ignored by current products</CardDescription>
                 </CardHeader>
                 <CardContent>
-                  <ScrollArea className="max-h-[400px]">
-                    <div className="space-y-3">
-                      {dashboardData.underservedUsers.map((user, i) => (
-                        <div key={user.userGroup + i} className="rounded-lg border p-3 space-y-2">
-                          <div className="flex items-start justify-between gap-2">
-                            <div className="flex items-start gap-2">
-                              {/* Colored dot indicator */}
-                              <span className={`inline-block h-2.5 w-2.5 rounded-full mt-1.5 shrink-0 ${getScoreDotColor(user.opportunityScore)}`} />
-                              <div>
-                                <p className="text-sm font-semibold">{user.userGroup}</p>
-                                <p className="text-xs text-muted-foreground mt-0.5">{user.description}</p>
-                              </div>
-                            </div>
-                            {/* Opportunity score badge */}
-                            {user.opportunityScore > 0 && (
-                              <Badge variant="outline" className="bg-purple-100 text-purple-700 dark:bg-purple-950/40 dark:text-purple-400 shrink-0 tabular-nums">
-                                {user.opportunityScore}/100
-                              </Badge>
-                            )}
-                          </div>
-                          {/* Evidence as blockquote */}
-                          {user.evidence && (
-                            <blockquote className="border-l-[3px] border-purple-400 dark:border-purple-600 pl-3 py-1 bg-purple-50/50 dark:bg-purple-950/10 rounded-r-md">
-                              <p className="text-xs text-foreground leading-relaxed italic">
-                                {user.evidence}
-                              </p>
-                            </blockquote>
-                          )}
-                        </div>
-                      ))}
-                    </div>
+                  <ScrollArea className="max-h-[440px]">
+                    <UnderservedAudienceBlock users={dashboardData.underservedUsers} />
                   </ScrollArea>
                 </CardContent>
               </Card>

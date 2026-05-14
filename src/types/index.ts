@@ -327,6 +327,32 @@ export interface CompareRequest {
 }
 
 // ─── Dashboard Stats ──────────────────────────────────────────────
+// ─── Time-Based Trend Comparison ──────────────────────────────────
+export interface TrendComparisonSnapshot {
+  period: TimePeriod;
+  productCount: number;
+  complaintCount: number;
+  avgOpportunityScore: number;
+  launchGrowth: number;
+  topComplaintCategory: string;
+  topComplaintPercentage: number;
+}
+
+export interface TrendComparison {
+  category: string;
+  snapshots: TrendComparisonSnapshot[];
+  trendDirection: 'improving' | 'declining' | 'stable';
+  summary: string; // e.g., "Opportunity score increased 15% from 7d to 30d"
+}
+
+// ─── Feasibility Summary ───────────────────────────────────────────
+export interface FeasibilitySummary {
+  opportunityLevel: 'high' | 'medium' | 'low';
+  executionDifficulty: 'easy' | 'medium' | 'hard';
+  competitionLevel: 'low' | 'medium' | 'high';
+  overallVerdict: 'strong_pursue' | 'pursue' | 'caution' | 'avoid';
+}
+
 export interface DashboardStats {
   totalProducts: number;
   totalGaps: number;
@@ -349,6 +375,8 @@ export interface DashboardStats {
     avgOpportunityScore: number;
     marketHealth: 'expanding' | 'stable' | 'contracting';
   };
-  // NEW: Market quadrant overview for all categories
+  // Market quadrant overview for all categories
   marketQuadrants?: MarketQuadrantPosition[];
+  // Time-based trend comparisons
+  trendComparisons?: TrendComparison[];
 }

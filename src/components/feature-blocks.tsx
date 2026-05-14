@@ -29,13 +29,17 @@ import {
   ShieldCheck,
   Flame,
   MessageSquare,
+  MessageCircle,
   ExternalLink,
   TrendingUp,
+  Rocket,
   Package,
   CircleDot,
+  UserCircle,
 } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Separator } from '@/components/ui/separator'
+import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import type {
   WhyNowAnalysis,
   ExecutionDifficulty,
@@ -487,7 +491,586 @@ export function MarketQuadrantChart({ items }: { items: { name: string; quadrant
   )
 }
 
+// ─── Enhanced Evidence Block ───────────────────────────────────────
+export function EnhancedEvidenceBlock({ evidence, affectedProductNames }: {
+  evidence: {
+    similarProducts: number
+    repeatedComplaints: number
+    launchFrequency: number
+    commentSnippets: string[]
+    pricingOverlap: number
+    launchGrowth?: number
+  }
+  affectedProductNames?: string[]
+}) {
+  return (
+    <div className="rounded-lg border border-border/60 bg-muted/20 p-3 space-y-2.5">
+      <p className="text-xs font-bold text-muted-foreground uppercase tracking-wider flex items-center gap-1.5">
+        <BarChart3 className="h-3.5 w-3.5" />
+        Evidence
+      </p>
+
+      <div className="space-y-1.5">
+        {evidence.similarProducts > 0 && (
+          <div className="flex items-start gap-2 text-xs">
+            <Package className="h-3.5 w-3.5 shrink-0 mt-0.5 text-orange-500" />
+            <span>
+              <span className="font-bold text-foreground">{evidence.similarProducts}</span>{' '}
+              similar launches in last 60 days
+            </span>
+          </div>
+        )}
+        {evidence.repeatedComplaints > 0 && (
+          <div className="flex items-start gap-2 text-xs">
+            <MessageCircle className="h-3.5 w-3.5 shrink-0 mt-0.5 text-red-500" />
+            <span>
+              <span className="font-bold text-foreground">{evidence.repeatedComplaints}</span>{' '}
+              complaints about pricing
+            </span>
+          </div>
+        )}
+        {evidence.pricingOverlap > 0 && (
+          <div className="flex items-start gap-2 text-xs">
+            <DollarSign className="h-3.5 w-3.5 shrink-0 mt-0.5 text-amber-500" />
+            <span>
+              <span className="font-bold text-foreground">{evidence.pricingOverlap}%</span>{' '}
+              pricing overlap
+            </span>
+          </div>
+        )}
+        {evidence.launchFrequency > 0 && (
+          <div className="flex items-start gap-2 text-xs">
+            <Rocket className="h-3.5 w-3.5 shrink-0 mt-0.5 text-sky-500" />
+            <span>
+              <span className="font-bold text-foreground">{evidence.launchFrequency}</span>{' '}
+              launches/month
+            </span>
+          </div>
+        )}
+        {evidence.launchGrowth != null && evidence.launchGrowth > 0 && (
+          <div className="flex items-start gap-2 text-xs">
+            <TrendingUp className="h-3.5 w-3.5 shrink-0 mt-0.5 text-green-500" />
+            <span>
+              <span className="font-bold text-green-600 dark:text-green-400">+{evidence.launchGrowth}%</span>{' '}
+              launch growth
+            </span>
+          </div>
+        )}
+      </div>
+
+      {affectedProductNames && affectedProductNames.length > 0 && (
+        <div className="pt-2 border-t border-border/40">
+          <p className="text-[10px] font-semibold text-muted-foreground mb-1">Products affected:</p>
+          <div className="flex flex-wrap gap-1">
+            {affectedProductNames.map((name, i) => (
+              <Badge key={i} variant="outline" className="text-[10px] h-5">
+                {name}
+              </Badge>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {evidence.commentSnippets && evidence.commentSnippets.length > 0 && (
+        <div className="space-y-1.5">
+          {evidence.commentSnippets.slice(0, 3).map((snippet, j) => (
+            <blockquote
+              key={j}
+              className="text-xs text-muted-foreground italic pl-3 border-l-[3px] border-orange-400/60 dark:border-orange-500/50 leading-relaxed"
+            >
+              &ldquo;{snippet}&rdquo;
+            </blockquote>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ─── Feasibility Summary Block ──────────────────────────────────────
+export function FeasibilitySummaryBlock({ executionDifficulty, opportunityScore, falseOpportunity }: {
+  executionDifficulty?: {
+    level: string
+    demandLevel: string
+    competitionLevel: string
+  }
+  opportunityScore?: {
+    total: number
+  }
+  falseOpportunity?: {
+    verdict: string
+  }
+}) {
+  const getOpportunityLevel = (total: number) => {
+    if (total >= 70) return { label: 'High', color: 'bg-green-100 text-green-700 dark:bg-green-950/40 dark:text-green-400' }
+    if (total >= 40) return { label: 'Medium', color: 'bg-amber-100 text-amber-700 dark:bg-amber-950/40 dark:text-amber-400' }
+    return { label: 'Low', color: 'bg-red-100 text-red-700 dark:bg-red-950/40 dark:text-red-400' }
+  }
+
+  const getDifficultyLevel = (level: string) => {
+    const normalized = level.toLowerCase()
+    if (normalized === 'low' || normalized === 'low-medium') return { label: 'Easy', color: 'bg-green-100 text-green-700 dark:bg-green-950/40 dark:text-green-400' }
+    if (normalized === 'medium') return { label: 'Medium', color: 'bg-amber-100 text-amber-700 dark:bg-amber-950/40 dark:text-amber-400' }
+    return { label: 'Hard', color: 'bg-red-100 text-red-700 dark:bg-red-950/40 dark:text-red-400' }
+  }
+
+  const getCompetitionLevel = (level: string) => {
+    const normalized = level.toLowerCase()
+    if (normalized === 'low') return { label: 'Low', color: 'bg-green-100 text-green-700 dark:bg-green-950/40 dark:text-green-400' }
+    if (normalized === 'medium' || normalized === 'moderate') return { label: 'Medium', color: 'bg-amber-100 text-amber-700 dark:bg-amber-950/40 dark:text-amber-400' }
+    return { label: 'High', color: 'bg-red-100 text-red-700 dark:bg-red-950/40 dark:text-red-400' }
+  }
+
+  const opp = opportunityScore ? getOpportunityLevel(opportunityScore.total) : null
+  const diff = executionDifficulty ? getDifficultyLevel(executionDifficulty.level) : null
+  const comp = executionDifficulty ? getCompetitionLevel(executionDifficulty.competitionLevel) : null
+
+  return (
+    <div className="flex gap-2">
+      <div className="rounded-md border bg-muted/20 p-2 text-center flex-1">
+        <p className="text-[10px] text-muted-foreground uppercase tracking-wider">Opportunity</p>
+        {opp ? (
+          <Badge variant="outline" className={`text-[10px] h-5 mt-1 ${opp.color}`}>{opp.label}</Badge>
+        ) : (
+          <span className="text-xs text-muted-foreground">—</span>
+        )}
+      </div>
+      <div className="rounded-md border bg-muted/20 p-2 text-center flex-1">
+        <p className="text-[10px] text-muted-foreground uppercase tracking-wider">Difficulty</p>
+        {diff ? (
+          <Badge variant="outline" className={`text-[10px] h-5 mt-1 ${diff.color}`}>{diff.label}</Badge>
+        ) : (
+          <span className="text-xs text-muted-foreground">—</span>
+        )}
+      </div>
+      <div className="rounded-md border bg-muted/20 p-2 text-center flex-1">
+        <p className="text-[10px] text-muted-foreground uppercase tracking-wider">Competition</p>
+        {comp ? (
+          <Badge variant="outline" className={`text-[10px] h-5 mt-1 ${comp.color}`}>{comp.label}</Badge>
+        ) : (
+          <span className="text-xs text-muted-foreground">—</span>
+        )}
+      </div>
+    </div>
+  )
+}
+
+// ─── Why Opportunity Exists Block ───────────────────────────────────
+export function WhyOpportunityExistsBlock({ text }: { text: string }) {
+  return (
+    <div className="rounded-lg border-2 border-orange-400/70 dark:border-orange-600/50 bg-gradient-to-r from-orange-50 via-amber-50 to-orange-50 dark:from-orange-950/30 dark:via-amber-950/20 dark:to-orange-950/30 p-3 space-y-2">
+      <Badge className="bg-orange-500 text-white text-[10px] rounded-full px-2.5 h-5 gap-1">
+        <ShieldCheck className="h-3 w-3" />
+        WHY THIS OPPORTUNITY EXISTS
+      </Badge>
+      <p className="text-xs text-foreground leading-relaxed">{text}</p>
+    </div>
+  )
+}
+
+// ─── Underserved Audience Block ─────────────────────────────────────
+export function UnderservedAudienceBlock({ users }: {
+  users: {
+    userGroup: string
+    description: string
+    evidence: string
+    opportunityScore: number
+  }[]
+}) {
+  const getScoreColor = (score: number) => {
+    if (score >= 70) return 'bg-green-100 text-green-700 dark:bg-green-950/40 dark:text-green-400'
+    if (score >= 40) return 'bg-amber-100 text-amber-700 dark:bg-amber-950/40 dark:text-amber-400'
+    return 'bg-red-100 text-red-700 dark:bg-red-950/40 dark:text-red-400'
+  }
+
+  return (
+    <div className="rounded-lg border border-purple-300/60 dark:border-purple-800/40 bg-purple-50/10 dark:bg-purple-950/10 p-3 space-y-3">
+      <div className="flex items-center gap-2">
+        <Users className="h-4 w-4 text-purple-600 dark:text-purple-400 shrink-0" />
+        <p className="text-xs font-bold text-purple-700 dark:text-purple-400 uppercase tracking-wider">Underserved Audience</p>
+      </div>
+
+      <div className="space-y-2">
+        {users.map((user, i) => (
+          <div key={i} className="rounded-md border border-purple-200/60 dark:border-purple-800/30 bg-purple-50/20 dark:bg-purple-950/10 p-2.5 space-y-1">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-1.5">
+                <UserCircle className="h-3.5 w-3.5 text-purple-600 dark:text-purple-400 shrink-0" />
+                <span className="text-xs font-semibold text-purple-700 dark:text-purple-400">{user.userGroup}</span>
+              </div>
+              {user.opportunityScore > 0 && (
+                <Badge variant="outline" className={`text-[10px] h-5 ${getScoreColor(user.opportunityScore)}`}>
+                  {user.opportunityScore}/100
+                </Badge>
+              )}
+            </div>
+            <p className="text-xs text-muted-foreground">{user.description}</p>
+            {user.evidence && (
+              <blockquote className="text-xs text-muted-foreground italic pl-3 border-l-[3px] border-orange-400/60 dark:border-orange-500/50 leading-relaxed">
+                &ldquo;{user.evidence}&rdquo;
+              </blockquote>
+            )}
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+// ─── Trend Comparison Block ─────────────────────────────────────────
+export function TrendComparisonBlock({ comparisons, trendDirection, summary }: {
+  comparisons: {
+    period: string
+    productCount: number
+    complaintCount: number
+    avgOpportunityScore: number
+    launchGrowth: number
+    topComplaintCategory: string
+    topComplaintPercentage: number
+  }[]
+  trendDirection: string
+  summary: string
+}) {
+  const getScoreBadge = (score: number) => {
+    if (score >= 70) return 'bg-green-100 text-green-700 dark:bg-green-950/40 dark:text-green-400'
+    if (score >= 40) return 'bg-amber-100 text-amber-700 dark:bg-amber-950/40 dark:text-amber-400'
+    return 'bg-red-100 text-red-700 dark:bg-red-950/40 dark:text-red-400'
+  }
+
+  const periodLabel = (period: string) => {
+    if (period === '7d') return 'Last 7 days'
+    if (period === '30d') return 'Last 30 days'
+    if (period === '90d') return 'Last 90 days'
+    return period
+  }
+
+  const TrendIcon = trendDirection === 'improving' ? ArrowUpRight : trendDirection === 'declining' ? ArrowDownRight : Minus
+  const trendColor = trendDirection === 'improving' ? 'text-green-600 dark:text-green-400' : trendDirection === 'declining' ? 'text-red-600 dark:text-red-400' : 'text-muted-foreground'
+
+  return (
+    <div className="rounded-lg border bg-card p-3 space-y-3">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <Clock className="h-4 w-4 text-muted-foreground shrink-0" />
+          <p className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Trend Analysis</p>
+        </div>
+        <div className={`flex items-center gap-1 text-xs font-semibold ${trendColor}`}>
+          <TrendIcon className="h-3.5 w-3.5" />
+          {capitalize(trendDirection)}
+        </div>
+      </div>
+
+      <p className="text-xs text-foreground leading-relaxed">{summary}</p>
+
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+        {comparisons.map((comp, i) => (
+          <div key={i} className="rounded-md border bg-muted/20 p-2.5 space-y-2">
+            <Badge variant="outline" className="text-[10px] h-5">{periodLabel(comp.period)}</Badge>
+
+            <div className="space-y-1.5 text-xs">
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Products</span>
+                <span className="font-bold tabular-nums">{comp.productCount}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Complaints</span>
+                <span className="font-bold tabular-nums">{comp.complaintCount}</span>
+              </div>
+              <div className="flex justify-between items-center">
+                <span className="text-muted-foreground">Avg Score</span>
+                <Badge variant="outline" className={`text-[10px] h-4 px-1.5 ${getScoreBadge(comp.avgOpportunityScore)}`}>
+                  {comp.avgOpportunityScore}
+                </Badge>
+              </div>
+              <div className="flex justify-between items-center">
+                <span className="text-muted-foreground">Growth</span>
+                <span className={`font-bold tabular-nums ${comp.launchGrowth >= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
+                  {comp.launchGrowth >= 0 ? '+' : ''}{comp.launchGrowth}%
+                </span>
+              </div>
+              <Separator className="!my-1" />
+              <div>
+                <span className="text-muted-foreground">Top: </span>
+                <span className="font-semibold">{capitalize(comp.topComplaintCategory)}</span>
+                <span className="text-muted-foreground"> ({comp.topComplaintPercentage}%)</span>
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
 // Helper
 function capitalize(str: string): string {
   return str ? str.charAt(0).toUpperCase() + str.slice(1) : ''
+}
+
+// ─── Shared Evidence Block ──────────────────────────────────────────
+export function SharedEvidenceBlock({ evidence }: {
+  evidence: {
+    similarProducts: number
+    repeatedComplaints: number
+    launchFrequency: number
+    commentSnippets: string[]
+    pricingOverlap: number
+    launchGrowth?: number
+  }
+}) {
+  return (
+    <div className="rounded-lg border bg-muted/20 p-3 space-y-2.5">
+      <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-1.5">
+        <BarChart3 className="h-3.5 w-3.5" />
+        Evidence
+      </p>
+
+      <div className="space-y-1.5">
+        {evidence.similarProducts > 0 && (
+          <div className="flex items-start gap-2 text-xs">
+            <Package className="h-3.5 w-3.5 shrink-0 mt-0.5 text-orange-500" />
+            <span>
+              <span className="font-bold text-foreground">{evidence.similarProducts}</span>{' '}
+              similar products launched in the last 90 days
+            </span>
+          </div>
+        )}
+        {evidence.repeatedComplaints > 0 && (
+          <div className="flex items-start gap-2 text-xs">
+            <MessageCircle className="h-3.5 w-3.5 shrink-0 mt-0.5 text-red-500" />
+            <span>
+              <span className="font-bold text-foreground">{evidence.repeatedComplaints}</span>{' '}
+              complaints about this gap
+            </span>
+          </div>
+        )}
+        {evidence.pricingOverlap > 0 && (
+          <div className="flex items-start gap-2 text-xs">
+            <DollarSign className="h-3.5 w-3.5 shrink-0 mt-0.5 text-amber-500" />
+            <span>
+              <span className="font-bold text-foreground">{evidence.pricingOverlap}%</span>{' '}
+              pricing overlap across competitors
+            </span>
+          </div>
+        )}
+        {evidence.launchFrequency > 0 && (
+          <div className="flex items-start gap-2 text-xs">
+            <Rocket className="h-3.5 w-3.5 shrink-0 mt-0.5 text-sky-500" />
+            <span>
+              <span className="font-bold text-foreground">{evidence.launchFrequency}</span>{' '}
+              launches/month in this space
+            </span>
+          </div>
+        )}
+        {evidence.launchGrowth && evidence.launchGrowth > 0 && (
+          <div className="flex items-start gap-2 text-xs">
+            <TrendingUp className="h-3.5 w-3.5 shrink-0 mt-0.5 text-green-500" />
+            <span>
+              <span className="font-bold text-green-600 dark:text-green-400">+{evidence.launchGrowth}%</span>{' '}
+              launch growth
+            </span>
+          </div>
+        )}
+      </div>
+
+      {/* User feedback snippets as blockquotes */}
+      {evidence.commentSnippets && evidence.commentSnippets.length > 0 && (
+        <div className="mt-2 space-y-1.5 pt-2 border-t border-border/40">
+          {evidence.commentSnippets.slice(0, 3).map((snippet, j) => (
+            <blockquote
+              key={j}
+              className="text-xs text-muted-foreground italic pl-3 border-l-[3px] border-orange-400/60 dark:border-orange-500/50 leading-relaxed"
+            >
+              &ldquo;{snippet}&rdquo;
+            </blockquote>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ─── Shared Why This Matters ──────────────────────────────────────────
+export function SharedWhyThisMatters({ text }: { text: string }) {
+  return (
+    <div className="rounded-lg border-2 border-orange-300 dark:border-orange-800/60 bg-gradient-to-r from-orange-50 to-amber-50/50 dark:from-orange-950/20 dark:to-amber-950/10 p-3">
+      <div className="flex items-start gap-2">
+        <ShieldCheck className="h-4 w-4 shrink-0 mt-0.5 text-orange-600 dark:text-orange-400" />
+        <div>
+          <p className="text-xs font-semibold text-orange-700 dark:text-orange-400 mb-0.5">Why This Matters</p>
+          <p className="text-xs text-foreground leading-relaxed">{text}</p>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ─── Shared Complaint Clustering Section ────────────────────────────────
+const SHARED_CLUSTER_BAR_COLORS: Record<string, { bar: string; bg: string; text: string }> = {
+  pricing: {
+    bar: 'bg-red-500 dark:bg-red-400',
+    bg: 'bg-red-50 dark:bg-red-950/20',
+    text: 'text-red-700 dark:text-red-400',
+  },
+  missing_feature: {
+    bar: 'bg-amber-500 dark:bg-amber-400',
+    bg: 'bg-amber-50 dark:bg-amber-950/20',
+    text: 'text-amber-700 dark:text-amber-400',
+  },
+  performance: {
+    bar: 'bg-red-500 dark:bg-red-400',
+    bg: 'bg-red-50 dark:bg-red-950/20',
+    text: 'text-red-700 dark:text-red-400',
+  },
+  ux: {
+    bar: 'bg-purple-500 dark:bg-purple-400',
+    bg: 'bg-purple-50 dark:bg-purple-950/20',
+    text: 'text-purple-700 dark:text-purple-400',
+  },
+  support: {
+    bar: 'bg-orange-500 dark:bg-orange-400',
+    bg: 'bg-orange-50 dark:bg-orange-950/20',
+    text: 'text-orange-700 dark:text-orange-400',
+  },
+  integration: {
+    bar: 'bg-sky-500 dark:bg-sky-400',
+    bg: 'bg-sky-50 dark:bg-sky-950/20',
+    text: 'text-sky-700 dark:text-sky-400',
+  },
+}
+
+function getSharedClusterColor(category: string) {
+  return SHARED_CLUSTER_BAR_COLORS[category] || {
+    bar: 'bg-gray-500 dark:bg-gray-400',
+    bg: 'bg-gray-50 dark:bg-gray-950/20',
+    text: 'text-gray-700 dark:text-gray-400',
+  }
+}
+
+export function SharedComplaintClusteringSection({ clusters }: {
+  clusters: {
+    category: string
+    label: string
+    percentage: number
+    count: number
+    exampleSnippets: string[]
+  }[]
+}) {
+  const totalComplaints = clusters.reduce((sum, c) => sum + c.count, 0)
+
+  return (
+    <div className="rounded-lg border bg-card p-4 space-y-4">
+      <div className="flex items-center justify-between flex-wrap gap-2">
+        <div className="flex items-center gap-2">
+          <AlertTriangle className="h-5 w-5 text-red-500" />
+          <h3 className="text-sm font-semibold">Top Complaints</h3>
+        </div>
+        <Badge variant="outline" className="text-xs bg-red-50 text-red-700 dark:bg-red-950/30 dark:text-red-400">
+          {totalComplaints} total complaints
+        </Badge>
+      </div>
+
+      <div className="space-y-5">
+        {clusters.map((cluster, i) => {
+          const colors = getSharedClusterColor(cluster.category)
+          return (
+            <motion.div
+              key={cluster.category + i}
+              initial={{ opacity: 0, x: -15 }}
+              animate={{ opacity: 1, x: 0 }}
+              transition={{ delay: i * 0.06, duration: 0.3 }}
+              className="space-y-2"
+            >
+              {/* Cluster header: large percentage, label, count */}
+              <div className="flex items-center gap-3">
+                <span className={`text-2xl font-bold tabular-nums ${colors.text}`}>
+                  {cluster.percentage}%
+                </span>
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-semibold text-foreground">{cluster.label}</p>
+                  <p className="text-xs text-muted-foreground">{cluster.count} complaints</p>
+                </div>
+              </div>
+
+              {/* Horizontal bar */}
+              <div className="h-3 w-full rounded-full bg-muted/50 overflow-hidden">
+                <motion.div
+                  className={`h-full rounded-full ${colors.bar}`}
+                  initial={{ width: 0 }}
+                  animate={{ width: `${cluster.percentage}%` }}
+                  transition={{ duration: 0.8, ease: 'easeOut', delay: i * 0.06 }}
+                />
+              </div>
+
+              {/* Example snippets as blockquotes */}
+              {cluster.exampleSnippets.length > 0 && (
+                <div className="space-y-1 pt-1">
+                  {cluster.exampleSnippets.slice(0, 3).map((snippet, j) => (
+                    <blockquote
+                      key={j}
+                      className="text-xs text-muted-foreground italic pl-3 border-l-[3px] border-orange-400/50 dark:border-orange-500/40 leading-relaxed"
+                    >
+                      &ldquo;{snippet}&rdquo;
+                    </blockquote>
+                  ))}
+                </div>
+              )}
+            </motion.div>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
+// ─── Shared Underserved Users Section ─────────────────────────────────
+export function SharedUnderservedUsersSection({ users }: {
+  users: {
+    userGroup: string
+    description: string
+    evidence: string
+    opportunityScore: number
+  }[]
+}) {
+  return (
+    <div className="space-y-2">
+      <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-1.5">
+        <Users className="h-3.5 w-3.5" />
+        Underserved Users
+      </p>
+      <div className="space-y-1.5">
+        {users.map((user, j) => (
+          <div key={j} className="rounded-md border border-purple-200 dark:border-purple-900/40 bg-purple-50/30 dark:bg-purple-950/10 p-2.5 text-xs space-y-1">
+            <div className="flex items-center justify-between">
+              <span className="font-semibold text-purple-700 dark:text-purple-400">{user.userGroup}</span>
+              {user.opportunityScore > 0 && (
+                <Badge variant="outline" className="text-xs h-5 bg-purple-100 text-purple-700 dark:bg-purple-950/40 dark:text-purple-400">
+                  {user.opportunityScore}/100
+                </Badge>
+              )}
+            </div>
+            <p className="text-muted-foreground">{user.description}</p>
+            {user.evidence && (
+              <blockquote className="text-muted-foreground italic pl-2 border-l-2 border-purple-300 dark:border-purple-700">
+                &ldquo;{user.evidence}&rdquo;
+              </blockquote>
+            )}
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+// ─── Shared Time Period Filter ────────────────────────────────────────
+export function SharedTimePeriodFilter({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+  return (
+    <Tabs value={value} onValueChange={onChange}>
+      <TabsList className="h-9">
+        <TabsTrigger value="7d" className="text-xs px-2.5">7d</TabsTrigger>
+        <TabsTrigger value="30d" className="text-xs px-2.5">30d</TabsTrigger>
+        <TabsTrigger value="90d" className="text-xs px-2.5">90d</TabsTrigger>
+      </TabsList>
+    </Tabs>
+  )
 }

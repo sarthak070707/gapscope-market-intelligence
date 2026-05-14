@@ -37,6 +37,13 @@ export async function GET(request: NextRequest) {
       subNiche: safeJsonParse(opp.subNiche, {}),
       affectedProducts: safeJsonParse(opp.affectedProducts, []),
       underservedUsers: safeJsonParse(opp.underservedUsers, []),
+      whyNow: safeJsonParse(opp.whyNow, {}),
+      executionDifficulty: safeJsonParse(opp.executionDifficulty, {}),
+      falseOpportunity: safeJsonParse(opp.falseOpportunity, {}),
+      founderFit: safeJsonParse(opp.founderFit, {}),
+      sourceTransparency: safeJsonParse(opp.sourceTransparency, {}),
+      whyExistingProductsFail: safeJsonParse(opp.whyExistingProductsFail, {}),
+      marketQuadrant: safeJsonParse(opp.marketQuadrant, {}),
     }));
 
     return NextResponse.json(parsed);
@@ -165,7 +172,11 @@ OPPORTUNITY SCORE (0-100, NOT magic - based on explainable factors):
   - explanation: 1-2 sentence explanation of why this score
 
 WHY THIS MATTERS:
-- whyThisMatters: A business-oriented explanation. Example: "Freelancers avoid premium AI writing tools because subscription costs exceed the value generated for low-volume users."
+- whyThisMatters: "Why This Opportunity Exists" — must contain BUSINESS REASONING, not generic AI text. Use one of these patterns:
+  Pattern A: "Existing products focus heavily on [SEGMENT], leaving [UNSERVED_SEGMENT] underserved because [BUSINESS_REASON]"
+  Pattern B: "Current solutions price at [AMOUNT] which exceeds [SEGMENT]'s budget by [AMOUNT], creating a pricing ceiling"
+  Pattern C: "Recent [TECH_CHANGE] makes [NEW_APPROACH] viable, but incumbents haven't adapted because [REASON]"
+  Example: "Existing resume builders focus on enterprise recruiting workflows ($29-99/mo), leaving engineering students applying for internships completely underserved because these tools charge more per month than a student's hourly wage."
 
 SUB-NICHE (be SPECIFIC, not broad):
 - subNiche: Object with:
@@ -186,7 +197,72 @@ UNDERSERVED USERS:
   - userGroup: Name of underserved group (e.g., "junior developers", "elderly users")
   - description: Why this group is underserved
   - evidence: Specific evidence
-  - opportunityScore: 0-100${focusAreaPrompt}`,
+  - opportunityScore: 0-100
+
+FEASIBILITY SUMMARY (derive from other fields):
+- feasibilitySummary: Object with:
+  - opportunityLevel: "high" if total opportunity score ≥ 70, "medium" if ≥ 40, "low" if < 40
+  - executionDifficulty: "easy" if executionDifficulty.level is low/low-medium, "medium" if medium, "hard" if medium-high/high
+  - competitionLevel: same as executionDifficulty.competitionLevel
+  - overallVerdict: "strong_pursue" if high opportunity + easy difficulty, "pursue" if high opportunity, "caution" if medium opportunity or medium difficulty, "avoid" if low opportunity or hard difficulty
+
+WHY NOW? ANALYSIS:
+- whyNow: Object with:
+  - marketGrowthDriver: Why this market is growing RIGHT NOW
+  - incumbentWeakness: Why incumbents are vulnerable NOW
+  - timingAdvantage: Why timing matters for this opportunity
+  - catalystEvents: Array of recent events enabling this opportunity
+
+EXECUTION DIFFICULTY:
+- executionDifficulty: Object with:
+  - level: "low" | "low-medium" | "medium" | "medium-high" | "high"
+  - demandLevel: "low" | "medium" | "high"
+  - competitionLevel: "low" | "medium" | "high"
+  - technicalComplexity: "low" | "medium" | "high"
+  - timeToMvp: Estimated time to MVP (e.g., "2-4 weeks", "3-6 months")
+  - estimatedBudget: Estimated budget needed (e.g., "$0-500", "$5k-20k", "$50k+")
+  - keyChallenges: Array of top 2-3 challenges
+
+FALSE OPPORTUNITY DETECTION:
+- falseOpportunity: Object with:
+  - isFalseOpportunity: boolean — is this actually a trap?
+  - reason: Why this might or might not be a false opportunity
+  - estimatedMarketSize: e.g., "<$1M", "$1-10M", "$10-100M", "$100M+"
+  - riskFactors: Array of reasons this might not be worth pursuing
+  - verdict: "pursue" | "caution" | "avoid"
+
+FOUNDER FIT SUGGESTIONS:
+- founderFit: Object with:
+  - bestFit: Array of best founder types from: "solo_developer", "b2b_saas", "content_creator", "student_founder", "agency", "enterprise"
+  - rationale: Why these founder types are best suited
+  - requiredSkills: Array of skills needed to execute
+  - idealTeamSize: e.g., "Solo", "2-3 people", "5+ team"
+
+SOURCE TRANSPARENCY:
+- sourceTransparency: Object with:
+  - sourcePlatforms: Array of platforms data came from (e.g., ["Product Hunt", "G2", "Reddit"])
+  - totalComments: Total number of comments/reviews analyzed
+  - complaintFrequency: Complaints per 100 reviews
+  - reviewSources: Array of { platform, count, avgScore }
+  - dataFreshness: e.g., "Data from last 30 days"
+  - confidenceLevel: "high" | "medium" | "low"
+
+WHY EXISTING PRODUCTS FAIL:
+- whyExistingProductsFail: Object with:
+  - rootCause: Business reasoning for why existing products fail, not feature listing
+  - userImpact: How this failure affects users
+  - missedByCompetitors: Why competitors haven't addressed this gap
+
+MARKET QUADRANT POSITION:
+- marketQuadrant: Object with:
+  - competitionScore: 0-100 (higher = more competition)
+  - opportunityScore: 0-100 (higher = more opportunity)
+  - quadrant: "goldmine" | "blue_ocean" | "crowded" | "dead_zone"
+    goldmine = low competition, high opportunity
+    blue_ocean = low competition, moderate opportunity
+    crowded = high competition, low differentiation
+    dead_zone = high competition, low opportunity
+  - label: Human-readable quadrant label${focusAreaPrompt}`,
       `Based on the following REAL data, generate 3-7 product opportunities (time period: ${timePeriod}):
 
 MARKET GAPS:
@@ -197,7 +273,7 @@ ${complaintsContext || 'No complaints data available'}
 
 TREND SIGNALS:
 ${trendsContext || 'No trend data available'}`,
-      `Return a JSON array of objects with fields: title (string), description (string), category (string), saturation (string: "low"|"medium"|"high"), saturationScore (number 0-100), gapEvidence (string[]), complaintRefs (string[]), trendSignals (string[]), qualityScore (number 0-10), evidenceDetail (object: { similarProducts: number, repeatedComplaints: number, launchFrequency: number, commentSnippets: string[], pricingOverlap: number }), opportunityScore (object: { complaintFrequency: number, competitionDensity: number, pricingDissatisfaction: number, launchGrowth: number, underservedAudience: number, total: number, explanation: string }), whyThisMatters (string), subNiche (object: { name: string, description: string, parentCategory: string, opportunityScore: number }), affectedProducts (array of { name: string, pricing: string, strengths: string[], weaknesses: string[] }), underservedUsers (array of { userGroup: string, description: string, evidence: string, opportunityScore: number })`
+      `Return a JSON array of objects with fields: title (string), description (string), category (string), saturation (string: "low"|"medium"|"high"), saturationScore (number 0-100), gapEvidence (string[]), complaintRefs (string[]), trendSignals (string[]), qualityScore (number 0-10), evidenceDetail (object: { similarProducts: number, repeatedComplaints: number, launchFrequency: number, commentSnippets: string[], pricingOverlap: number }), opportunityScore (object: { complaintFrequency: number, competitionDensity: number, pricingDissatisfaction: number, launchGrowth: number, underservedAudience: number, total: number, explanation: string }), whyThisMatters (string), subNiche (object: { name: string, description: string, parentCategory: string, opportunityScore: number }), affectedProducts (array of { name: string, pricing: string, strengths: string[], weaknesses: string[] }), underservedUsers (array of { userGroup: string, description: string, evidence: string, opportunityScore: number }), feasibilitySummary (object: { opportunityLevel: string, executionDifficulty: string, competitionLevel: string, overallVerdict: string }), whyNow (object: { marketGrowthDriver: string, incumbentWeakness: string, timingAdvantage: string, catalystEvents: string[] }), executionDifficulty (object: { level: string, demandLevel: string, competitionLevel: string, technicalComplexity: string, timeToMvp: string, estimatedBudget: string, keyChallenges: string[] }), falseOpportunity (object: { isFalseOpportunity: boolean, reason: string, estimatedMarketSize: string, riskFactors: string[], verdict: string }), founderFit (object: { bestFit: string[], rationale: string, requiredSkills: string[], idealTeamSize: string }), sourceTransparency (object: { sourcePlatforms: string[], totalComments: number, complaintFrequency: number, reviewSources: array of { platform: string, count: number, avgScore: number }, dataFreshness: string, confidenceLevel: string }), whyExistingProductsFail (object: { rootCause: string, userImpact: string, missedByCompetitors: string }), marketQuadrant (object: { competitionScore: number, opportunityScore: number, quadrant: string, label: string })`
     );
 
     const safeOpportunities = Array.isArray(opportunities) ? opportunities : [];
@@ -223,6 +299,13 @@ ${trendsContext || 'No trend data available'}`,
             subNiche: JSON.stringify(opp.subNiche || {}),
             affectedProducts: JSON.stringify(opp.affectedProducts || []),
             underservedUsers: JSON.stringify(opp.underservedUsers || []),
+            whyNow: JSON.stringify((opp as any).whyNow || {}),
+            executionDifficulty: JSON.stringify((opp as any).executionDifficulty || {}),
+            falseOpportunity: JSON.stringify((opp as any).falseOpportunity || {}),
+            founderFit: JSON.stringify((opp as any).founderFit || {}),
+            sourceTransparency: JSON.stringify((opp as any).sourceTransparency || {}),
+            whyExistingProductsFail: JSON.stringify((opp as any).whyExistingProductsFail || {}),
+            marketQuadrant: JSON.stringify((opp as any).marketQuadrant || {}),
             isGenerated: true,
           },
         });
@@ -298,6 +381,13 @@ export async function PATCH(request: NextRequest) {
       subNiche: safeJsonParse(updated.subNiche, {}),
       affectedProducts: safeJsonParse(updated.affectedProducts, []),
       underservedUsers: safeJsonParse(updated.underservedUsers, []),
+      whyNow: safeJsonParse(updated.whyNow, {}),
+      executionDifficulty: safeJsonParse(updated.executionDifficulty, {}),
+      falseOpportunity: safeJsonParse(updated.falseOpportunity, {}),
+      founderFit: safeJsonParse(updated.founderFit, {}),
+      sourceTransparency: safeJsonParse(updated.sourceTransparency, {}),
+      whyExistingProductsFail: safeJsonParse(updated.whyExistingProductsFail, {}),
+      marketQuadrant: safeJsonParse(updated.marketQuadrant, {}),
     });
   } catch (error) {
     console.error('Toggle save opportunity error:', error);
