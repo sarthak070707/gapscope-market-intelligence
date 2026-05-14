@@ -782,7 +782,7 @@ export function DashboardOverview() {
 
   return (
     <TooltipProvider delayDuration={200}>
-      <div className="space-y-6">
+      <div className="space-y-8">
 
         {/* ═══ Welcome Hero ═══ */}
         {!hasData && (
@@ -960,19 +960,19 @@ export function DashboardOverview() {
           >
             <Card className="overflow-hidden">
               <CardContent className="p-0">
-                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 divide-x divide-y divide-border">
+                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-px bg-border">
                   {/* Market Health */}
-                  <div className="flex items-center gap-2.5 px-4 py-3 min-w-0">
+                  <div className="flex items-center gap-2.5 px-4 py-3 min-w-0 bg-background">
                     <Activity className="h-4 w-4 text-muted-foreground shrink-0" />
-                    <div>
+                    <div className="min-w-0">
                       <p className="text-xs text-muted-foreground">Market Health</p>
                       <MarketHealthBadge health={mm.marketHealth} />
                     </div>
                   </div>
                   {/* Avg Launch Growth */}
-                  <div className="flex items-center gap-2.5 px-4 py-3 min-w-0">
+                  <div className="flex items-center gap-2.5 px-4 py-3 min-w-0 bg-background">
                     <Rocket className="h-4 w-4 text-muted-foreground shrink-0" />
-                    <div>
+                    <div className="min-w-0">
                       <p className="text-xs text-muted-foreground">Avg Launch Growth</p>
                       <div className="flex items-center gap-1">
                         <span className="text-sm font-bold tabular-nums">
@@ -989,25 +989,25 @@ export function DashboardOverview() {
                     </div>
                   </div>
                   {/* Total Complaints */}
-                  <div className="flex items-center gap-2.5 px-4 py-3 min-w-0">
+                  <div className="flex items-center gap-2.5 px-4 py-3 min-w-0 bg-background">
                     <MessageSquare className="h-4 w-4 text-muted-foreground shrink-0" />
-                    <div>
+                    <div className="min-w-0">
                       <p className="text-xs text-muted-foreground">Total Complaints</p>
                       <p className="text-sm font-bold tabular-nums">{mm.totalComplaints.toLocaleString()}</p>
                     </div>
                   </div>
                   {/* High-Opportunity Gaps */}
-                  <div className="flex items-center gap-2.5 px-4 py-3 min-w-0">
+                  <div className="flex items-center gap-2.5 px-4 py-3 min-w-0 bg-background">
                     <Flame className="h-4 w-4 text-orange-500 shrink-0" />
-                    <div>
+                    <div className="min-w-0">
                       <p className="text-xs text-muted-foreground">High-Opportunity Gaps</p>
                       <p className="text-sm font-bold tabular-nums">{mm.highOpportunityCount}</p>
                     </div>
                   </div>
                   {/* Avg Opportunity Score */}
-                  <div className="flex items-center gap-2.5 px-4 py-3 min-w-0">
+                  <div className="flex items-center gap-2.5 px-4 py-3 min-w-0 bg-background">
                     <Gauge className="h-4 w-4 text-muted-foreground shrink-0" />
-                    <div>
+                    <div className="min-w-0">
                       <p className="text-xs text-muted-foreground">Avg Opportunity Score</p>
                       <MiniGauge score={mm.avgOpportunityScore} />
                     </div>
@@ -1050,17 +1050,17 @@ export function DashboardOverview() {
                         dead_zone: 'bg-red-100 text-red-700 dark:bg-red-950/40 dark:text-red-400',
                       }
                       return (
-                        <div key={sm.category} className="flex items-center justify-between rounded-lg border p-2.5 gap-2 overflow-hidden">
-                          <div className="min-w-0">
+                        <div key={sm.category} className="rounded-lg border p-3 gap-2 overflow-hidden">
+                          <div className="flex items-center justify-between gap-2 mb-1.5">
                             <span className="text-sm font-semibold truncate">{sm.category}</span>
-                            <div className="flex items-center gap-2 mt-0.5">
-                              <span className="text-xs text-muted-foreground whitespace-nowrap">Competition: <span className="font-medium">{q.competitionScore}/100</span></span>
-                              <span className="text-xs text-muted-foreground whitespace-nowrap">Opportunity: <span className="font-medium">{q.opportunityScore}/100</span></span>
-                            </div>
+                            <Badge variant="outline" className={`shrink-0 whitespace-nowrap text-[10px] ${quadrantColors[q.quadrant] || ''}`}>
+                              {q.quadrant.replace('_', ' ')}
+                            </Badge>
                           </div>
-                          <Badge variant="outline" className={`shrink-0 whitespace-nowrap ${quadrantColors[q.quadrant] || ''}`}>
-                            {q.label ? (q.label.length > 20 ? q.label.substring(0, 20) + '...' : q.label) : q.quadrant.replace('_', ' ')}
-                          </Badge>
+                          <div className="flex items-center gap-3">
+                            <span className="text-xs text-muted-foreground whitespace-nowrap">Comp: <span className="font-medium">{q.competitionScore}</span></span>
+                            <span className="text-xs text-muted-foreground whitespace-nowrap">Opp: <span className="font-medium">{q.opportunityScore}</span></span>
+                          </div>
                         </div>
                       )
                     })}
@@ -1306,16 +1306,16 @@ export function DashboardOverview() {
                           }}
                         >
                           {/* Category name + saturation badge */}
-                          <div className="flex items-center justify-between gap-2">
+                          <div className="flex items-center justify-between gap-3">
                             <span className="text-sm font-semibold truncate">{sat.category}</span>
-                            <Badge variant="outline" className={`shrink-0 whitespace-nowrap ${
+                            <Badge variant="outline" className={`shrink-0 whitespace-nowrap text-[10px] ${
                               sat.level === 'high'
                                 ? 'bg-red-100 text-red-700 dark:bg-red-950/40 dark:text-red-400'
                                 : sat.level === 'medium'
                                   ? 'bg-amber-100 text-amber-700 dark:bg-amber-950/40 dark:text-amber-400'
                                   : 'bg-green-100 text-green-700 dark:bg-green-950/40 dark:text-green-400'
                             }`}>
-                              {sat.level} saturation
+                              {sat.level}
                             </Badge>
                           </div>
 
@@ -1323,7 +1323,7 @@ export function DashboardOverview() {
                           <SaturationMeter score={sat.score} size="md" />
 
                           {/* Factor breakdown as mini metric pills */}
-                          <div className="flex flex-wrap gap-2">
+                          <div className="flex flex-wrap gap-1.5 gap-y-2">
                             <MetricPill icon={Database} label="products" value={sat.factors.similarProducts} />
                             <MetricPill icon={Zap} label="overlap" value={`${sat.factors.featureOverlap}%`} colorClass="bg-amber-50 text-amber-700 dark:bg-amber-950/30 dark:text-amber-400" />
                             <MetricPill icon={Rocket} label="launches/mo" value={sat.factors.launchFrequency} />
@@ -1359,15 +1359,15 @@ export function DashboardOverview() {
 
                           {/* Sub-niches as badges */}
                           {sat.subNiches && sat.subNiches.length > 0 && (
-                            <div className="flex flex-wrap gap-2">
-                              <span className="text-xs text-muted-foreground self-center">Sub-niches:</span>
+                            <div className="flex flex-wrap gap-1.5 gap-y-2 items-center">
+                              <span className="text-xs text-muted-foreground shrink-0">Sub-niches:</span>
                               {sat.subNiches.slice(0, 3).map((sn, j) => (
-                                <Badge key={j} variant="secondary" className="text-xs bg-green-100 text-green-700 dark:bg-green-950/30 dark:text-green-400 shrink-0 whitespace-nowrap">
+                                <Badge key={j} variant="secondary" className="text-[10px] bg-green-100 text-green-700 dark:bg-green-950/30 dark:text-green-400 shrink-0 whitespace-nowrap">
                                   {sn.name}
                                 </Badge>
                               ))}
                               {sat.subNiches.length > 3 && (
-                                <Badge variant="secondary" className="text-xs bg-muted/50">
+                                <Badge variant="secondary" className="text-[10px] bg-muted/50">
                                   +{sat.subNiches.length - 3}
                                 </Badge>
                               )}
@@ -1486,7 +1486,7 @@ export function DashboardOverview() {
                 </CardHeader>
                 <CardContent>
                   <ScrollArea className="max-h-[440px]">
-                    <div className="space-y-6">
+                    <div className="space-y-5">
                       {dashboardData.complaintTrends.map((cluster, i) => {
                         const clusterColors: Record<string, { bar: string; bg: string; text: string; badgeBg: string; quoteBorder: string; quoteBg: string }> = {
                           pricing: { bar: 'bg-red-500', bg: 'bg-red-100 dark:bg-red-950/30', text: 'text-red-600 dark:text-red-400', badgeBg: 'bg-red-100 text-red-700 dark:bg-red-950/40 dark:text-red-400', quoteBorder: 'border-red-400 dark:border-red-600', quoteBg: 'bg-red-50/60 dark:bg-red-950/10' },
@@ -1506,9 +1506,9 @@ export function DashboardOverview() {
                             className="space-y-2.5 overflow-hidden"
                           >
                             {/* Cluster header: large percentage, label, count */}
-                            <div className="flex items-center justify-between gap-2 min-w-0">
-                              <div className="flex items-baseline gap-2.5 min-w-0">
-                                <span className={`text-3xl font-extrabold tabular-nums shrink-0 ${cc.text}`}>
+                            <div className="flex items-center justify-between gap-3 min-w-0">
+                              <div className="flex items-baseline gap-2 min-w-0">
+                                <span className={`text-2xl font-extrabold tabular-nums shrink-0 ${cc.text}`}>
                                   {cluster.percentage}%
                                 </span>
                                 <div className="flex flex-col min-w-0">
@@ -1516,7 +1516,7 @@ export function DashboardOverview() {
                                   <span className="text-xs text-muted-foreground whitespace-nowrap">{cluster.count} complaints</span>
                                 </div>
                               </div>
-                              <Badge className={`text-xs tabular-nums shrink-0 whitespace-nowrap ${cc.badgeBg}`}>
+                              <Badge className={`text-[10px] tabular-nums shrink-0 whitespace-nowrap ${cc.badgeBg}`}>
                                 {cluster.count.toLocaleString()}
                               </Badge>
                             </div>

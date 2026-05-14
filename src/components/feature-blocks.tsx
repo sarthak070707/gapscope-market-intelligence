@@ -389,14 +389,14 @@ export function MarketQuadrantBlock({ quadrant }: { quadrant: MarketQuadrantPosi
   const QuadrantIcon = qc.icon
 
   return (
-    <div className={`rounded-lg border p-3 space-y-2 ${qc.bg}`}>
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2">
+    <div className={`rounded-lg border p-3 space-y-2.5 ${qc.bg}`}>
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex items-center gap-2 min-w-0">
           <QuadrantIcon className={`h-4 w-4 shrink-0 ${qc.color}`} />
           <p className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Market Position</p>
         </div>
-        <Badge variant="outline" className={`${qc.bg} ${qc.color} border-current font-bold text-[10px]`}>
-          {quadrant.label || quadrant.quadrant.replace('_', ' ')}
+        <Badge variant="outline" className={`${qc.bg} ${qc.color} border-current font-bold text-[10px] shrink-0 whitespace-nowrap`}>
+          {quadrant.quadrant.replace('_', ' ')}
         </Badge>
       </div>
 
@@ -406,11 +406,11 @@ export function MarketQuadrantBlock({ quadrant }: { quadrant: MarketQuadrantPosi
           {/* Axes */}
           <line x1="50" y1="0" x2="50" y2="100" stroke="currentColor" strokeWidth="0.5" className="text-muted-foreground/30" />
           <line x1="0" y1="50" x2="100" y2="50" stroke="currentColor" strokeWidth="0.5" className="text-muted-foreground/30" />
-          {/* Labels */}
-          <text x="25" y="20" textAnchor="middle" className="fill-muted-foreground/50 text-[6px] font-medium">GOLDMINE</text>
-          <text x="75" y="20" textAnchor="middle" className="fill-muted-foreground/50 text-[6px] font-medium">CROWDED</text>
-          <text x="25" y="85" textAnchor="middle" className="fill-muted-foreground/50 text-[6px] font-medium">BLUE OCEAN</text>
-          <text x="75" y="85" textAnchor="middle" className="fill-muted-foreground/50 text-[6px] font-medium">DEAD ZONE</text>
+          {/* Labels — repositioned to not overlap data points */}
+          <text x="25" y="12" textAnchor="middle" className="fill-muted-foreground/50 text-[5px] font-medium">GOLDMINE</text>
+          <text x="75" y="12" textAnchor="middle" className="fill-muted-foreground/50 text-[5px] font-medium">CROWDED</text>
+          <text x="25" y="96" textAnchor="middle" className="fill-muted-foreground/50 text-[5px] font-medium">BLUE OCEAN</text>
+          <text x="75" y="96" textAnchor="middle" className="fill-muted-foreground/50 text-[5px] font-medium">DEAD ZONE</text>
           {/* Data point */}
           <circle
             cx={quadrant.competitionScore}
@@ -438,8 +438,32 @@ export function MarketQuadrantChart({ items }: { items: { name: string; quadrant
     dead_zone: 'fill-red-500',
   }
 
+  // Smart label positioning: spread labels to avoid overlaps
+  const positionedItems = items.map((item, i) => {
+    // Clamp coordinates to keep labels within chart bounds
+    const cx = Math.min(Math.max(item.quadrant.competitionScore * 2, 15), 185)
+    const cy = Math.min(Math.max(200 - item.quadrant.opportunityScore * 2, 30), 185)
+    // Default label above the dot, offset alternately for nearby points
+    let labelY = cy - 12
+    let labelX = cx
+    // Check for nearby items and alternate label position
+    for (let j = 0; j < i; j++) {
+      const prevItem = items[j]
+      const prevCx = Math.min(Math.max(prevItem.quadrant.competitionScore * 2, 15), 185)
+      const prevCy = Math.min(Math.max(200 - prevItem.quadrant.opportunityScore * 2, 30), 185)
+      const dist = Math.sqrt((cx - prevCx) ** 2 + (cy - prevCy) ** 2)
+      if (dist < 30) {
+        // Too close — shift label to opposite side
+        labelY = cy + 16
+        labelX = cx + (cx > prevCx ? 10 : -10)
+        break
+      }
+    }
+    return { ...item, cx, cy, labelX, labelY }
+  })
+
   return (
-    <div className="relative w-full aspect-square max-w-[280px] mx-auto">
+    <div className="relative w-full aspect-square max-w-[320px] mx-auto">
       <svg viewBox="0 0 200 200" className="w-full h-full">
         {/* Background quadrants */}
         <rect x="0" y="0" width="100" height="100" className="fill-green-50 dark:fill-green-950/20" />
@@ -447,42 +471,47 @@ export function MarketQuadrantChart({ items }: { items: { name: string; quadrant
         <rect x="0" y="100" width="100" height="100" className="fill-sky-50 dark:fill-sky-950/20" />
         <rect x="100" y="100" width="100" height="100" className="fill-red-50 dark:fill-red-950/20" />
 
-        {/* Quadrant labels */}
-        <text x="50" y="30" textAnchor="middle" className="fill-green-700 dark:fill-green-400 text-[8px] font-bold">GOLDMINE</text>
-        <text x="50" y="40" textAnchor="middle" className="fill-green-600 dark:fill-green-500 text-[5px]">Low Competition · High Opp</text>
-        <text x="150" y="30" textAnchor="middle" className="fill-amber-700 dark:fill-amber-400 text-[8px] font-bold">CROWDED</text>
-        <text x="150" y="40" textAnchor="middle" className="fill-amber-600 dark:fill-amber-500 text-[5px]">High Competition · High Opp</text>
-        <text x="50" y="170" textAnchor="middle" className="fill-sky-700 dark:fill-sky-400 text-[8px] font-bold">BLUE OCEAN</text>
-        <text x="50" y="180" textAnchor="middle" className="fill-sky-600 dark:fill-sky-500 text-[5px]">Low Competition · Lower Opp</text>
-        <text x="150" y="170" textAnchor="middle" className="fill-red-700 dark:fill-red-400 text-[8px] font-bold">DEAD ZONE</text>
-        <text x="150" y="180" textAnchor="middle" className="fill-red-600 dark:fill-red-500 text-[5px]">High Competition · Low Opp</text>
+        {/* Quadrant labels — positioned with more spacing */}
+        <text x="50" y="18" textAnchor="middle" className="fill-green-700 dark:fill-green-400 text-[7px] font-bold">GOLDMINE</text>
+        <text x="50" y="27" textAnchor="middle" className="fill-green-600 dark:fill-green-500 text-[4px]">Low Competition · High Opp</text>
+        <text x="150" y="18" textAnchor="middle" className="fill-amber-700 dark:fill-amber-400 text-[7px] font-bold">CROWDED</text>
+        <text x="150" y="27" textAnchor="middle" className="fill-amber-600 dark:fill-amber-500 text-[4px]">High Competition · High Opp</text>
+        <text x="50" y="185" textAnchor="middle" className="fill-sky-700 dark:fill-sky-400 text-[7px] font-bold">BLUE OCEAN</text>
+        <text x="50" y="194" textAnchor="middle" className="fill-sky-600 dark:fill-sky-500 text-[4px]">Low Competition · Lower Opp</text>
+        <text x="150" y="185" textAnchor="middle" className="fill-red-700 dark:fill-red-400 text-[7px] font-bold">DEAD ZONE</text>
+        <text x="150" y="194" textAnchor="middle" className="fill-red-600 dark:fill-red-500 text-[4px]">High Competition · Low Opp</text>
 
         {/* Axes */}
-        <line x1="100" y1="0" x2="100" y2="200" stroke="currentColor" strokeWidth="0.5" className="text-muted-foreground/20" />
-        <line x1="0" y1="100" x2="200" y2="100" stroke="currentColor" strokeWidth="0.5" className="text-muted-foreground/20" />
+        <line x1="100" y1="30" x2="100" y2="185" stroke="currentColor" strokeWidth="0.5" className="text-muted-foreground/20" />
+        <line x1="5" y1="100" x2="195" y2="100" stroke="currentColor" strokeWidth="0.5" className="text-muted-foreground/20" />
 
-        {/* Axis labels */}
-        <text x="100" y="198" textAnchor="middle" className="fill-muted-foreground text-[6px]">Competition →</text>
-        <text x="3" y="105" textAnchor="start" className="fill-muted-foreground text-[6px]" transform="rotate(-90, 8, 100)">Opportunity →</text>
-
-        {/* Data points */}
-        {items.map((item, i) => (
+        {/* Data points with smart label positioning */}
+        {positionedItems.map((item, i) => (
           <g key={item.name + i}>
             <circle
-              cx={item.quadrant.competitionScore * 2}
-              cy={200 - item.quadrant.opportunityScore * 2}
-              r="6"
-              className={`${quadrantColors[item.quadrant.quadrant] || 'fill-gray-500'} opacity-80`}
+              cx={item.cx}
+              cy={item.cy}
+              r="7"
+              className={`${quadrantColors[item.quadrant.quadrant] || 'fill-gray-500'} opacity-90`}
               stroke="white"
-              strokeWidth="1"
+              strokeWidth="1.5"
+            />
+            {/* Background rect for readability */}
+            <rect
+              x={item.labelX - 22}
+              y={item.labelY - 6}
+              width={Math.min(item.name.length, 10) * 4.5 + 4}
+              height="8"
+              rx="2"
+              className="fill-background/80"
             />
             <text
-              x={item.quadrant.competitionScore * 2}
-              y={200 - item.quadrant.opportunityScore * 2 - 10}
+              x={item.labelX}
+              y={item.labelY}
               textAnchor="middle"
               className="fill-foreground text-[5px] font-semibold"
             >
-              {item.name.length > 12 ? item.name.substring(0, 12) + '...' : item.name}
+              {item.name.length > 10 ? item.name.substring(0, 10) + '..' : item.name}
             </text>
           </g>
         ))}
@@ -765,22 +794,22 @@ export function TrendComparisonBlock({ comparisons, trendDirection, summary }: {
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
         {comparisons.map((comp, i) => (
           <div key={i} className="rounded-md border bg-muted/20 p-2.5 space-y-2 overflow-hidden min-w-0">
-            <Badge variant="outline" className="text-[10px] h-5 shrink-0 whitespace-nowrap truncate max-w-full">{periodLabel(comp.period)}</Badge>
+            <div className="text-[10px] font-semibold text-muted-foreground">{periodLabel(comp.period)}</div>
 
-            <div className="space-y-2 text-xs">
-              <div className="flex justify-between">
+            <div className="space-y-1.5 text-xs">
+              <div className="flex justify-between gap-1">
                 <span className="text-muted-foreground">Products</span>
                 <span className="font-bold tabular-nums">{comp.productCount}</span>
               </div>
-              <div className="flex justify-between">
+              <div className="flex justify-between gap-1">
                 <span className="text-muted-foreground">Complaints</span>
                 <span className="font-bold tabular-nums">{comp.complaintCount}</span>
               </div>
-              <div className="flex justify-between items-center">
-                <span className="text-muted-foreground">Avg Score</span>
-                <Badge variant="outline" className={`text-[10px] h-4 px-1.5 shrink-0 whitespace-nowrap truncate max-w-full ${getScoreBadge(comp.avgOpportunityScore)}`}>
+              <div className="flex justify-between items-center gap-1">
+                <span className="text-muted-foreground">Score</span>
+                <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${getScoreBadge(comp.avgOpportunityScore)}`}>
                   {comp.avgOpportunityScore}
-                </Badge>
+                </span>
               </div>
               <div className="flex justify-between items-center">
                 <span className="text-muted-foreground">Growth</span>
