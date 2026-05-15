@@ -47,6 +47,7 @@ export const POST = withErrorHandler(MODULE_NAME, '/api/analyze', async (request
             detail: `Received category: "${category}". A valid category is required.`,
             possibleReason: 'The category was not passed from the frontend, or was set to "unknown". Please select a specific category.',
             retryable: false,
+            stage: 'ANALYZE_VALIDATE',
             timestamp: new Date().toISOString(),
             endpoint: '/api/analyze',
             requestCategory: category,
@@ -92,6 +93,7 @@ export const POST = withErrorHandler(MODULE_NAME, '/api/analyze', async (request
             detail: `Pre-flight database health check failed: ${dbHealth.error}`,
             possibleReason: 'The database may be temporarily unavailable or misconfigured.',
             retryable: true,
+            stage: 'ANALYZE_DB_HEALTH',
             timestamp: new Date().toISOString(),
             endpoint: '/api/analyze',
             requestCategory: String(category),
@@ -126,7 +128,7 @@ export const POST = withErrorHandler(MODULE_NAME, '/api/analyze', async (request
       logStageError(MODULE_NAME, 'DB_PRODUCT_QUERY', err, { whereClause });
       stageLog('DB_QUERY', 'ERROR', `Product query failed: ${msg}`);
       // Re-throw with better context for classifyError
-      throw new Error(`Database query for products failed: ${msg}`);
+      throw new Error(`[ANALYZE_DB_QUERY] Database query for products failed: ${msg}`);
     }
 
     // If no products with time filter, fall back to all products in category
@@ -143,14 +145,14 @@ export const POST = withErrorHandler(MODULE_NAME, '/api/analyze', async (request
         const msg = err instanceof Error ? err.message : String(err);
         logStageError(MODULE_NAME, 'DB_FALLBACK_QUERY', err);
         stageLog('DB_QUERY', 'ERROR', `Fallback product query failed: ${msg}`);
-        throw new Error(`Database fallback query for products failed: ${msg}`);
+        throw new Error(`[ANALYZE_DB_QUERY] Database fallback query for products failed: ${msg}`);
       }
     }
 
     // Guard against null/undefined effectiveProducts
     if (!effectiveProducts || !Array.isArray(effectiveProducts)) {
       stageLog('DB_QUERY', 'ERROR', 'effectiveProducts is null or not an array', { effectiveCategory });
-      throw new Error('Database returned invalid product data (null or non-array). This may indicate a schema mismatch or database corruption.');
+      throw new Error('[ANALYZE_DB_QUERY] Database returned invalid product data (null or non-array). This may indicate a schema mismatch or database corruption.');
     }
 
     if (effectiveProducts.length === 0) {
@@ -165,6 +167,7 @@ export const POST = withErrorHandler(MODULE_NAME, '/api/analyze', async (request
             detail: `Searched for products with category="${category}" (effective: "${effectiveCategory}") and timePeriod="${timePeriod}". The database has 0 products matching these filters. The Gap Analysis module requires scanned products to analyze.`,
             possibleReason: 'You need to run the Product Hunt Scanner first to populate the database with products. Go to the Scanner tab and run a scan for this category.',
             retryable: false,
+            stage: 'ANALYZE_DB_QUERY',
             timestamp: new Date().toISOString(),
             endpoint: '/api/analyze',
             requestCategory: String(category),
@@ -199,7 +202,7 @@ export const POST = withErrorHandler(MODULE_NAME, '/api/analyze', async (request
       const msg = err instanceof Error ? err.message : String(err);
       logStageError(MODULE_NAME, 'PREPARE_SUMMARIES', err);
       stageLog('PREPARE', 'ERROR', `Failed to prepare product summaries: ${msg}`);
-      throw new Error(`Failed to prepare product summaries for LLM analysis: ${msg}`);
+      throw new Error(`[ANALYZE_PREPARE] Failed to prepare product summaries for LLM analysis: ${msg}`);
     }
 
     let productsContext: string;
@@ -210,7 +213,7 @@ export const POST = withErrorHandler(MODULE_NAME, '/api/analyze', async (request
       const msg = err instanceof Error ? err.message : String(err);
       logStageError(MODULE_NAME, 'SERIALIZE_CONTEXT', err);
       stageLog('PREPARE', 'ERROR', `JSON.stringify failed for productsContext: ${msg}`);
-      throw new Error(`Failed to serialize product data for LLM analysis: ${msg}`);
+      throw new Error(`[ANALYZE_PREPARE] Failed to serialize product data for LLM analysis: ${msg}`);
     }
 
     // ═══ Initialize result structure ═══
@@ -327,7 +330,7 @@ export const POST = withErrorHandler(MODULE_NAME, '/api/analyze', async (request
       const firstError = Object.values(partialErrors)[0] as Record<string, unknown>;
       const primaryError = firstError && typeof firstError === 'object' && 'category' in firstError
         ? firstError
-        : { category: 'api', message: 'All analysis stages failed', detail: 'Every sub-analysis (gaps, saturation, complaints) encountered errors.' };
+        : { category: 'api', message: 'All analysis stages failed', detail: 'Every sub-analysis (gaps, saturation, complaints) failed. Check partial errors for per-stage details.', stage: 'ANALYZE_ALL_FAILED' };
 
       return NextResponse.json(
         {
@@ -339,6 +342,7 @@ export const POST = withErrorHandler(MODULE_NAME, '/api/analyze', async (request
             detail: `All sub-analyses failed. Partial errors: ${Object.keys(partialErrors).join(', ')}. The first error was: ${primaryError.detail || primaryError.message || 'unknown'}`,
             possibleReason: 'This is likely due to rate limiting or API issues. Wait 60 seconds and try again.',
             retryable: true,
+            stage: 'ANALYZE_ALL_FAILED',
             timestamp: new Date().toISOString(),
             endpoint: '/api/analyze',
             requestCategory: String(category),
@@ -371,7 +375,8 @@ export const POST = withErrorHandler(MODULE_NAME, '/api/analyze', async (request
           receivedCategory: body?.category,
           receivedTimePeriod: body?.timePeriod,
           originalError: msg,
-          originalStack: error instanceof Error ? error.stack?.split('\n').slice(0, 5).join(' | ') : undefined,
+          originalStack: error instanceof Error ? error.stack : undefined,
+          stage: moduleError.stage,
           errorConstructor: error instanceof Error ? error.constructor.name : typeof error,
           errorCategory: moduleError.category,
           caughtBy: 'main_handler_try_catch',
@@ -431,7 +436,8 @@ Identify 3-8 meaningful gaps. Base your analysis ONLY on the product data provid
     const msg = err instanceof Error ? err.message : String(err);
     logStageError(MODULE_NAME, 'GAPS_LLM_CALL', err);
     stageLog('GAPS_LLM', 'ERROR', `LLM call failed after retries: ${msg}`);
-    throw err; // Re-throw to be caught by the caller's try/catch
+    // Wrap re-throw with stage tag for traceability
+    throw new Error(`[ANALYZE_GAPS_LLM] ${err instanceof Error ? err.message : String(err)}`);
   }
 
   // Validate and normalize the LLM response

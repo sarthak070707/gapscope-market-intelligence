@@ -51,6 +51,8 @@ export async function GET(request: NextRequest) {
         moduleError,
         debug: {
           originalError: error instanceof Error ? error.message : String(error),
+          originalStack: error instanceof Error ? error.stack : undefined,
+          stage: moduleError.stage,
           errorCategory: moduleError.category,
         }
       },
@@ -92,6 +94,7 @@ export const POST = withErrorHandler(MODULE_NAME, '/api/trends', async (request:
             detail: `Received category: "${category}". A valid category is required.`,
             possibleReason: 'The category was not passed from the frontend, or was set to "unknown". Please select a specific category.',
             retryable: false,
+            stage: 'TRENDS_VALIDATE',
             timestamp: new Date().toISOString(),
             endpoint: '/api/trends',
             requestCategory: String(category),
@@ -120,6 +123,7 @@ export const POST = withErrorHandler(MODULE_NAME, '/api/trends', async (request:
             detail: `Pre-flight database health check failed: ${dbHealth.error}`,
             possibleReason: 'The database may be temporarily unavailable or misconfigured.',
             retryable: true,
+            stage: 'TRENDS_DB_HEALTH',
             timestamp: new Date().toISOString(),
             endpoint: '/api/trends',
             requestCategory: effectiveCategory,
@@ -160,6 +164,8 @@ export const POST = withErrorHandler(MODULE_NAME, '/api/trends', async (request:
           receivedAction: body?.action,
           receivedTimePeriod: body?.timePeriod,
           originalError: error instanceof Error ? error.message : String(error),
+          originalStack: error instanceof Error ? error.stack : undefined,
+          stage: moduleError.stage,
           errorCategory: moduleError.category,
         }
       },
@@ -260,6 +266,7 @@ async function handleDetectTrends(effectiveCategory: string, originalCategory: s
           detail: `Tried ${searchQueries.length} different search queries for "${effectiveCategory}" trends on Product Hunt but got no usable results.`,
           possibleReason: 'The category may be too niche for Product Hunt trend detection, or the web search API is temporarily unavailable. Try "AI Tools" or "Productivity" which have more activity.',
           retryable: true,
+          stage: 'TRENDS_WEB_SEARCH',
           timestamp: new Date().toISOString(),
           endpoint: '/api/trends',
           requestCategory: effectiveCategory,
@@ -343,6 +350,7 @@ Identify 2-5 significant trends.`,
           detail: `Web search found results for "${effectiveCategory}" but the AI model could not identify any trends from them. Search context was ${searchContext.length} chars. This typically happens when the model times out or returns a truncated response.`,
           possibleReason: 'The AI model may have timed out. Retrying often succeeds. You can also try a different category.',
           retryable: true,
+          stage: 'TRENDS_LLM_PARSE',
           timestamp: new Date().toISOString(),
           endpoint: '/api/trends',
           requestCategory: effectiveCategory,
@@ -419,7 +427,11 @@ async function handleCompareProducts(body: Record<string, unknown>, effectiveCat
     }
   } catch (error) {
     logStageError(MODULE_NAME, 'COMPARE_PRODUCTS', error);
-    throw error;
+    const errMsg = error instanceof Error ? error.message : String(error);
+    if (errMsg.includes('[TRENDS_')) {
+      throw error;
+    }
+    throw new Error(`[TRENDS_COMPARE_PRODUCTS] ${errMsg}`);
   }
 
   if (products.length < 2) {
@@ -433,6 +445,7 @@ async function handleCompareProducts(body: Record<string, unknown>, effectiveCat
           detail: `Found ${products.length} products for comparison (need at least 2). Searched with category="${originalCategory}". The comparison feature requires at least 2 scanned products.`,
           possibleReason: 'You need to run the Product Hunt Scanner first to populate the database with products before you can compare them.',
           retryable: false,
+          stage: 'TRENDS_DB_COMPARE',
           timestamp: new Date().toISOString(),
           endpoint: '/api/trends',
           requestCategory: effectiveCategory,

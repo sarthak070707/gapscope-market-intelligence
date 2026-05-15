@@ -72,6 +72,18 @@ setInterval(() => {
   }
 }, 5 * 60_000);
 
+/** Wraps an error with an [OPPS_xxx] stage tag if it doesn't already have one */
+function tagStageError(error: unknown, stage: string): Error {
+  if (error instanceof Error) {
+    if (error.message.includes('[OPPS_')) return error; // Already tagged
+    const tagged = new Error(`[${stage}] ${error.message}`);
+    tagged.stack = error.stack;
+    tagged.cause = error;
+    return tagged;
+  }
+  return new Error(`[${stage}] ${String(error)}`);
+}
+
 /**
  * GET /api/opportunities
  * List all opportunities, with optional ?saved=true filter
@@ -121,16 +133,18 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json(parsed);
   } catch (error) {
-    logStageError(MODULE_NAME, 'GET_HANDLER', error);
-    logError(MODULE_NAME, error, { endpoint: '/api/opportunities', method: 'GET' });
-    const moduleError = classifyError(error, MODULE_NAME, '/api/opportunities');
+    const tagged = tagStageError(error, 'OPPS_HANDLER');
+    logStageError(MODULE_NAME, 'GET_HANDLER', tagged);
+    logError(MODULE_NAME, tagged, { endpoint: '/api/opportunities', method: 'GET' });
+    const moduleError = classifyError(tagged, MODULE_NAME, '/api/opportunities');
     return NextResponse.json(
       {
         error: moduleError.message,
         moduleError,
         debug: {
-          originalError: error instanceof Error ? error.message : String(error),
-          originalStack: error instanceof Error ? error.stack?.split('\n').slice(0, 5).join(' | ') : undefined,
+          originalError: tagged.message,
+          originalStack: tagged.stack || undefined,
+          stage: moduleError.stage,
           errorCategory: moduleError.category,
         }
       },
@@ -170,6 +184,7 @@ export const POST_HANDLER = withErrorHandler(MODULE_NAME, '/api/opportunities', 
             detail: `Received category: "${category}". A valid category is required.`,
             possibleReason: 'The category was not passed from the frontend, or was set to "unknown". Please select a specific category.',
             retryable: false,
+            stage: 'OPPS_VALIDATE',
             timestamp: new Date().toISOString(),
             endpoint: '/api/opportunities',
             requestCategory: category,
@@ -210,6 +225,7 @@ export const POST_HANDLER = withErrorHandler(MODULE_NAME, '/api/opportunities', 
             detail: `A recent request for "${effectiveCategory}" (timePeriod: ${timePeriod}) hit a rate limit. Please wait ${remainingSeconds} seconds before retrying.`,
             possibleReason: 'Too many AI requests were sent in a short period. The system enforces a cooldown to avoid repeated rate-limit errors.',
             retryable: true,
+            stage: 'OPPS_RATE_LIMIT',
             timestamp: new Date().toISOString(),
             endpoint: '/api/opportunities',
             requestCategory: effectiveCategory,
@@ -242,6 +258,7 @@ export const POST_HANDLER = withErrorHandler(MODULE_NAME, '/api/opportunities', 
             detail: `Pre-flight database health check failed: ${dbHealth.error}`,
             possibleReason: 'The database may be temporarily unavailable or misconfigured.',
             retryable: true,
+            stage: 'OPPS_DB_HEALTH',
             timestamp: new Date().toISOString(),
             endpoint: '/api/opportunities',
             requestCategory: category,
@@ -256,13 +273,18 @@ export const POST_HANDLER = withErrorHandler(MODULE_NAME, '/api/opportunities', 
     const categoryFilter = category === 'all' ? {} : { category };
 
     logStageStart(MODULE_NAME, 'DB_PRODUCTS', 'Fetching products with gaps and complaints');
-    const products = await db.product.findMany({
-      where: categoryFilter,
-      include: {
-        gaps: true,
-        complaints: true,
-      },
-    });
+    let products;
+    try {
+      products = await db.product.findMany({
+        where: categoryFilter,
+        include: {
+          gaps: true,
+          complaints: true,
+        },
+      });
+    } catch (dbError) {
+      throw new Error(`[OPPS_DB_FETCH] Failed to fetch products with gaps and complaints: ${dbError instanceof Error ? dbError.message : String(dbError)}`);
+    }
 
     const allGaps = products.flatMap((p) => p.gaps);
     const allComplaints = products.flatMap((p) => p.complaints);
@@ -279,6 +301,7 @@ export const POST_HANDLER = withErrorHandler(MODULE_NAME, '/api/opportunities', 
             detail: `Searched for gaps and complaints with category="${category}" (effective: "${effectiveCategory}"). Found ${allGaps.length} gaps and ${allComplaints.length} complaints across ${products.length} products. The Opportunity Generator requires existing gap analysis or complaint data.`,
             possibleReason: 'You need to run the Gap Analysis module first to identify market gaps and complaints. Go to the Analysis tab and run a full analysis for this category.',
             retryable: false,
+            stage: 'OPPS_DB_FETCH',
             timestamp: new Date().toISOString(),
             endpoint: '/api/opportunities',
             requestCategory: category,
@@ -306,10 +329,15 @@ export const POST_HANDLER = withErrorHandler(MODULE_NAME, '/api/opportunities', 
       .join('\n');
 
     // Fetch existing trends for context
-    const trends = await db.trend.findMany({
-      where: categoryFilter,
-      take: 10,
-    });
+    let trends;
+    try {
+      trends = await db.trend.findMany({
+        where: categoryFilter,
+        take: 10,
+      });
+    } catch (dbError) {
+      throw new Error(`[OPPS_DB_FETCH] Failed to fetch trends for context: ${dbError instanceof Error ? dbError.message : String(dbError)}`);
+    }
     const trendsContext = trends
       .map((t) => `[${t.direction}/${t.growthRate}%] ${t.name}: ${t.description}`)
       .join('\n');
@@ -321,7 +349,9 @@ export const POST_HANDLER = withErrorHandler(MODULE_NAME, '/api/opportunities', 
     // Generate opportunities using LLM with timeout + retry protection
     logStageStart(MODULE_NAME, 'LLM_OPPORTUNITIES', `Calling LLM to generate opportunities`);
     const llmStart = Date.now();
-    const opportunities = await retryWithBackoff(
+    let opportunities;
+    try {
+      opportunities = await retryWithBackoff(
       () => withTimeout(
         () => generateStructuredResponse<OpportunitySuggestion[]>(
           `You are a startup opportunity analyst. Based on REAL market gaps, user complaints, and trend data, 
@@ -372,10 +402,13 @@ ${trendsContext || 'No trend data available'}`,
       { maxRetries: MAX_RETRIES },
       MODULE_NAME
     );
+    } catch (llmError) {
+      throw new Error(`[OPPS_LLM_GENERATE] LLM opportunity generation failed: ${llmError instanceof Error ? llmError.message : String(llmError)}`);
+    }
     logStageEnd(MODULE_NAME, 'LLM_OPPORTUNITIES', `LLM returned ${Array.isArray(opportunities) ? opportunities.length : 0} opportunities in ${Date.now() - llmStart}ms`);
 
     if (!opportunities || !Array.isArray(opportunities)) {
-      logStageError(MODULE_NAME, 'LLM_PARSE', new Error(`LLM returned non-array: ${typeof opportunities}`), { 
+      logStageError(MODULE_NAME, 'LLM_PARSE', new Error(`[OPPS_LLM_GENERATE] LLM returned non-array: ${typeof opportunities}`), { 
         opportunityType: typeof opportunities,
         isNull: opportunities === null,
       });
@@ -396,6 +429,7 @@ ${trendsContext || 'No trend data available'}`,
             detail: `Provided ${allGaps.length} gaps, ${allComplaints.length} complaints, and ${trends.length} trends as input for category "${effectiveCategory}", but the AI model returned an empty result. This typically happens when the model times out (response took >${LLM_TIMEOUT_MS / 1000}s) or returns a truncated response.`,
             possibleReason: 'The AI model may have timed out due to the large amount of input data. Try again — retrying often succeeds. You can also try a different category with less data.',
             retryable: true,
+            stage: 'OPPS_LLM_PARSE',
             timestamp: new Date().toISOString(),
             endpoint: '/api/opportunities',
             requestCategory: category,
@@ -448,6 +482,7 @@ ${trendsContext || 'No trend data available'}`,
       } catch (err) {
         logStageError(MODULE_NAME, 'SAVE_OPPORTUNITY', err, { opportunityTitle: opp.title });
         logError(MODULE_NAME, err, { step: 'saveOpportunity', opportunityTitle: opp.title });
+        throw new Error(`[OPPS_SAVE] Failed to save opportunity "${opp.title || 'Untitled'}": ${err instanceof Error ? err.message : String(err)}`);
       }
     }
 
@@ -457,19 +492,20 @@ ${trendsContext || 'No trend data available'}`,
     logStageEnd(MODULE_NAME, 'SAVE_OPPORTUNITIES', `Saved ${savedOpportunities.length} opportunities`);
     return NextResponse.json(savedOpportunities);
   } catch (error) {
-    logStageError(MODULE_NAME, 'POST_HANDLER', error, { effectiveCategory, timePeriod: body?.timePeriod });
+    const tagged = tagStageError(error, 'OPPS_HANDLER');
+    logStageError(MODULE_NAME, 'POST_HANDLER', tagged, { effectiveCategory, timePeriod: body?.timePeriod });
     // Set cooldown if this was a rate limit error
-    const errMsg = error instanceof Error ? error.message.toLowerCase() : '';
+    const errMsg = tagged.message.toLowerCase();
     if (errMsg.includes('429') || errMsg.includes('rate limit') || errMsg.includes('too many') || errMsg.includes('slow down') || errMsg.includes('throttl')) {
       setCooldown(effectiveCategory, String(body?.timePeriod || '30d'));
       console.log(`[${MODULE_NAME}] Setting rate-limit cooldown for ${effectiveCategory}`);
     }
 
-    logError(MODULE_NAME, error, { endpoint: '/api/opportunities', method: 'POST' });
-    const moduleError = classifyError(error, MODULE_NAME, '/api/opportunities', {
+    logError(MODULE_NAME, tagged, { endpoint: '/api/opportunities', method: 'POST' });
+    const moduleError = classifyError(tagged, MODULE_NAME, '/api/opportunities', {
       category: body?.category as string | undefined,
       payload: `category=${body?.category}, timePeriod=${body?.timePeriod || 'N/A'}`,
-      backendMessage: error instanceof Error ? error.message : String(error),
+      backendMessage: tagged.message,
     });
     return NextResponse.json(
       {
@@ -478,8 +514,9 @@ ${trendsContext || 'No trend data available'}`,
         debug: {
           receivedCategory: body?.category,
           receivedTimePeriod: body?.timePeriod,
-          originalError: error instanceof Error ? error.message : String(error),
-          originalStack: error instanceof Error ? error.stack?.split('\n').slice(0, 5).join(' | ') : undefined,
+          originalError: tagged.message,
+          originalStack: tagged.stack || undefined,
+          stage: moduleError.stage,
           errorCategory: moduleError.category,
         }
       },
@@ -546,16 +583,18 @@ export async function PATCH(request: NextRequest) {
       marketQuadrant: safeJsonParse<Record<string, unknown>>(updated.marketQuadrant, {}),
     });
   } catch (error) {
-    logStageError(MODULE_NAME, 'PATCH_HANDLER', error);
-    logError(MODULE_NAME, error, { endpoint: '/api/opportunities', method: 'PATCH' });
-    const moduleError = classifyError(error, MODULE_NAME, '/api/opportunities');
+    const tagged = tagStageError(error, 'OPPS_HANDLER');
+    logStageError(MODULE_NAME, 'PATCH_HANDLER', tagged);
+    logError(MODULE_NAME, tagged, { endpoint: '/api/opportunities', method: 'PATCH' });
+    const moduleError = classifyError(tagged, MODULE_NAME, '/api/opportunities');
     return NextResponse.json(
       {
         error: moduleError.message,
         moduleError,
         debug: {
-          originalError: error instanceof Error ? error.message : String(error),
-          originalStack: error instanceof Error ? error.stack?.split('\n').slice(0, 5).join(' | ') : undefined,
+          originalError: tagged.message,
+          originalStack: tagged.stack || undefined,
+          stage: moduleError.stage,
           errorCategory: moduleError.category,
         }
       },
@@ -592,16 +631,18 @@ export async function DELETE(request: NextRequest) {
 
     return NextResponse.json({ success: true, deletedId: id });
   } catch (error) {
-    logStageError(MODULE_NAME, 'DELETE_HANDLER', error);
-    logError(MODULE_NAME, error, { endpoint: '/api/opportunities', method: 'DELETE' });
-    const moduleError = classifyError(error, MODULE_NAME, '/api/opportunities');
+    const tagged = tagStageError(error, 'OPPS_HANDLER');
+    logStageError(MODULE_NAME, 'DELETE_HANDLER', tagged);
+    logError(MODULE_NAME, tagged, { endpoint: '/api/opportunities', method: 'DELETE' });
+    const moduleError = classifyError(tagged, MODULE_NAME, '/api/opportunities');
     return NextResponse.json(
       {
         error: moduleError.message,
         moduleError,
         debug: {
-          originalError: error instanceof Error ? error.message : String(error),
-          originalStack: error instanceof Error ? error.stack?.split('\n').slice(0, 5).join(' | ') : undefined,
+          originalError: tagged.message,
+          originalStack: tagged.stack || undefined,
+          stage: moduleError.stage,
           errorCategory: moduleError.category,
         }
       },

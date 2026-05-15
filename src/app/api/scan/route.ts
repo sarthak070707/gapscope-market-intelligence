@@ -28,23 +28,7 @@ export const POST = withErrorHandler(MODULE_NAME, '/api/scan', async (request: N
 
     if (!category || category === 'unknown') {
       console.error(`[${MODULE_NAME}] Missing or invalid category:`, { category, body });
-      return NextResponse.json(
-        { 
-          error: 'Missing or invalid category. Please select a category or use the default "AI Tools".',
-          moduleError: {
-            module: MODULE_NAME,
-            category: 'validation',
-            message: 'Missing or invalid category',
-            detail: `Received category: "${category}". A valid category is required.`,
-            possibleReason: 'The category was not passed from the frontend, or was set to "unknown". Please select a specific category.',
-            retryable: false,
-            timestamp: new Date().toISOString(),
-            endpoint: '/api/scan',
-            requestCategory: category,
-          }
-        },
-        { status: 400 }
-      );
+      throw new Error(`[SCAN_HANDLER] Missing or invalid category: "${category}". A valid category is required. The category was not passed from the frontend, or was set to "unknown". Please select a specific category.`);
     }
 
     // Resolve 'all' to a specific default category for better search results
@@ -56,23 +40,7 @@ export const POST = withErrorHandler(MODULE_NAME, '/api/scan', async (request: N
     const dbHealth = await checkDatabaseConnection();
     if (!dbHealth.ok) {
       console.error(`[${MODULE_NAME}] Database health check FAILED:`, dbHealth.error);
-      return NextResponse.json(
-        {
-          error: 'Database is not available. Please try again.',
-          moduleError: {
-            module: MODULE_NAME,
-            category: 'database',
-            message: 'Database connection failed',
-            detail: `Pre-flight database health check failed: ${dbHealth.error}`,
-            possibleReason: 'The database may be temporarily unavailable or misconfigured. Check that the SQLite database file exists and is accessible.',
-            retryable: true,
-            timestamp: new Date().toISOString(),
-            endpoint: '/api/scan',
-            requestCategory: category,
-          }
-        },
-        { status: 503 }
-      );
+      throw new Error(`[SCAN_HANDLER] Database connection failed: Pre-flight database health check failed: ${dbHealth.error}. The database may be temporarily unavailable or misconfigured. Check that the SQLite database file exists and is accessible.`);
     }
     console.log(`[${MODULE_NAME}] Database OK (${dbHealth.latencyMs}ms)`);
 
@@ -126,6 +94,8 @@ export const POST = withErrorHandler(MODULE_NAME, '/api/scan', async (request: N
             receivedCategory: body?.category,
             receivedTimePeriod: body?.timePeriod,
             originalError: innerError instanceof Error ? innerError.message : String(innerError),
+            originalStack: innerError instanceof Error ? innerError.stack : undefined,
+            stage: moduleError.stage,
             errorCategory: moduleError.category,
           }
         },
@@ -147,6 +117,8 @@ export const POST = withErrorHandler(MODULE_NAME, '/api/scan', async (request: N
           receivedCategory: body?.category,
           receivedTimePeriod: body?.timePeriod,
           originalError: error instanceof Error ? error.message : String(error),
+          originalStack: error instanceof Error ? error.stack : undefined,
+          stage: moduleError.stage,
           errorCategory: moduleError.category,
         }
       },
@@ -305,30 +277,7 @@ async function executeScan(category: string, scanJobId: string, originalCategory
           .join('\n\n');
 
   if (!rawContent.trim()) {
-    await db.scanJob.update({
-      where: { id: scanJobId },
-      data: {
-        status: 'failed',
-        errors: JSON.stringify(['No search results found']),
-      },
-    });
-    return NextResponse.json(
-      {
-        error: 'Product Hunt search returned no results for this category. Try a different category or time period.',
-        moduleError: {
-          module: MODULE_NAME,
-          category: 'api',
-          message: 'Product Hunt fetch returned no results',
-          detail: `Tried ${searchQueries.length} different search queries for "${category}" products on Product Hunt but got no usable content.`,
-          possibleReason: 'The category may be too niche or Product Hunt may not have recent launches in this area. Try "AI Tools" or "Productivity" which have more listings.',
-          retryable: true,
-          timestamp: new Date().toISOString(),
-          endpoint: '/api/scan',
-          requestCategory: category,
-        }
-      },
-      { status: 404 }
-    );
+    throw new Error(`[SCAN_WEB_SEARCH] Product Hunt fetch returned no results. Tried ${searchQueries.length} different search queries for "${category}" products on Product Hunt but got no usable content. The category may be too niche or Product Hunt may not have recent launches in this area. Try "AI Tools" or "Productivity" which have more listings.`);
   }
 
   // Delay before LLM call to avoid rate limits
@@ -376,30 +325,7 @@ If you cannot find any products, return an empty array.`,
   // If LLM extracted 0 products from non-empty content, that's an AI extraction failure
   if (safeProducts.length === 0 && rawContent.trim().length > 0) {
     console.error(`[${MODULE_NAME}] AI extraction failed: 0 products extracted from ${rawContent.length} chars of content`);
-    await db.scanJob.update({
-      where: { id: scanJobId },
-      data: {
-        status: 'failed',
-        errors: JSON.stringify(['AI extraction returned 0 products despite having content']),
-      },
-    });
-    return NextResponse.json(
-      {
-        error: 'AI could not extract any products from the Product Hunt pages. The content may not contain structured product data.',
-        moduleError: {
-          module: MODULE_NAME,
-          category: 'ai_response',
-          message: 'AI extraction returned 0 products',
-          detail: `Successfully fetched ${pageContents.length} Product Hunt pages (${rawContent.length} chars), but the AI could not parse any products from the content. This may be due to non-standard page formatting or the LLM timing out.`,
-          possibleReason: 'Product Hunt pages may have changed their HTML structure, or the AI model timed out while parsing. Retrying may help, or try a different category.',
-          retryable: true,
-          timestamp: new Date().toISOString(),
-          endpoint: '/api/scan',
-          requestCategory: category,
-        }
-      },
-      { status: 422 }
-    );
+    throw new Error(`[SCAN_LLM_EXTRACT] AI extraction returned 0 products. Successfully fetched ${pageContents.length} Product Hunt pages (${rawContent.length} chars), but the AI could not parse any products from the content. This may be due to non-standard page formatting or the LLM timing out. Product Hunt pages may have changed their HTML structure, or the AI model timed out while parsing. Retrying may help, or try a different category.`);
   }
 
   // Step 4: Save scanned products to the database
@@ -462,6 +388,11 @@ If you cannot find any products, return an empty array.`,
     } catch (err) {
       logStageError(MODULE_NAME, 'SAVE_PRODUCT', err, { productName: product.name });
     }
+  }
+
+  // If all product saves failed despite having products to save, throw
+  if (safeProducts.length > 0 && savedProducts.length === 0) {
+    throw new Error(`[SCAN_SAVE_PRODUCTS] Failed to save any of the ${safeProducts.length} extracted products to the database. All product save operations failed. This may indicate a database schema issue or connection problem.`);
   }
 
   console.log(`[${MODULE_NAME}] Step 4 complete: saved ${savedProducts.length} products in ${Date.now() - dbStart}ms`);

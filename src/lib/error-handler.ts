@@ -32,7 +32,7 @@ export interface RequestContext {
 export interface ModuleError {
   module: string;           // e.g., "Product Hunt Scanner", "Trend Detection"
   category: ErrorCategory;
-  message: string;          // Human-readable error description
+  message: string;          // Human-readable error description (includes stage tag)
   detail: string;           // More specific detail about what went wrong
   possibleReason: string;   // Why this might have happened
   retryable: boolean;       // Whether retrying might help
@@ -42,6 +42,9 @@ export interface ModuleError {
   requestCategory?: string; // The product category that was sent in the request
   requestPayload?: string;  // A short summary of the request body (e.g., "category=AI Tools, timePeriod=30d")
   backendMessage?: string;  // The original error message from the backend
+  stage?: string;           // The stage where the error occurred (e.g., "SCAN_WEB_SEARCH", "ANALYZE_GAPS_LLM")
+  originalStack?: string;   // The original error's stack trace (for debugging)
+  originalName?: string;    // The original error's constructor name (e.g., "TypeError", "RangeError")
 }
 
 // ─── Classify Error ──────────────────────────────────────────────
@@ -59,16 +62,27 @@ export function classifyError(
     backendMessage: requestContext?.backendMessage,
   };
 
+  // Extract stage tag and stack from Error instances — used by ALL branches
+  const errorIsError = error instanceof Error;
+  const stageMatch = errorIsError ? error.message.match(/^\[([A-Z_]+)\]/) : null;
+  const extractedStage = stageMatch ? stageMatch[1] : undefined;
+  const errorOrigin: Pick<ModuleError, 'stage' | 'originalStack' | 'originalName'> = {
+    stage: extractedStage,
+    originalStack: errorIsError ? error.stack || undefined : undefined,
+    originalName: errorIsError ? error.constructor.name : undefined,
+  };
+
   if (error instanceof TimeoutError) {
     return {
       module,
       category: 'timeout',
-      message: `${module} timed out`,
+      message: `[TIMEOUT] ${error.message}`,
       detail: `The request to ${endpoint || module} took too long and was cancelled.`,
       possibleReason: 'The server may be overloaded, or the analysis scope is too large. Try again with a narrower scope.',
       retryable: true,
       timestamp,
       endpoint,
+      ...errorOrigin,
       ...ctx,
     };
   }
@@ -81,17 +95,19 @@ export function classifyError(
     if (error instanceof TypeError || error instanceof ReferenceError) {
       const isDbRelated = msg.includes('prisma') || msg.includes('null') || msg.includes('undefined') ||
         msg.includes('cannot read') || msg.includes('is not a function') || msg.includes('is not iterable');
+      const categoryTag = isDbRelated ? 'DATABASE' : 'PARSING';
       return {
         module,
         category: isDbRelated ? 'database' : 'parsing',
-        message: `${module} encountered a data processing error`,
+        message: `[${categoryTag}] ${error.message}`,
         detail: `[${error.constructor.name}] ${error.message}`,
         possibleReason: isDbRelated
-          ? 'A database query returned null or an unexpected shape. This may be due to missing data or a schema mismatch. Try running a scan first.'
-          : 'An error occurred while processing data. This may be caused by a malformed AI response or unexpected data format. Retrying usually resolves this.',
+          ? `Database error at stage ${extractedStage || 'unknown'}: ${error.message.substring(0, 100)}. Try running a scan first.`
+          : `Parse error at stage ${extractedStage || 'unknown'}: ${error.message.substring(0, 100)}. This may be caused by a malformed AI response. Retrying usually resolves this.`,
         retryable: true,
         timestamp,
         endpoint,
+        ...errorOrigin,
         ...ctx,
       };
     }
@@ -101,12 +117,13 @@ export function classifyError(
       return {
         module,
         category: 'parsing',
-        message: `${module} encountered a data range error`,
+        message: `[PARSING] ${error.message}`,
         detail: `[RangeError] ${error.message}`,
-        possibleReason: 'A data processing operation received an invalid value. This may be caused by unexpected data from the AI model.',
+        possibleReason: `Range error at stage ${extractedStage || 'unknown'}: ${error.message.substring(0, 100)}. This may be caused by unexpected data from the AI model.`,
         retryable: true,
         timestamp,
         endpoint,
+        ...errorOrigin,
         ...ctx,
       };
     }
@@ -116,12 +133,13 @@ export function classifyError(
       return {
         module,
         category: 'parsing',
-        message: `${module} encountered a syntax error`,
+        message: `[PARSING] ${error.message}`,
         detail: `[SyntaxError] ${error.message}`,
-        possibleReason: 'A JSON parsing or data format error occurred. This may be caused by malformed request data or an invalid AI response. Try again.',
+        possibleReason: `JSON parse error at stage ${extractedStage || 'unknown'}: ${error.message.substring(0, 100)}. This may be caused by malformed request data or an invalid AI response.`,
         retryable: true,
         timestamp,
         endpoint,
+        ...errorOrigin,
         ...ctx,
       };
     }
@@ -131,13 +149,14 @@ export function classifyError(
       return {
         module,
         category: 'rate_limit',
-        message: `${module} hit a rate limit`,
+        message: `[RATE_LIMIT] ${error.message}`,
         detail: error.message,
-        possibleReason: 'Too many API requests were sent in a short period. The ZAI SDK enforces rate limits. Wait 30-60 seconds before retrying.',
+        possibleReason: `Rate limited at stage ${extractedStage || 'unknown'}: ${error.message.substring(0, 100)}. Wait 30-60 seconds before retrying.`,
         retryable: true,
         timestamp,
         endpoint,
         statusCode: 429,
+        ...errorOrigin,
         ...ctx,
       };
     }
@@ -150,13 +169,14 @@ export function classifyError(
       return {
         module,
         category: 'auth',
-        message: `${module} authentication failed`,
+        message: `[AUTH] ${error.message}`,
         detail: error.message,
-        possibleReason: 'The API request lacked proper authentication. Check that ZAI_API_KEY or other required environment variables are set correctly. Restart the server after fixing.',
+        possibleReason: `Auth error at stage ${extractedStage || 'unknown'}: ${error.message.substring(0, 100)}. Check ZAI_API_KEY environment variable.`,
         retryable: false,
         timestamp,
         endpoint,
         statusCode,
+        ...errorOrigin,
         ...ctx,
       };
     }
@@ -170,12 +190,13 @@ export function classifyError(
       return {
         module,
         category: 'ai_response',
-        message: `${module} received an invalid AI response`,
+        message: `[AI_RESPONSE] ${error.message}`,
         detail: error.message,
-        possibleReason: 'The AI model returned data in an unexpected format or the response was truncated. Retrying usually resolves this.',
+        possibleReason: `AI parse error at stage ${extractedStage || 'unknown'}: ${error.message.substring(0, 100)}. Retrying usually resolves this.`,
         retryable: true,
         timestamp,
         endpoint,
+        ...errorOrigin,
         ...ctx,
       };
     }
@@ -185,12 +206,13 @@ export function classifyError(
       return {
         module,
         category: 'ai_response',
-        message: `${module} received an empty AI response`,
+        message: `[AI_RESPONSE] ${error.message}`,
         detail: error.message,
-        possibleReason: 'The AI model returned no content. This may be due to the model being overloaded or the prompt being too long. Try again with a shorter prompt.',
+        possibleReason: `AI empty response at stage ${extractedStage || 'unknown'}: ${error.message.substring(0, 100)}. The model may be overloaded. Try again.`,
         retryable: true,
         timestamp,
         endpoint,
+        ...errorOrigin,
         ...ctx,
       };
     }
@@ -200,13 +222,14 @@ export function classifyError(
       return {
         module,
         category: 'api',
-        message: `${module} AI generation failed`,
+        message: `[API] ${error.message}`,
         detail: error.message,
-        possibleReason: 'The AI service encountered an error. This is usually transient — retry after a short wait.',
+        possibleReason: `AI API error at stage ${extractedStage || 'unknown'}: ${error.message.substring(0, 100)}. Usually transient — retry after a short wait.`,
         retryable: true,
         timestamp,
         endpoint,
         statusCode: 500,
+        ...errorOrigin,
         ...ctx,
       };
     }
@@ -216,12 +239,13 @@ export function classifyError(
       return {
         module,
         category: 'api',
-        message: `${module} web data fetch failed`,
+        message: `[API] ${error.message}`,
         detail: error.message,
-        possibleReason: 'The web search or page reading service is temporarily unavailable. Try again in a few seconds.',
+        possibleReason: `Web API error at stage ${extractedStage || 'unknown'}: ${error.message.substring(0, 100)}. The search/page service may be temporarily unavailable.`,
         retryable: true,
         timestamp,
         endpoint,
+        ...errorOrigin,
         ...ctx,
       };
     }
@@ -231,12 +255,13 @@ export function classifyError(
       return {
         module,
         category: 'api',
-        message: `${module} failed to reach the server`,
+        message: `[NETWORK] ${error.message}`,
         detail: error.message,
-        possibleReason: 'Network connectivity issue or the external API is temporarily unavailable.',
+        possibleReason: `Network error at stage ${extractedStage || 'unknown'}: ${error.message.substring(0, 100)}. Check connectivity.`,
         retryable: true,
         timestamp,
         endpoint,
+        ...errorOrigin,
         ...ctx,
       };
     }
@@ -247,12 +272,13 @@ export function classifyError(
       return {
         module,
         category: 'database',
-        message: `${module} encountered a database error`,
+        message: `[DATABASE] ${error.message}`,
         detail: error.message,
-        possibleReason: 'Database may be locked, corrupted, or returned unexpected data. Try running a scan first, or try again in a moment.',
+        possibleReason: `Database error at stage ${extractedStage || 'unknown'}: ${error.message.substring(0, 100)}. Try running a scan first.`,
         retryable: true,
         timestamp,
         endpoint,
+        ...errorOrigin,
         ...ctx,
       };
     }
@@ -262,13 +288,14 @@ export function classifyError(
       return {
         module,
         category: 'api',
-        message: `${module} found no data`,
+        message: `[NOT_FOUND] ${error.message}`,
         detail: error.message,
-        possibleReason: 'No data exists for the selected category/time period. Try scanning first.',
+        possibleReason: `Not found at stage ${extractedStage || 'unknown'}: ${error.message.substring(0, 100)}. Try scanning first.`,
         retryable: false,
         timestamp,
         endpoint,
         statusCode: 404,
+        ...errorOrigin,
         ...ctx,
       };
     }
@@ -277,13 +304,14 @@ export function classifyError(
       return {
         module,
         category: 'api',
-        message: `${module} encountered a server error`,
+        message: `[SERVER_ERROR] ${error.message}`,
         detail: error.message,
-        possibleReason: 'The server encountered an unexpected error. This is usually transient.',
+        possibleReason: `Server error (500) at stage ${extractedStage || 'unknown'}: ${error.message.substring(0, 100)}. Usually transient — retry.`,
         retryable: true,
         timestamp,
         endpoint,
         statusCode: 500,
+        ...errorOrigin,
         ...ctx,
       };
     }
@@ -292,13 +320,14 @@ export function classifyError(
       return {
         module,
         category: 'api',
-        message: `${module} service is unavailable`,
+        message: `[SERVICE_UNAVAILABLE] ${error.message}`,
         detail: error.message,
-        possibleReason: 'The external service is temporarily unavailable or overloaded. Try again later.',
+        possibleReason: `Service unavailable at stage ${extractedStage || 'unknown'}: ${error.message.substring(0, 100)}. Try again later.`,
         retryable: true,
         timestamp,
         endpoint,
         statusCode: 503,
+        ...errorOrigin,
         ...ctx,
       };
     }
@@ -308,12 +337,13 @@ export function classifyError(
       return {
         module,
         category: 'api',
-        message: `${module} found no results`,
+        message: `[NO_RESULTS] ${error.message}`,
         detail: error.message,
-        possibleReason: 'The query returned no data. Try a different category or time period.',
+        possibleReason: `No results at stage ${extractedStage || 'unknown'}: ${error.message.substring(0, 100)}. Try a different category or time period.`,
         retryable: true,
         timestamp,
         endpoint,
+        ...errorOrigin,
         ...ctx,
       };
     }
@@ -324,12 +354,13 @@ export function classifyError(
       return {
         module,
         category: 'parsing',
-        message: `${module} received invalid data`,
+        message: `[VALIDATION] ${error.message}`,
         detail: error.message,
-        possibleReason: 'The request or response data was malformed. Check the input parameters and try again.',
+        possibleReason: `Validation error at stage ${extractedStage || 'unknown'}: ${error.message.substring(0, 100)}. Check input parameters.`,
         retryable: true,
         timestamp,
         endpoint,
+        ...errorOrigin,
         ...ctx,
       };
     }
@@ -339,12 +370,13 @@ export function classifyError(
       return {
         module,
         category: 'validation',
-        message: `${module} requires a category`,
+        message: `[VALIDATION] ${error.message}`,
         detail: error.message,
-        possibleReason: 'A product category must be specified for this operation. Select a category and try again.',
+        possibleReason: `Missing category at stage ${extractedStage || 'unknown'}: ${error.message.substring(0, 100)}. Select a category and try again.`,
         retryable: false,
         timestamp,
         endpoint,
+        ...errorOrigin,
         ...ctx,
       };
     }
@@ -354,12 +386,13 @@ export function classifyError(
       return {
         module,
         category: 'timeout',
-        message: `${module} request was cancelled`,
+        message: `[TIMEOUT] ${error.message}`,
         detail: error.message,
-        possibleReason: 'The request was aborted or cancelled. This may be due to a timeout or user action.',
+        possibleReason: `Request aborted at stage ${extractedStage || 'unknown'}: ${error.message.substring(0, 100)}. May be due to timeout.`,
         retryable: true,
         timestamp,
         endpoint,
+        ...errorOrigin,
         ...ctx,
       };
     }
@@ -369,13 +402,14 @@ export function classifyError(
       return {
         module,
         category: 'validation',
-        message: `${module} received a bad request`,
+        message: `[VALIDATION] ${error.message}`,
         detail: error.message,
-        possibleReason: 'The request parameters were invalid. Check the input and try again.',
+        possibleReason: `Bad request at stage ${extractedStage || 'unknown'}: ${error.message.substring(0, 100)}. Check input parameters.`,
         retryable: false,
         timestamp,
         endpoint,
         statusCode: 400,
+        ...errorOrigin,
         ...ctx,
       };
     }
@@ -387,12 +421,13 @@ export function classifyError(
       return {
         module,
         category: 'database',
-        message: `${module} encountered a database constraint error`,
+        message: `[DATABASE_CONSTRAINT] ${error.message}`,
         detail: error.message,
-        possibleReason: 'A database constraint was violated. This may be due to duplicate data or missing related records. Try running a fresh scan first.',
+        possibleReason: `DB constraint error at stage ${extractedStage || 'unknown'}: ${error.message.substring(0, 100)}. Try running a fresh scan.`,
         retryable: true,
         timestamp,
         endpoint,
+        ...errorOrigin,
         ...ctx,
       };
     }
@@ -403,12 +438,13 @@ export function classifyError(
       return {
         module,
         category: 'database',
-        message: `${module} encountered a database schema error`,
+        message: `[DATABASE_SCHEMA] ${error.message}`,
         detail: error.message,
-        possibleReason: 'The database schema may be out of date. Run "bun run db:push" to update the schema, then try again.',
+        possibleReason: `Schema error at stage ${extractedStage || 'unknown'}: ${error.message.substring(0, 100)}. Run "bun run db:push" to update.`,
         retryable: false,
         timestamp,
         endpoint,
+        ...errorOrigin,
         ...ctx,
       };
     }
@@ -419,12 +455,13 @@ export function classifyError(
       return {
         module,
         category: 'timeout',
-        message: `${module} timed out`,
+        message: `[TIMEOUT] ${error.message}`,
         detail: error.message,
-        possibleReason: 'The operation took too long. This may be due to a large amount of data or a slow server. Try again with a narrower scope.',
+        possibleReason: `Timeout at stage ${extractedStage || 'unknown'}: ${error.message.substring(0, 100)}. Try with a narrower scope.`,
         retryable: true,
         timestamp,
         endpoint,
+        ...errorOrigin,
         ...ctx,
       };
     }
@@ -435,13 +472,14 @@ export function classifyError(
       return {
         module,
         category: 'rate_limit',
-        message: `${module} hit a rate limit or quota`,
+        message: `[RATE_LIMIT] ${error.message}`,
         detail: error.message,
-        possibleReason: 'The API rate limit or quota was reached. Wait 60 seconds before retrying.',
+        possibleReason: `Rate limit at stage ${extractedStage || 'unknown'}: ${error.message.substring(0, 100)}. Wait 60 seconds before retrying.`,
         retryable: true,
         timestamp,
         endpoint,
         statusCode: 429,
+        ...errorOrigin,
         ...ctx,
       };
     }
@@ -453,40 +491,48 @@ export function classifyError(
       return {
         module,
         category: 'ai_response',
-        message: `${module} AI generation failed`,
+        message: `[AI_RESPONSE] ${error.message}`,
         detail: error.message,
-        possibleReason: 'The AI model encountered an error generating a response. This could be due to the input being too long or content policy restrictions. Try with a shorter input or different category.',
+        possibleReason: `AI error at stage ${extractedStage || 'unknown'}: ${error.message.substring(0, 100)}. Input may be too long or triggered content policy.`,
         retryable: true,
         timestamp,
         endpoint,
+        ...errorOrigin,
         ...ctx,
       };
     }
 
     // ── Generic error with message — fallback to 'api' instead of 'unknown' ──
+    // NEVER replace original error message with generic text
     return {
       module,
       category: 'api',
-      message: `${module} encountered an unexpected error`,
-      detail: error.message,
-      possibleReason: `An unexpected error occurred (type: ${error.constructor.name}). The error has been logged. Try again, and if it persists, try a different category or scope.`,
+      message: `[API_ERROR] ${error.message}`,
+      detail: `[${error.constructor.name}] ${error.message}`,
+      possibleReason: `Error at stage ${extractedStage || 'unknown'} (${error.constructor.name}): ${error.message.substring(0, 150)}. Check Debug Info for full stack trace.`,
       retryable: true,
       timestamp,
       endpoint,
+      ...errorOrigin,
       ...ctx,
     };
   }
 
   // Non-Error thrown — classify as 'api' (never 'unknown')
+  const errorStr = String(error).substring(0, 500);
+  const nonErrorStageMatch = errorStr.match(/^\[([A-Z_]+)\]/);
+  const nonErrorStage = nonErrorStageMatch ? nonErrorStageMatch[1] : undefined;
+
   return {
     module,
     category: 'api',
-    message: `${module} encountered an unclassified error`,
-    detail: `Non-Error value thrown: ${String(error).substring(0, 500)}`,
-    possibleReason: 'An unexpected non-Error value was thrown. This is likely a bug in the error handling chain. Check the server logs for the full stack trace.',
+    message: `[UNCLASSIFIED] ${errorStr}`,
+    detail: `Non-Error value thrown: ${errorStr}`,
+    possibleReason: `Non-Error at stage ${nonErrorStage || 'unknown'}: ${errorStr.substring(0, 100)}. Check server logs.`,
     retryable: true,
     timestamp,
     endpoint,
+    stage: nonErrorStage,
     ...ctx,
   };
 }
@@ -842,17 +888,35 @@ export function withErrorHandler(
         debugInfo = { note: 'Could not parse request body for debug info' };
       }
 
+      // Build debug info with full original error details
+      const originalError = error instanceof Error ? error : undefined;
+      const debugData = {
+        ...debugInfo,
+        originalError: originalError?.message || String(error),
+        originalStack: originalError?.stack || undefined,
+        originalName: originalError?.constructor.name || typeof error,
+        errorType: originalError?.constructor.name || typeof error,
+        caughtBy: 'global_error_handler',
+        duration,
+      };
+
+      // Enrich moduleError with original stack if not already present
+      if (!moduleError.originalStack && originalError?.stack) {
+        moduleError.originalStack = originalError.stack;
+      }
+      if (!moduleError.stage) {
+        const stageMatch = moduleError.message.match(/^\[([A-Z_]+)\]/);
+        if (stageMatch) moduleError.stage = stageMatch[1];
+      }
+      if (!moduleError.originalName && originalError) {
+        moduleError.originalName = originalError.constructor.name;
+      }
+
       return new Response(
         JSON.stringify({
           error: moduleError.message,
           moduleError,
-          debug: {
-            ...debugInfo,
-            originalError: error instanceof Error ? error.message : String(error),
-            errorType: error instanceof Error ? error.constructor.name : typeof error,
-            caughtBy: 'global_error_handler',
-            duration,
-          },
+          debug: debugData,
         }),
         {
           status: 500,

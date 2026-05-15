@@ -252,6 +252,29 @@ export function ModuleErrorState({
             </div>
           </div>
 
+          {/* Stage badge + Backend message (most important for debugging) */}
+          {error.stage && (
+            <div className="mt-3 flex items-center gap-2">
+              <Badge variant="outline" className="bg-orange-100 text-orange-700 border-orange-200 dark:bg-orange-950/40 dark:text-orange-400 dark:border-orange-900/60 text-[10px]">
+                Stage: {error.stage}
+              </Badge>
+              {error.originalName && (
+                <Badge variant="outline" className="bg-gray-100 text-gray-600 border-gray-200 dark:bg-gray-800/40 dark:text-gray-400 dark:border-gray-700/60 text-[10px]">
+                  {error.originalName}
+                </Badge>
+              )}
+            </div>
+          )}
+
+          {/* Backend message — the ORIGINAL error from the server */}
+          {error.backendMessage && (
+            <div className="mt-2 rounded-md bg-orange-50/60 dark:bg-orange-950/20 border border-orange-200/60 dark:border-orange-900/40 px-3 py-2">
+              <p className="text-xs font-medium text-orange-800 dark:text-orange-300">
+                <span className="font-semibold">Backend:</span> {error.backendMessage}
+              </p>
+            </div>
+          )}
+
           {/* Error detail */}
           {error.detail && (
             <div className="mt-3 rounded-md bg-background/60 px-3 py-2">
@@ -301,7 +324,7 @@ export function ModuleErrorState({
           </div>
 
           {/* Debug info (collapsible) */}
-          {(error.endpoint || error.statusCode || error.detail || error.requestCategory || error.requestPayload || error.backendMessage) && (
+          {(error.endpoint || error.statusCode || error.detail || error.requestCategory || error.requestPayload || error.backendMessage || error.originalStack || error.stage) && (
             <Collapsible open={debugOpen} onOpenChange={setDebugOpen}>
               <CollapsibleTrigger asChild>
                 <Button
@@ -328,6 +351,18 @@ export function ModuleErrorState({
                   className="mt-2 rounded-md border bg-background/80 p-3 font-mono text-[11px] leading-relaxed text-muted-foreground"
                 >
                   <div className="space-y-1.5">
+                    {error.stage && (
+                      <div>
+                        <span className="text-foreground/70">Stage:</span>{' '}
+                        <span className="text-orange-600 dark:text-orange-400 font-semibold">{error.stage}</span>
+                      </div>
+                    )}
+                    {error.originalName && (
+                      <div>
+                        <span className="text-foreground/70">Error Class:</span>{' '}
+                        <span className="text-foreground">{error.originalName}</span>
+                      </div>
+                    )}
                     {error.endpoint && (
                       <div className="flex items-center gap-2">
                         <Server className="h-3 w-3 shrink-0" />
@@ -383,6 +418,12 @@ export function ModuleErrorState({
                       <div>
                         <span className="text-foreground/70">Detail:</span>{' '}
                         <span className="break-all">{error.detail}</span>
+                      </div>
+                    )}
+                    {error.originalStack && (
+                      <div className="mt-2">
+                        <span className="text-foreground/70 font-semibold">Stack Trace:</span>
+                        <pre className="mt-1 whitespace-pre-wrap break-all text-[10px] text-red-600/80 dark:text-red-400/80 max-h-48 overflow-y-auto">{error.originalStack}</pre>
                       </div>
                     )}
                   </div>
