@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { db, checkDatabaseConnection } from '@/lib/db';
 import { webSearch, readPage, generateStructuredResponse } from '@/lib/zai';
 import { retryWithBackoff, withTimeout, logError, classifyError, withErrorHandler, logStageError, logStageStart, logStageEnd, createErrorResponse, type ModuleError } from '@/lib/error-handler';
+import { getCachedSearchResults, setCachedSearchResults, hasCachedResultsForCategory } from '@/lib/search-cache';
 import type { ScannedProduct } from '@/types';
 
 const MODULE_NAME = 'Product Hunt Scanner';
