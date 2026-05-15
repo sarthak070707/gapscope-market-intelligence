@@ -76,6 +76,56 @@ export function classifyError(
   if (error instanceof Error) {
     const msg = error.message.toLowerCase();
 
+    // ── TypeError / ReferenceError classification (common JS runtime errors) ──
+    // These are often caused by null/undefined DB results or malformed LLM responses
+    if (error instanceof TypeError || error instanceof ReferenceError) {
+      const isDbRelated = msg.includes('prisma') || msg.includes('null') || msg.includes('undefined') ||
+        msg.includes('cannot read') || msg.includes('is not a function') || msg.includes('is not iterable');
+      return {
+        module,
+        category: isDbRelated ? 'database' : 'parsing',
+        message: `${module} encountered a data processing error`,
+        detail: `[${error.constructor.name}] ${error.message}`,
+        possibleReason: isDbRelated
+          ? 'A database query returned null or an unexpected shape. This may be due to missing data or a schema mismatch. Try running a scan first.'
+          : 'An error occurred while processing data. This may be caused by a malformed AI response or unexpected data format. Retrying usually resolves this.',
+        retryable: true,
+        timestamp,
+        endpoint,
+        ...ctx,
+      };
+    }
+
+    // ── RangeError classification (invalid array length, etc.) ──
+    if (error instanceof RangeError) {
+      return {
+        module,
+        category: 'parsing',
+        message: `${module} encountered a data range error`,
+        detail: `[RangeError] ${error.message}`,
+        possibleReason: 'A data processing operation received an invalid value. This may be caused by unexpected data from the AI model.',
+        retryable: true,
+        timestamp,
+        endpoint,
+        ...ctx,
+      };
+    }
+
+    // ── SyntaxError classification (malformed JSON, etc.) ──
+    if (error instanceof SyntaxError) {
+      return {
+        module,
+        category: 'parsing',
+        message: `${module} encountered a syntax error`,
+        detail: `[SyntaxError] ${error.message}`,
+        possibleReason: 'A JSON parsing or data format error occurred. This may be caused by malformed request data or an invalid AI response. Try again.',
+        retryable: true,
+        timestamp,
+        endpoint,
+        ...ctx,
+      };
+    }
+
     // ── Rate limit errors (check FIRST — most common production issue) ──
     if (msg.includes('429') || msg.includes('rate limit') || msg.includes('too many requests') || msg.includes('throttl')) {
       return {
@@ -192,13 +242,14 @@ export function classifyError(
     }
 
     // ── Database errors ──
-    if (msg.includes('prisma') || msg.includes('sqlite') || msg.includes('database')) {
+    if (msg.includes('prisma') || msg.includes('sqlite') || msg.includes('database') || 
+        msg.includes('db query') || msg.includes('database query') || msg.includes('database returned invalid')) {
       return {
         module,
         category: 'database',
         message: `${module} encountered a database error`,
         detail: error.message,
-        possibleReason: 'Database may be locked or corrupted. This is usually temporary.',
+        possibleReason: 'Database may be locked, corrupted, or returned unexpected data. Try running a scan first, or try again in a moment.',
         retryable: true,
         timestamp,
         endpoint,
@@ -268,7 +319,8 @@ export function classifyError(
     }
 
     // ── Invalid / malformed errors ──
-    if (msg.includes('invalid') || msg.includes('malformed')) {
+    if (msg.includes('invalid') || msg.includes('malformed') || msg.includes('serialize') ||
+        msg.includes('failed to prepare') || msg.includes('failed to serialize')) {
       return {
         module,
         category: 'parsing',

@@ -754,13 +754,50 @@ export function GapAnalysisPanel() {
         setAnalysisError(moduleError)
         throw new Error(moduleError.message)
       }
-      return res.json() as Promise<{ gaps: GapAnalysis[]; saturation: MarketSaturation[]; complaints: unknown[]; complaintClusters: ComplaintCluster[] }>
+      return res.json() as Promise<{
+        gaps: GapAnalysis[];
+        saturation: MarketSaturation[];
+        complaints: unknown[];
+        complaintClusters: ComplaintCluster[];
+        partialErrors?: Record<string, unknown>;
+      }>
     },
     onSuccess: (data) => {
-      setAnalysisResults(data.gaps)
-      setSaturationResults(data.saturation)
+      setAnalysisResults(data.gaps || [])
+      setSaturationResults(data.saturation || [])
       setComplaintClusters(data.complaintClusters || [])
-      toast.success(`Analysis complete! Found ${data.gaps.length} gaps.`)
+
+      // If there are partial errors, show a warning toast with details
+      if (data.partialErrors && Object.keys(data.partialErrors).length > 0) {
+        const failedStages = Object.keys(data.partialErrors)
+        const totalGaps = (data.gaps || []).length
+        const totalSaturation = (data.saturation || []).length
+
+        // If we have SOME data came back, show partial success
+        if (totalGaps > 0 || totalSaturation > 0) {
+          toast.warning(`Analysis partially complete. ${failedStages.join(', ')} had errors. Found ${totalGaps} gaps.`)
+        } else {
+          // All sub-analyses failed but we got a 200 — convert to error state
+          const firstError = Object.values(data.partialErrors)[0] as Record<string, unknown> | undefined
+          const errorModule: ModuleError = firstError && typeof firstError === 'object' && 'category' in firstError
+            ? firstError as unknown as ModuleError
+            : {
+                module: 'Gap Analysis',
+                category: 'api' as const,
+                message: 'All analysis stages failed',
+                detail: `Failed stages: ${failedStages.join(', ')}`,
+                possibleReason: 'This is likely due to rate limiting. Wait 60 seconds and try again.',
+                retryable: true,
+                timestamp: new Date().toISOString(),
+                endpoint: '/api/analyze',
+                requestCategory: selectedCategory,
+              }
+          setAnalysisError(errorModule)
+          toast.error('All analysis stages failed. Please try again.')
+        }
+      } else {
+        toast.success(`Analysis complete! Found ${(data.gaps || []).length} gaps.`)
+      }
     },
     onError: (err) => {
       if (!analysisError) {

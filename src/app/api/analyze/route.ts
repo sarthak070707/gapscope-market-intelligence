@@ -3,29 +3,39 @@ import { db, checkDatabaseConnection } from '@/lib/db';
 import { generateStructuredResponse } from '@/lib/zai';
 import { safeJsonParse } from '@/lib/json';
 import { retryWithBackoff, withTimeout, logError, classifyError, withErrorHandler } from '@/lib/error-handler';
-import type { GapAnalysis, MarketSaturation, ComplaintAnalysis, ComplaintCluster, EvidenceDetail, SubNiche, ProductReference, UnderservedUserGroup, WhyNowAnalysis, ExecutionDifficulty, FalseOpportunityAnalysis, FounderFitSuggestion, SourceTransparency, WhyExistingProductsFail, MarketQuadrantPosition } from '@/types';
+import type { GapAnalysis, MarketSaturation, ComplaintAnalysis, ComplaintCluster, SubNiche, ProductReference } from '@/types';
 
 const MODULE_NAME = 'Gap Analysis';
 const LLM_TIMEOUT_MS = 120_000;
 const MAX_RETRIES = 2;
 const INTER_CALL_DELAY_MS = 2000; // 2s pause between LLM calls to avoid rate limits
 
+// ─── Stage Logger Helper ──────────────────────────────────────────
+// Creates a step-by-step log for each major stage with BEFORE/AFTER markers
+function stageLog(stage: string, event: 'START' | 'END' | 'ERROR' | 'INFO', detail?: string, data?: Record<string, unknown>) {
+  const prefix = event === 'START' ? '▶' : event === 'END' ? '✔' : event === 'ERROR' ? '✖' : '●';
+  const msg = `[${MODULE_NAME}] ${prefix} [${stage}]${detail ? ` ${detail}` : ''}`;
+  if (data) {
+    console.log(msg, JSON.stringify(data));
+  } else {
+    console.log(msg);
+  }
+}
+
 export const POST = withErrorHandler(MODULE_NAME, '/api/analyze', async (request: NextRequest) => {
   let body: Record<string, unknown> | null = null;
   try {
+    // ═══ STAGE 1: Request received ═══
     body = await request.json();
     const { category, analysisType = 'full', timePeriod = '30d' } = body;
-
-    console.log(`[${MODULE_NAME}] Request received:`, {
-      method: request.method,
-      url: request.url,
-      category: body.category,
-      timePeriod: body.timePeriod,
-      action: body.action,
+    stageLog('REQUEST', 'START', 'Request received', {
+      category: String(body.category || 'MISSING'),
+      analysisType: String(body.analysisType || 'full'),
+      timePeriod: String(body.timePeriod || '30d'),
     });
 
     if (!category || category === 'unknown') {
-      console.error(`[${MODULE_NAME}] Missing or invalid category:`, { category, body });
+      stageLog('REQUEST', 'ERROR', `Invalid category: "${category}"`);
       return NextResponse.json(
         { 
           error: 'Missing or invalid category. Please select a category or use the default "AI Tools".',
@@ -47,13 +57,29 @@ export const POST = withErrorHandler(MODULE_NAME, '/api/analyze', async (request
 
     // Resolve 'all' to a specific default category for better LLM analysis
     const effectiveCategory = category === 'all' ? 'AI Tools' : category;
-    console.log(`[${MODULE_NAME}] Using effective category: ${effectiveCategory} (original: ${category})`);
+    stageLog('REQUEST', 'INFO', `Effective category: ${effectiveCategory} (original: ${category})`);
 
-    // Pre-flight: check database connection
-    console.log(`[${MODULE_NAME}] Checking database connection...`);
-    const dbHealth = await checkDatabaseConnection();
+    // ═══ STAGE 2: Database health check ═══
+    stageLog('DB_HEALTH', 'START', 'Checking database connection...');
+    let dbHealth: { ok: boolean; error?: string; latencyMs?: number };
+    try {
+      dbHealth = await checkDatabaseConnection();
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      stageLog('DB_HEALTH', 'ERROR', `Exception during health check: ${msg}`);
+      return NextResponse.json(
+        {
+          error: 'Database health check threw an exception.',
+          moduleError: classifyError(err, MODULE_NAME, '/api/analyze', {
+            category: String(category),
+            backendMessage: msg,
+          }),
+        },
+        { status: 503 }
+      );
+    }
     if (!dbHealth.ok) {
-      console.error(`[${MODULE_NAME}] Database health check FAILED:`, dbHealth.error);
+      stageLog('DB_HEALTH', 'ERROR', `Database unavailable: ${dbHealth.error}`);
       return NextResponse.json(
         {
           error: 'Database is not available. Please try again.',
@@ -66,18 +92,17 @@ export const POST = withErrorHandler(MODULE_NAME, '/api/analyze', async (request
             retryable: true,
             timestamp: new Date().toISOString(),
             endpoint: '/api/analyze',
-            requestCategory: category,
+            requestCategory: String(category),
           }
         },
         { status: 503 }
       );
     }
-    console.log(`[${MODULE_NAME}] Database OK (${dbHealth.latencyMs}ms)`);
+    stageLog('DB_HEALTH', 'END', `Database OK (${dbHealth.latencyMs}ms)`);
 
-    // Fetch products from DB for the given category, with time filtering
+    // ═══ STAGE 3: Query products from DB ═══
     const whereClause: Record<string, unknown> = category === 'all' ? {} : { category };
     
-    // Apply time filter based on launchDate
     if (timePeriod && timePeriod !== '90d') {
       const daysMap: Record<string, number> = { '7d': 7, '30d': 30, '90d': 90 };
       const days = daysMap[timePeriod as string] || 30;
@@ -86,25 +111,46 @@ export const POST = withErrorHandler(MODULE_NAME, '/api/analyze', async (request
       whereClause.launchDate = { gte: cutoff.toISOString().split('T')[0] };
     }
 
-    console.log(`[${MODULE_NAME}] Querying products with filter:`, JSON.stringify(whereClause));
-    const products = await db.product.findMany({
-      where: whereClause,
-      include: { gaps: true, complaints: true },
-    });
-    console.log(`[${MODULE_NAME}] Found ${products.length} products with time filter`);
+    stageLog('DB_QUERY', 'START', 'Querying products with filter', { whereClause });
+    let products: Awaited<ReturnType<typeof db.product.findMany>> | null = null;
+    try {
+      products = await db.product.findMany({
+        where: whereClause,
+        include: { gaps: true, complaints: true },
+      });
+      stageLog('DB_QUERY', 'END', `Found ${products?.length ?? 0} products with time filter`);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      stageLog('DB_QUERY', 'ERROR', `Product query failed: ${msg}`);
+      // Re-throw with better context for classifyError
+      throw new Error(`Database query for products failed: ${msg}`);
+    }
 
     // If no products with time filter, fall back to all products in category
     let effectiveProducts = products;
-    if (products.length === 0) {
-      console.log(`[${MODULE_NAME}] No products with time filter, falling back to all products in category`);
-      effectiveProducts = await db.product.findMany({
-        where: category === 'all' ? {} : { category },
-        include: { gaps: true, complaints: true },
-      });
-      console.log(`[${MODULE_NAME}] Found ${effectiveProducts.length} products without time filter`);
+    if (!products || products.length === 0) {
+      stageLog('DB_QUERY', 'INFO', 'No products with time filter, falling back to all products in category');
+      try {
+        effectiveProducts = await db.product.findMany({
+          where: category === 'all' ? {} : { category },
+          include: { gaps: true, complaints: true },
+        });
+        stageLog('DB_QUERY', 'END', `Found ${effectiveProducts?.length ?? 0} products without time filter`);
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        stageLog('DB_QUERY', 'ERROR', `Fallback product query failed: ${msg}`);
+        throw new Error(`Database fallback query for products failed: ${msg}`);
+      }
+    }
+
+    // Guard against null/undefined effectiveProducts
+    if (!effectiveProducts || !Array.isArray(effectiveProducts)) {
+      stageLog('DB_QUERY', 'ERROR', 'effectiveProducts is null or not an array');
+      throw new Error('Database returned invalid product data (null or non-array). This may indicate a schema mismatch or database corruption.');
     }
 
     if (effectiveProducts.length === 0) {
+      stageLog('DB_QUERY', 'ERROR', 'No products found for this category');
       return NextResponse.json(
         {
           error: 'No products found for this category. Run a scan first to populate the database.',
@@ -117,13 +163,51 @@ export const POST = withErrorHandler(MODULE_NAME, '/api/analyze', async (request
             retryable: false,
             timestamp: new Date().toISOString(),
             endpoint: '/api/analyze',
-            requestCategory: category,
+            requestCategory: String(category),
           }
         },
         { status: 404 }
       );
     }
 
+    // ═══ STAGE 4: Prepare product summaries ═══
+    stageLog('PREPARE', 'START', `Preparing product summaries from ${effectiveProducts.length} products`);
+    let productSummaries: Array<{
+      id: string; name: string; tagline: string; description: string;
+      features: string[]; pricing: string; upvotes: number; reviewScore: number;
+      comments: string[]; category: string;
+    }>;
+    try {
+      productSummaries = effectiveProducts.map((p) => ({
+        id: p.id || '',
+        name: p.name || '',
+        tagline: p.tagline || '',
+        description: p.description || '',
+        features: safeJsonParse<string[]>(p.features, []),
+        pricing: p.pricing || 'Unknown',
+        upvotes: p.upvotes ?? 0,
+        reviewScore: p.reviewScore ?? 0,
+        comments: safeJsonParse<string[]>(p.comments, []),
+        category: p.category || '',
+      }));
+      stageLog('PREPARE', 'END', `Prepared ${productSummaries.length} product summaries`);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      stageLog('PREPARE', 'ERROR', `Failed to prepare product summaries: ${msg}`);
+      throw new Error(`Failed to prepare product summaries for LLM analysis: ${msg}`);
+    }
+
+    let productsContext: string;
+    try {
+      productsContext = JSON.stringify(productSummaries, null, 2);
+      stageLog('PREPARE', 'INFO', `Products context: ${productsContext.length} chars`);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      stageLog('PREPARE', 'ERROR', `JSON.stringify failed for productsContext: ${msg}`);
+      throw new Error(`Failed to serialize product data for LLM analysis: ${msg}`);
+    }
+
+    // ═══ Initialize result structure ═══
     const result: {
       gaps: GapAnalysis[];
       saturation: MarketSaturation[];
@@ -137,100 +221,133 @@ export const POST = withErrorHandler(MODULE_NAME, '/api/analyze', async (request
       complaintClusters: [],
     };
 
-    // Prepare product summaries for LLM analysis (use effectiveCategory in prompts)
-    const productSummaries = effectiveProducts.map((p) => ({
-      id: p.id,
-      name: p.name,
-      tagline: p.tagline,
-      description: p.description,
-      features: safeJsonParse<string[]>(p.features, []),
-      pricing: p.pricing,
-      upvotes: p.upvotes,
-      reviewScore: p.reviewScore,
-      comments: safeJsonParse<string[]>(p.comments, []),
-      category: p.category,
-    }));
-
-    const productsContext = JSON.stringify(productSummaries, null, 2);
-
     // Track partial errors so one failing analysis doesn't break the others
     const partialErrors: Record<string, unknown> = {};
 
-    // Run gaps analysis (individual try/catch) — with delay to avoid rate limits
+    // ═══ STAGE 5: Gaps analysis ═══
     if (analysisType === 'gaps' || analysisType === 'full') {
-      console.log(`[${MODULE_NAME}] Starting gaps analysis...`);
+      stageLog('GAPS', 'START', 'Starting gaps analysis');
       try {
         result.gaps = await analyzeGaps(productsContext, effectiveProducts, timePeriod as string, effectiveCategory);
-        console.log(`[${MODULE_NAME}] Gaps analysis complete: ${result.gaps.length} gaps found`);
+        stageLog('GAPS', 'END', `${result.gaps.length} gaps found`);
       } catch (error) {
-        logError(MODULE_NAME, error, { endpoint: '/api/analyze', step: 'analyzeGaps', category });
+        const msg = error instanceof Error ? error.message : String(error);
+        stageLog('GAPS', 'ERROR', `Gaps analysis FAILED: ${msg}`);
+        logError(MODULE_NAME, error, { endpoint: '/api/analyze', step: 'analyzeGaps', category: String(category) });
         const moduleError = classifyError(error, MODULE_NAME, '/api/analyze', {
-          category: body.category as string,
+          category: String(body.category),
           payload: `category=${body.category}, timePeriod=${body.timePeriod || 'N/A'}`,
-          backendMessage: error instanceof Error ? error.message : String(error),
+          backendMessage: msg,
         });
         partialErrors.gaps = moduleError;
-        console.error(`[${MODULE_NAME}] Gaps analysis FAILED: ${error instanceof Error ? error.message : String(error)}`);
       }
       // Delay between LLM calls to avoid rate limits
-      console.log(`[${MODULE_NAME}] Waiting ${INTER_CALL_DELAY_MS}ms before next LLM call...`);
+      stageLog('DELAY', 'INFO', `Waiting ${INTER_CALL_DELAY_MS}ms before next LLM call...`);
       await new Promise((r) => setTimeout(r, INTER_CALL_DELAY_MS));
     }
 
-    // Run saturation analysis (individual try/catch) — with delay to avoid rate limits
+    // ═══ STAGE 6: Saturation analysis ═══
     if (analysisType === 'saturation' || analysisType === 'full') {
-      console.log(`[${MODULE_NAME}] Starting saturation analysis...`);
+      stageLog('SATURATION', 'START', 'Starting saturation analysis');
       try {
         result.saturation = await analyzeSaturation(productsContext, category as string, effectiveProducts, effectiveCategory);
-        console.log(`[${MODULE_NAME}] Saturation analysis complete: ${result.saturation.length} categories analyzed`);
+        stageLog('SATURATION', 'END', `${result.saturation.length} categories analyzed`);
       } catch (error) {
-        logError(MODULE_NAME, error, { endpoint: '/api/analyze', step: 'analyzeSaturation', category });
+        const msg = error instanceof Error ? error.message : String(error);
+        stageLog('SATURATION', 'ERROR', `Saturation analysis FAILED: ${msg}`);
+        logError(MODULE_NAME, error, { endpoint: '/api/analyze', step: 'analyzeSaturation', category: String(category) });
         const moduleError = classifyError(error, MODULE_NAME, '/api/analyze', {
-          category: body.category as string,
+          category: String(body.category),
           payload: `category=${body.category}, timePeriod=${body.timePeriod || 'N/A'}`,
-          backendMessage: error instanceof Error ? error.message : String(error),
+          backendMessage: msg,
         });
         partialErrors.saturation = moduleError;
-        console.error(`[${MODULE_NAME}] Saturation analysis FAILED: ${error instanceof Error ? error.message : String(error)}`);
       }
       // Delay between LLM calls to avoid rate limits
-      console.log(`[${MODULE_NAME}] Waiting ${INTER_CALL_DELAY_MS}ms before next LLM call...`);
+      stageLog('DELAY', 'INFO', `Waiting ${INTER_CALL_DELAY_MS}ms before next LLM call...`);
       await new Promise((r) => setTimeout(r, INTER_CALL_DELAY_MS));
     }
 
-    // Run complaints analysis (individual try/catch)
+    // ═══ STAGE 7: Complaints analysis ═══
     if (analysisType === 'complaints' || analysisType === 'full') {
-      console.log(`[${MODULE_NAME}] Starting complaints analysis...`);
+      stageLog('COMPLAINTS', 'START', 'Starting complaints analysis');
       try {
         const complaintResult = await analyzeComplaints(productsContext, effectiveProducts, effectiveCategory);
-        result.complaints = complaintResult.complaints;
-        result.complaintClusters = complaintResult.clusters;
-        console.log(`[${MODULE_NAME}] Complaints analysis complete: ${result.complaints.length} complaints, ${result.complaintClusters.length} clusters`);
+        // Guard: validate complaintResult shape before destructuring
+        if (complaintResult && typeof complaintResult === 'object') {
+          result.complaints = Array.isArray(complaintResult.complaints) ? complaintResult.complaints : [];
+          result.complaintClusters = Array.isArray(complaintResult.clusters) ? complaintResult.clusters : [];
+        } else {
+          stageLog('COMPLAINTS', 'ERROR', `analyzeComplaints returned unexpected shape: ${typeof complaintResult}`);
+          result.complaints = [];
+          result.complaintClusters = [];
+        }
+        stageLog('COMPLAINTS', 'END', `${result.complaints.length} complaints, ${result.complaintClusters.length} clusters`);
       } catch (error) {
-        logError(MODULE_NAME, error, { endpoint: '/api/analyze', step: 'analyzeComplaints', category });
+        const msg = error instanceof Error ? error.message : String(error);
+        stageLog('COMPLAINTS', 'ERROR', `Complaints analysis FAILED: ${msg}`);
+        logError(MODULE_NAME, error, { endpoint: '/api/analyze', step: 'analyzeComplaints', category: String(category) });
         const moduleError = classifyError(error, MODULE_NAME, '/api/analyze', {
-          category: body.category as string,
+          category: String(body.category),
           payload: `category=${body.category}, timePeriod=${body.timePeriod || 'N/A'}`,
-          backendMessage: error instanceof Error ? error.message : String(error),
+          backendMessage: msg,
         });
         partialErrors.complaints = moduleError;
-        console.error(`[${MODULE_NAME}] Complaints analysis FAILED: ${error instanceof Error ? error.message : String(error)}`);
       }
     }
 
+    // ═══ STAGE 8: Final response assembly ═══
     // Attach partial errors if any
     if (Object.keys(partialErrors).length > 0) {
       result.partialErrors = partialErrors;
+      stageLog('RESPONSE', 'INFO', `Partial errors attached: ${Object.keys(partialErrors).join(', ')}`);
     }
 
-    console.log(`[${MODULE_NAME}] Analysis complete: ${result.gaps.length} gaps, ${result.saturation.length} saturation, ${result.complaints.length} complaints`);
+    // If ALL sub-analyses failed, return a structured error instead of empty 200
+    const allFailed = (analysisType === 'full' || analysisType === 'gaps') && !result.gaps.length
+      && (analysisType === 'full' || analysisType === 'saturation') && !result.saturation.length
+      && (analysisType === 'full' || analysisType === 'complaints') && !result.complaints.length
+      && Object.keys(partialErrors).length > 0;
+
+    if (allFailed) {
+      stageLog('RESPONSE', 'ERROR', 'All sub-analyses failed — returning structured error');
+      // Use the first partial error as the primary error, but include all
+      const firstError = Object.values(partialErrors)[0] as Record<string, unknown>;
+      const primaryError = firstError && typeof firstError === 'object' && 'category' in firstError
+        ? firstError
+        : { category: 'api', message: 'All analysis stages failed', detail: 'Every sub-analysis (gaps, saturation, complaints) encountered errors.' };
+
+      return NextResponse.json(
+        {
+          error: primaryError.message || 'All analysis stages failed',
+          moduleError: {
+            module: MODULE_NAME,
+            category: (primaryError.category as string) || 'api',
+            message: String(primaryError.message || 'All analysis stages failed'),
+            detail: `All sub-analyses failed. Partial errors: ${Object.keys(partialErrors).join(', ')}. The first error was: ${primaryError.detail || primaryError.message || 'unknown'}`,
+            possibleReason: 'This is likely due to rate limiting or API issues. Wait 60 seconds and try again.',
+            retryable: true,
+            timestamp: new Date().toISOString(),
+            endpoint: '/api/analyze',
+            requestCategory: String(category),
+            requestPayload: `category=${category}, analysisType=${analysisType}, timePeriod=${timePeriod}`,
+          },
+          partialErrors,
+        },
+        { status: 502 }
+      );
+    }
+
+    stageLog('RESPONSE', 'END', `Analysis complete: ${result.gaps.length} gaps, ${result.saturation.length} saturation, ${result.complaints.length} complaints`);
     return NextResponse.json(result);
   } catch (error) {
+    const msg = error instanceof Error ? error.message : String(error);
+    stageLog('HANDLER', 'ERROR', `Unhandled error in main handler: ${msg}`);
     logError(MODULE_NAME, error, { endpoint: '/api/analyze' });
     const moduleError = classifyError(error, MODULE_NAME, '/api/analyze', {
       category: body?.category as string | undefined,
       payload: `category=${body?.category}, timePeriod=${body?.timePeriod || 'N/A'}`,
-      backendMessage: error instanceof Error ? error.message : String(error),
+      backendMessage: msg,
     });
     return NextResponse.json(
       {
@@ -239,8 +356,10 @@ export const POST = withErrorHandler(MODULE_NAME, '/api/analyze', async (request
         debug: {
           receivedCategory: body?.category,
           receivedTimePeriod: body?.timePeriod,
-          originalError: error instanceof Error ? error.message : String(error),
+          originalError: msg,
+          errorConstructor: error instanceof Error ? error.constructor.name : typeof error,
           errorCategory: moduleError.category,
+          caughtBy: 'main_handler_try_catch',
         }
       },
       { status: 500 }
@@ -248,17 +367,24 @@ export const POST = withErrorHandler(MODULE_NAME, '/api/analyze', async (request
   }
 });
 
+// ═══════════════════════════════════════════════════════════════════
+// SUB-ANALYSIS FUNCTIONS
+// ═══════════════════════════════════════════════════════════════════
+
 async function analyzeGaps(
   productsContext: string,
   products: { id: string; name: string; category: string; pricing: string; comments: string; features: string }[],
   timePeriod: string,
   effectiveCategory: string
 ): Promise<GapAnalysis[]> {
-  console.log(`[${MODULE_NAME}] analyzeGaps: calling LLM for gap analysis (${products.length} products)...`);
-  const gaps = await retryWithBackoff(
-    () => withTimeout(
-      () => generateStructuredResponse<GapAnalysis[]>(
-        `You are a rigorous product market analyst specializing in identifying gaps in product markets. You work for a market intelligence firm and your analysis must be evidence-backed, specific, and actionable — the kind of analysis a venture capitalist would trust.
+  stageLog('GAPS_LLM', 'START', `Calling LLM for gap analysis (${products.length} products)`);
+
+  let gaps: unknown;
+  try {
+    gaps = await retryWithBackoff(
+      () => withTimeout(
+        () => generateStructuredResponse<GapAnalysis[]>(
+          `You are a rigorous product market analyst specializing in identifying gaps in product markets. You work for a market intelligence firm and your analysis must be evidence-backed, specific, and actionable — the kind of analysis a venture capitalist would trust.
 
 Analyze the given products and identify market gaps. Focus on these gap types:
 - missing_feature: Features that users commonly need but are absent across products
@@ -276,20 +402,29 @@ Rule 4: For titles, be SPECIFIC about WHO is affected and WHAT is missing.
 Rule 5: For "whyThisMatters", think like a venture capitalist.
 
 Identify 3-8 meaningful gaps. Base your analysis ONLY on the product data provided. Every number must come from or be derived from the data.`,
-        `Analyze these products for market gaps in the "${effectiveCategory}" category (time period: ${timePeriod}):\n\n${productsContext}`,
-        `Return a JSON array of objects with fields: gapType (string), title (string), description (string), evidence (string), severity (string: "low"|"medium"|"high"), evidenceDetail (object: { similarProducts: number, repeatedComplaints: number, launchFrequency: number, commentSnippets: string[], pricingOverlap: number, launchGrowth: number }), whyThisMatters (string), subNiche (object: { name: string, description: string, parentCategory: string, opportunityScore: number }), affectedProducts (array of { name: string, pricing: string, strengths: string[], weaknesses: string[] }), underservedUsers (array of { userGroup: string, description: string, evidence: string, opportunityScore: number }), whyNow (object: { marketGrowthDriver: string, incumbentWeakness: string, timingAdvantage: string, catalystEvents: string[] }), executionDifficulty (object: { level: string, demandLevel: string, competitionLevel: string, technicalComplexity: string, timeToMvp: string, estimatedBudget: string, keyChallenges: string[] }), falseOpportunity (object: { isFalseOpportunity: boolean, reason: string, estimatedMarketSize: string, riskFactors: string[], verdict: string }), founderFit (object: { bestFit: string[], rationale: string, requiredSkills: string[], idealTeamSize: string }), sourceTransparency (object: { sourcePlatforms: string[], totalComments: number, complaintFrequency: number, reviewSources: array of { platform: string, count: number, avgScore: number }, dataFreshness: string, confidenceLevel: string }), whyExistingProductsFail (object: { rootCause: string, userImpact: string, missedByCompetitors: string }), marketQuadrant (object: { competitionScore: number, opportunityScore: number, quadrant: string, label: string })`
+          `Analyze these products for market gaps in the "${effectiveCategory}" category (time period: ${timePeriod}):\n\n${productsContext}`,
+          `Return a JSON array of objects with fields: gapType (string), title (string), description (string), evidence (string), severity (string: "low"|"medium"|"high"), evidenceDetail (object: { similarProducts: number, repeatedComplaints: number, launchFrequency: number, commentSnippets: string[], pricingOverlap: number, launchGrowth: number }), whyThisMatters (string), subNiche (object: { name: string, description: string, parentCategory: string, opportunityScore: number }), affectedProducts (array of { name: string, pricing: string, strengths: string[], weaknesses: string[] }), underservedUsers (array of { userGroup: string, description: string, evidence: string, opportunityScore: number }), whyNow (object: { marketGrowthDriver: string, incumbentWeakness: string, timingAdvantage: string, catalystEvents: string[] }), executionDifficulty (object: { level: string, demandLevel: string, competitionLevel: string, technicalComplexity: string, timeToMvp: string, estimatedBudget: string, keyChallenges: string[] }), falseOpportunity (object: { isFalseOpportunity: boolean, reason: string, estimatedMarketSize: string, riskFactors: string[], verdict: string }), founderFit (object: { bestFit: string[], rationale: string, requiredSkills: string[], idealTeamSize: string }), sourceTransparency (object: { sourcePlatforms: string[], totalComments: number, complaintFrequency: number, reviewSources: array of { platform: string, count: number, avgScore: number }, dataFreshness: string, confidenceLevel: string }), whyExistingProductsFail (object: { rootCause: string, userImpact: string, missedByCompetitors: string }), marketQuadrant (object: { competitionScore: number, opportunityScore: number, quadrant: string, label: string })`
+        ),
+        LLM_TIMEOUT_MS,
+        MODULE_NAME
       ),
-      LLM_TIMEOUT_MS,
+      { maxRetries: MAX_RETRIES },
       MODULE_NAME
-    ),
-    { maxRetries: MAX_RETRIES },
-    MODULE_NAME
-  );
+    );
+    stageLog('GAPS_LLM', 'END', `LLM returned gaps response`);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    stageLog('GAPS_LLM', 'ERROR', `LLM call failed after retries: ${msg}`);
+    throw err; // Re-throw to be caught by the caller's try/catch
+  }
 
+  // Validate and normalize the LLM response
   const safeGaps = Array.isArray(gaps) ? gaps : [];
-  console.log(`[${MODULE_NAME}] analyzeGaps: LLM returned ${safeGaps.length} gaps`);
+  stageLog('GAPS_PARSE', 'INFO', `Parsed ${safeGaps.length} gaps from LLM response`);
 
-  // Save gaps to the database
+  // ═══ Save gaps to the database ═══
+  stageLog('GAPS_SAVE', 'START', `Saving ${safeGaps.length} gaps to database`);
+  let savedCount = 0;
   for (const gap of safeGaps) {
     try {
       const relevantProduct = findMostRelevantProduct(gap, products);
@@ -301,26 +436,30 @@ Identify 3-8 meaningful gaps. Base your analysis ONLY on the product data provid
             title: gap.title || 'Untitled Gap',
             description: gap.description || '',
             evidence: gap.evidence || '',
-            evidenceDetail: JSON.stringify(gap.evidenceDetail || {}),
+            evidenceDetail: safeStringify(gap.evidenceDetail),
             whyThisMatters: gap.whyThisMatters || '',
-            subNiche: JSON.stringify(gap.subNiche || {}),
-            affectedProducts: JSON.stringify(gap.affectedProducts || []),
-            underservedUsers: JSON.stringify(gap.underservedUsers || []),
+            subNiche: safeStringify(gap.subNiche),
+            affectedProducts: safeStringify(gap.affectedProducts),
+            underservedUsers: safeStringify(gap.underservedUsers),
             severity: gap.severity || 'medium',
-            whyNow: JSON.stringify(gap.whyNow || {}),
-            executionDifficulty: JSON.stringify(gap.executionDifficulty || {}),
-            falseOpportunity: JSON.stringify(gap.falseOpportunity || {}),
-            founderFit: JSON.stringify(gap.founderFit || {}),
-            sourceTransparency: JSON.stringify(gap.sourceTransparency || {}),
-            whyExistingProductsFail: JSON.stringify(gap.whyExistingProductsFail || {}),
-            marketQuadrant: JSON.stringify(gap.marketQuadrant || {}),
+            whyNow: safeStringify(gap.whyNow),
+            executionDifficulty: safeStringify(gap.executionDifficulty),
+            falseOpportunity: safeStringify(gap.falseOpportunity),
+            founderFit: safeStringify(gap.founderFit),
+            sourceTransparency: safeStringify(gap.sourceTransparency),
+            whyExistingProductsFail: safeStringify(gap.whyExistingProductsFail),
+            marketQuadrant: safeStringify(gap.marketQuadrant),
           },
         });
+        savedCount++;
       }
     } catch (err) {
-      logError(MODULE_NAME, err, { step: 'saveGap', gapTitle: gap.title });
+      const msg = err instanceof Error ? err.message : String(err);
+      stageLog('GAPS_SAVE', 'ERROR', `Failed to save gap "${gap?.title || 'unknown'}": ${msg}`);
+      logError(MODULE_NAME, err, { step: 'saveGap', gapTitle: gap?.title });
     }
   }
+  stageLog('GAPS_SAVE', 'END', `Saved ${savedCount}/${safeGaps.length} gaps to database`);
 
   return safeGaps;
 }
@@ -329,13 +468,17 @@ function findMostRelevantProduct(
   gap: GapAnalysis,
   products: { id: string; name: string; category: string }[]
 ) {
-  const searchText = `${gap.evidence} ${gap.description} ${gap.title}`.toLowerCase();
-  for (const product of products) {
-    if (searchText.includes(product.name.toLowerCase())) {
-      return product;
+  try {
+    const searchText = `${gap.evidence || ''} ${gap.description || ''} ${gap.title || ''}`.toLowerCase();
+    for (const product of products) {
+      if (product.name && searchText.includes(product.name.toLowerCase())) {
+        return product;
+      }
     }
+    return products[0] || null;
+  } catch {
+    return products[0] || null;
   }
-  return products[0] || null;
 }
 
 /**
@@ -346,36 +489,40 @@ function findRelevantProductForComplaint(
   complaint: ComplaintAnalysis,
   products: { id: string; name: string; category: string }[]
 ) {
-  const complaintText = (complaint.text || '').toLowerCase();
-  let bestProduct: { id: string; name: string; category: string } | null = null;
-  let bestScore = 0;
+  try {
+    const complaintText = (complaint?.text || '').toLowerCase();
+    let bestProduct: { id: string; name: string; category: string } | null = null;
+    let bestScore = 0;
 
-  for (const product of products) {
-    let score = 0;
-    const nameLower = product.name.toLowerCase();
-    if (complaintText.includes(nameLower)) {
-      score += 10;
-    }
-    const nameWords = nameLower.split(/\s+/);
-    for (const word of nameWords) {
-      if (word.length >= 3 && complaintText.includes(word)) {
-        score += 3;
+    for (const product of products) {
+      let score = 0;
+      const nameLower = (product.name || '').toLowerCase();
+      if (complaintText.includes(nameLower)) {
+        score += 10;
+      }
+      const nameWords = nameLower.split(/\s+/);
+      for (const word of nameWords) {
+        if (word.length >= 3 && complaintText.includes(word)) {
+          score += 3;
+        }
+      }
+      const categoryLower = (product.category || '').toLowerCase();
+      const categoryWords = categoryLower.split(/\s+/);
+      for (const word of categoryWords) {
+        if (word.length >= 3 && complaintText.includes(word)) {
+          score += 2;
+        }
+      }
+      if (score > bestScore) {
+        bestScore = score;
+        bestProduct = product;
       }
     }
-    const categoryLower = product.category.toLowerCase();
-    const categoryWords = categoryLower.split(/\s+/);
-    for (const word of categoryWords) {
-      if (word.length >= 3 && complaintText.includes(word)) {
-        score += 2;
-      }
-    }
-    if (score > bestScore) {
-      bestScore = score;
-      bestProduct = product;
-    }
+
+    return bestProduct || products[0] || null;
+  } catch {
+    return products[0] || null;
   }
-
-  return bestProduct || products[0] || null;
 }
 
 async function analyzeSaturation(
@@ -384,8 +531,14 @@ async function analyzeSaturation(
   products: { id: string; name: string; features: string; pricing: string; comments: string; category: string; upvotes: number; reviewScore: number; tagline: string; description: string }[],
   _effectiveCategory: string
 ): Promise<MarketSaturation[]> {
-  console.log(`[${MODULE_NAME}] analyzeSaturation: starting for ${products.length} products...`);
+  stageLog('SATURATION_LOCAL', 'START', `Computing local saturation metrics for ${products.length} products`);
   
+  // Guard: ensure products is a valid array
+  if (!Array.isArray(products) || products.length === 0) {
+    stageLog('SATURATION_LOCAL', 'ERROR', 'No products to analyze');
+    return [];
+  }
+
   // Group products by category
   const categoryGroups: Record<string, typeof products> = {};
   for (const product of products) {
@@ -393,39 +546,44 @@ async function analyzeSaturation(
     if (!categoryGroups[cat]) categoryGroups[cat] = [];
     categoryGroups[cat].push(product);
   }
+  stageLog('SATURATION_LOCAL', 'INFO', `Grouped into ${Object.keys(categoryGroups).length} categories: ${Object.keys(categoryGroups).join(', ')}`);
 
   const saturationResults: MarketSaturation[] = [];
 
   for (const [cat, catProducts] of Object.entries(categoryGroups)) {
     const productCount = catProducts.length;
+    stageLog('SATURATION_LOCAL', 'INFO', `Processing category "${cat}" with ${productCount} products`);
 
     // Feature overlap (computed locally, no LLM call needed)
     let featureOverlap = 0;
     try {
       const allFeatures = catProducts.map((p) => {
         try {
-          return JSON.parse(p.features || '[]') as string[];
+          const parsed = JSON.parse(p.features || '[]');
+          return Array.isArray(parsed) ? parsed : [];
         } catch {
           return [];
         }
       });
-      const totalFeatures = allFeatures.flat();
+      const totalFeatures = allFeatures.flat().filter((f): f is string => typeof f === 'string');
       const uniqueFeatures = new Set(totalFeatures.map((f) => f.toLowerCase()));
       featureOverlap =
-        uniqueFeatures.size > 0
+        uniqueFeatures.size > 0 && totalFeatures.length > 0
           ? Math.round(((totalFeatures.length - uniqueFeatures.size) / totalFeatures.length) * 100)
           : 0;
-    } catch {
+    } catch (err) {
+      stageLog('SATURATION_LOCAL', 'ERROR', `Feature overlap calculation failed: ${err instanceof Error ? err.message : String(err)}`);
       featureOverlap = 0;
     }
 
     // Pricing similarity (computed locally)
     let pricingSimilarity = 0;
     try {
-      const pricingModels = catProducts.map((p) => p.pricing);
+      const pricingModels = catProducts.map((p) => p.pricing || '');
       const freeCount = pricingModels.filter((p) => p === 'Free' || p === 'Freemium').length;
       pricingSimilarity = Math.round((freeCount / Math.max(productCount, 1)) * 100);
-    } catch {
+    } catch (err) {
+      stageLog('SATURATION_LOCAL', 'ERROR', `Pricing similarity calculation failed: ${err instanceof Error ? err.message : String(err)}`);
       pricingSimilarity = 0;
     }
 
@@ -433,12 +591,18 @@ async function analyzeSaturation(
     let userComplaints = 0;
     try {
       for (const product of catProducts) {
-        const comments = JSON.parse(product.comments || '[]') as string[];
-        userComplaints += comments.filter((c: string) =>
-          /bad|poor|expensive|slow|missing|lacking|terrible|awful|frustrating|annoying/i.test(c)
-        ).length;
+        try {
+          const parsed = JSON.parse(product.comments || '[]');
+          const comments = Array.isArray(parsed) ? parsed : [];
+          userComplaints += comments.filter((c: unknown) =>
+            typeof c === 'string' && /bad|poor|expensive|slow|missing|lacking|terrible|awful|frustrating|annoying/i.test(c)
+          ).length;
+        } catch {
+          // Skip this product's comments
+        }
       }
-    } catch {
+    } catch (err) {
+      stageLog('SATURATION_LOCAL', 'ERROR', `User complaints calculation failed: ${err instanceof Error ? err.message : String(err)}`);
       userComplaints = 0;
     }
 
@@ -458,10 +622,12 @@ async function analyzeSaturation(
     const score = Math.max(0, Math.min(100, rawScore));
     const level = score < 33 ? 'low' : score < 66 ? 'medium' : 'high';
 
-    // Generate competitor breakdown using LLM (with timeout + retry)
+    stageLog('SATURATION_LOCAL', 'END', `Category "${cat}": score=${score}, level=${level}`);
+
+    // ═══ LLM: Generate competitor breakdown ═══
     let topCompetitors: ProductReference[] = [];
     try {
-      console.log(`[${MODULE_NAME}] analyzeSaturation: calling LLM for top competitors in "${cat}"...`);
+      stageLog('SATURATION_LLM_COMPETITORS', 'START', `Calling LLM for top competitors in "${cat}"`);
       topCompetitors = await retryWithBackoff(
         () => withTimeout(
           () => generateStructuredResponse<ProductReference[]>(
@@ -488,19 +654,22 @@ For each competitor, provide:
         MODULE_NAME
       );
       if (!Array.isArray(topCompetitors)) topCompetitors = [];
-      console.log(`[${MODULE_NAME}] analyzeSaturation: got ${topCompetitors.length} top competitors`);
+      stageLog('SATURATION_LLM_COMPETITORS', 'END', `Got ${topCompetitors.length} top competitors`);
     } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      stageLog('SATURATION_LLM_COMPETITORS', 'ERROR', `Failed: ${msg}`);
       logError(MODULE_NAME, err, { step: 'saturation-topCompetitors', category: cat });
       topCompetitors = [];
     }
 
     // Delay between LLM calls to avoid rate limits
+    stageLog('DELAY', 'INFO', `Waiting ${INTER_CALL_DELAY_MS}ms before next LLM call...`);
     await new Promise((r) => setTimeout(r, INTER_CALL_DELAY_MS));
 
-    // Generate sub-niches using LLM (with timeout + retry)
+    // ═══ LLM: Generate sub-niches ═══
     let subNiches: SubNiche[] = [];
     try {
-      console.log(`[${MODULE_NAME}] analyzeSaturation: calling LLM for sub-niches in "${cat}"...`);
+      stageLog('SATURATION_LLM_SUBNICHES', 'START', `Calling LLM for sub-niches in "${cat}"`);
       subNiches = await retryWithBackoff(
         () => withTimeout(
           () => generateStructuredResponse<SubNiche[]>(
@@ -515,7 +684,7 @@ For each sub-niche:
 - description: What this sub-niche encompasses and why existing products don't serve it well
 - parentCategory: "${cat}"
 - opportunityScore: 0-100 score. Justify with data.`,
-            `Products in category "${cat}" (${catProducts.length} total):\n${JSON.stringify(catProducts.map(p => ({ name: p.name, pricing: p.pricing, tagline: p.tagline, description: p.description.substring(0, 200) })), null, 2)}`,
+            `Products in category "${cat}" (${catProducts.length} total):\n${JSON.stringify(catProducts.map(p => ({ name: p.name, pricing: p.pricing, tagline: p.tagline, description: (p.description || '').substring(0, 200) })), null, 2)}`,
             `Return a JSON array of objects with fields: name (string), description (string), parentCategory (string), opportunityScore (number)`
           ),
           LLM_TIMEOUT_MS,
@@ -525,28 +694,38 @@ For each sub-niche:
         MODULE_NAME
       );
       if (!Array.isArray(subNiches)) subNiches = [];
-      console.log(`[${MODULE_NAME}] analyzeSaturation: got ${subNiches.length} sub-niches`);
+      stageLog('SATURATION_LLM_SUBNICHES', 'END', `Got ${subNiches.length} sub-niches`);
     } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      stageLog('SATURATION_LLM_SUBNICHES', 'ERROR', `Failed: ${msg}`);
       logError(MODULE_NAME, err, { step: 'saturation-subNiches', category: cat });
       subNiches = [];
     }
 
-    saturationResults.push({
-      category: cat,
-      score,
-      level: level as 'low' | 'medium' | 'high',
-      factors: {
-        similarProducts: productCount,
-        featureOverlap,
-        launchFrequency,
-        userComplaints,
-        pricingSimilarity,
-      },
-      topCompetitors,
-      subNiches,
-    });
+    // ═══ Build saturation result for this category ═══
+    try {
+      saturationResults.push({
+        category: cat,
+        score,
+        level: level as 'low' | 'medium' | 'high',
+        factors: {
+          similarProducts: productCount,
+          featureOverlap,
+          launchFrequency,
+          userComplaints,
+          pricingSimilarity,
+        },
+        topCompetitors,
+        subNiches,
+      });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      stageLog('SATURATION_BUILD', 'ERROR', `Failed to build saturation result for "${cat}": ${msg}`);
+      logError(MODULE_NAME, err, { step: 'saturationResults.push', category: cat });
+    }
   }
 
+  stageLog('SATURATION', 'END', `Returning ${saturationResults.length} saturation results`);
   return saturationResults;
 }
 
@@ -555,12 +734,14 @@ async function analyzeComplaints(
   products: { id: string; name: string; category: string; comments: string }[],
   _effectiveCategory: string
 ): Promise<{ complaints: ComplaintAnalysis[]; clusters: ComplaintCluster[] }> {
-  console.log(`[${MODULE_NAME}] analyzeComplaints: calling LLM for complaint extraction...`);
+  stageLog('COMPLAINTS_LLM', 'START', 'Calling LLM for complaint extraction');
   
-  const complaints = await retryWithBackoff(
-    () => withTimeout(
-      () => generateStructuredResponse<ComplaintAnalysis[]>(
-        `You are a rigorous product review analyst. Analyze the product data below and extract common complaints.
+  let complaints: unknown;
+  try {
+    complaints = await retryWithBackoff(
+      () => withTimeout(
+        () => generateStructuredResponse<ComplaintAnalysis[]>(
+          `You are a rigorous product review analyst. Analyze the product data below and extract common complaints.
 
 RULES FOR SPECIFIC OUTPUT:
 1. Each complaint text must be SPECIFIC and cite real details from the data.
@@ -575,30 +756,38 @@ For each complaint, provide:
 - frequency: How many distinct users/comments express this complaint (1-10 scale)
 
 Extract 3-10 distinct complaints.`,
-        `Analyze these products for common complaints:\n\n${productsContext}`,
-        `Return a JSON array of objects with fields: text (string), category (string), sentiment (string), frequency (number)`
+          `Analyze these products for common complaints:\n\n${productsContext}`,
+          `Return a JSON array of objects with fields: text (string), category (string), sentiment (string), frequency (number)`
+        ),
+        LLM_TIMEOUT_MS,
+        MODULE_NAME
       ),
-      LLM_TIMEOUT_MS,
+      { maxRetries: MAX_RETRIES },
       MODULE_NAME
-    ),
-    { maxRetries: MAX_RETRIES },
-    MODULE_NAME
-  );
+    );
+    stageLog('COMPLAINTS_LLM', 'END', 'LLM complaint extraction completed');
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    stageLog('COMPLAINTS_LLM', 'ERROR', `LLM complaint extraction failed: ${msg}`);
+    throw err; // Re-throw to be caught by caller's try/catch
+  }
 
   const safeComplaints = Array.isArray(complaints) ? complaints : [];
-  console.log(`[${MODULE_NAME}] analyzeComplaints: extracted ${safeComplaints.length} complaints`);
+  stageLog('COMPLAINTS_PARSE', 'INFO', `Extracted ${safeComplaints.length} complaints`);
 
+  // ═══ LLM: Generate complaint clusters ═══
   // Delay before next LLM call to avoid rate limits
+  stageLog('DELAY', 'INFO', `Waiting ${INTER_CALL_DELAY_MS}ms before next LLM call...`);
   await new Promise((r) => setTimeout(r, INTER_CALL_DELAY_MS));
 
-  // Generate complaint clusters (with timeout + retry)
   let clusters: ComplaintCluster[] = [];
-  try {
-    console.log(`[${MODULE_NAME}] analyzeComplaints: calling LLM for complaint clustering...`);
-    clusters = await retryWithBackoff(
-      () => withTimeout(
-        () => generateStructuredResponse<ComplaintCluster[]>(
-          `You are a data analyst specializing in complaint clustering. Group the following complaints into clusters by theme.
+  if (safeComplaints.length > 0) {
+    try {
+      stageLog('COMPLAINTS_LLM_CLUSTERS', 'START', 'Calling LLM for complaint clustering');
+      clusters = await retryWithBackoff(
+        () => withTimeout(
+          () => generateStructuredResponse<ComplaintCluster[]>(
+            `You are a data analyst specializing in complaint clustering. Group the following complaints into clusters by theme.
 
 RULES:
 1. Each cluster's "percentage" must represent what share of total complaints fall in this cluster.
@@ -613,23 +802,30 @@ For each cluster, provide:
 - percentage: What % of total complaints this cluster represents
 - count: Number of complaints in this cluster
 - exampleSnippets: 1-2 ACTUAL QUOTED snippets from the complaint text`,
-          `Complaints to cluster (${safeComplaints.length} total):\n${safeComplaints.map(c => `[${c.category}] "${c.text}" (frequency: ${c.frequency})`).join('\n')}`,
-          `Return a JSON array of objects with fields: category (string), label (string), percentage (number), count (number), exampleSnippets (string[])`
+            `Complaints to cluster (${safeComplaints.length} total):\n${safeComplaints.map(c => `[${c?.category || 'unknown'}] "${c?.text || ''}" (frequency: ${c?.frequency || 0})`).join('\n')}`,
+            `Return a JSON array of objects with fields: category (string), label (string), percentage (number), count (number), exampleSnippets (string[])`
+          ),
+          LLM_TIMEOUT_MS,
+          MODULE_NAME
         ),
-        LLM_TIMEOUT_MS,
+        { maxRetries: MAX_RETRIES },
         MODULE_NAME
-      ),
-      { maxRetries: MAX_RETRIES },
-      MODULE_NAME
-    );
-    if (!Array.isArray(clusters)) clusters = [];
-    console.log(`[${MODULE_NAME}] analyzeComplaints: got ${clusters.length} clusters`);
-  } catch (err) {
-    logError(MODULE_NAME, err, { step: 'complaintClusters' });
-    clusters = [];
+      );
+      if (!Array.isArray(clusters)) clusters = [];
+      stageLog('COMPLAINTS_LLM_CLUSTERS', 'END', `Got ${clusters.length} clusters`);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      stageLog('COMPLAINTS_LLM_CLUSTERS', 'ERROR', `Clustering failed: ${msg}`);
+      logError(MODULE_NAME, err, { step: 'complaintClusters' });
+      clusters = [];
+    }
+  } else {
+    stageLog('COMPLAINTS_LLM_CLUSTERS', 'INFO', 'Skipping clustering — no complaints extracted');
   }
 
-  // Save complaints to the database — mapped to the most relevant product
+  // ═══ Save complaints to the database ═══
+  stageLog('COMPLAINTS_SAVE', 'START', `Saving ${safeComplaints.length} complaints to database`);
+  let savedCount = 0;
   for (const complaint of safeComplaints) {
     try {
       const targetProduct = findRelevantProductForComplaint(complaint, products);
@@ -637,17 +833,43 @@ For each cluster, provide:
         await db.complaint.create({
           data: {
             productId: targetProduct.id,
-            text: complaint.text || '',
-            category: complaint.category || 'performance',
-            sentiment: complaint.sentiment || 'negative',
-            frequency: complaint.frequency || 1,
+            text: complaint?.text || '',
+            category: complaint?.category || 'performance',
+            sentiment: complaint?.sentiment || 'negative',
+            frequency: complaint?.frequency || 1,
           },
         });
+        savedCount++;
       }
     } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      stageLog('COMPLAINTS_SAVE', 'ERROR', `Failed to save complaint: ${msg}`);
       logError(MODULE_NAME, err, { step: 'saveComplaint' });
     }
   }
+  stageLog('COMPLAINTS_SAVE', 'END', `Saved ${savedCount}/${safeComplaints.length} complaints to database`);
 
   return { complaints: safeComplaints, clusters };
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// SAFE JSON STRINGIFY — never throws, handles BigInt and circular refs
+// ═══════════════════════════════════════════════════════════════════
+
+function safeStringify(value: unknown): string {
+  if (value === null || value === undefined) return '{}';
+  if (typeof value === 'string') {
+    // Already a string — verify it's valid JSON, or wrap it
+    try {
+      JSON.parse(value);
+      return value;
+    } catch {
+      return JSON.stringify({ value });
+    }
+  }
+  try {
+    return JSON.stringify(value, (_, v) => typeof v === 'bigint' ? v.toString() : v);
+  } catch {
+    return '{}';
+  }
 }
