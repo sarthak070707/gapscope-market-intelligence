@@ -41,7 +41,7 @@ interface CategoryConfig {
   bgTint: string
 }
 
-const CATEGORY_CONFIG: Record<ErrorCategory, CategoryConfig> = {
+const CATEGORY_CONFIG: Record<ErrorCategory | 'unknown', CategoryConfig> = {
   api: {
     label: 'API Error',
     badgeClass:
@@ -160,7 +160,7 @@ export function ModuleErrorState({
 }: ModuleErrorStateProps) {
   const [debugOpen, setDebugOpen] = useState(false)
 
-  const config = CATEGORY_CONFIG[error.category] ?? CATEGORY_CONFIG.unknown
+  const config = CATEGORY_CONFIG[error.category as keyof typeof CATEGORY_CONFIG] ?? CATEGORY_CONFIG.unknown
   const Icon = error.category === 'timeout' ? AlertCircle : AlertTriangle
 
   // ── Compact mode ────────────────────────────────────────────────

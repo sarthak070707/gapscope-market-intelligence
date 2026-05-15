@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db, checkDatabaseConnection } from '@/lib/db';
 import { webSearch, generateStructuredResponse } from '@/lib/zai';
-import { retryWithBackoff, withTimeout, logError, classifyError, withErrorHandler } from '@/lib/error-handler';
+import { retryWithBackoff, withTimeout, logError, classifyError, withErrorHandler, logStageError, logStageStart, logStageEnd } from '@/lib/error-handler';
 import { safeJsonParse } from '@/lib/json';
 import type { TrendData, CompetitorComparison, SubNiche, UnderservedUserGroup } from '@/types';
 
@@ -10,6 +10,7 @@ const WEBSEARCH_TIMEOUT_MS = 30_000;
 const MAX_RETRIES = 2;
 const INTER_CALL_DELAY_MS = 2000;
 const MODULE_NAME = 'Trend Detection';
+const CURRENT_YEAR = new Date().getFullYear();
 
 /**
  * GET /api/trends
@@ -19,6 +20,7 @@ export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
     const category = searchParams.get('category');
+    console.log(`[${MODULE_NAME}] GET request received, category: ${category || 'all'}`);
 
     const where: Record<string, unknown> = {};
     if (category && category !== 'all') {
@@ -40,6 +42,7 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json(parsed);
   } catch (error) {
+    logStageError(MODULE_NAME, 'GET_HANDLER', error);
     logError(MODULE_NAME, error, { endpoint: '/api/trends', method: 'GET' });
     const moduleError = classifyError(error, MODULE_NAME, '/api/trends');
     return NextResponse.json(
@@ -141,6 +144,7 @@ export const POST = withErrorHandler(MODULE_NAME, '/api/trends', async (request:
       );
     }
   } catch (error) {
+    logStageError(MODULE_NAME, 'POST_HANDLER', error);
     logError(MODULE_NAME, error, { endpoint: '/api/trends', method: 'POST' });
     const moduleError = classifyError(error, MODULE_NAME, '/api/trends', {
       category: body?.category ? String(body.category) : undefined,
@@ -172,18 +176,25 @@ async function handleDetectTrends(effectiveCategory: string, originalCategory: s
   
   // Search for trending products and categories on Product Hunt (sequential fallback)
   const searchQueries = [
-    `Product Hunt ${effectiveCategory} trends last 30 days`,
-    `AI tools Product Hunt launches 2025`,
+    `Product Hunt ${effectiveCategory} trending products this month`,
+    `latest ${effectiveCategory} Product Hunt launches`,
     `site:producthunt.com/posts ${effectiveCategory}`,
-    `site:producthunt.com/products artificial intelligence ${effectiveCategory}`,
-    `${effectiveCategory} market trends growth 2025`,
-    `product hunt ${effectiveCategory} trending products`,
+    `site:producthunt.com/products ${effectiveCategory} artificial intelligence`,
+    `${effectiveCategory} market trends growth latest`,
+    `recent ${effectiveCategory} startups Product Hunt this week`,
+    `trending ${effectiveCategory} tools Product Hunt ${CURRENT_YEAR}`,
+    `new ${effectiveCategory} products launched this month`,
+    `Product Hunt ${effectiveCategory} top launches recently`,
+    `${effectiveCategory} industry trend analysis latest`,
   ];
 
+  console.log(`[${MODULE_NAME}] [SEARCH QUERIES]`, searchQueries);
   console.log(`[${MODULE_NAME}] Starting sequential search with ${searchQueries.length} queries...`);
 
   let allResults: Record<string, unknown>[] = [];
   const seenUrls = new Set<string>();
+
+  logStageStart(MODULE_NAME, 'WEB_SEARCH', `Searching with ${searchQueries.length} queries`);
 
   for (let i = 0; i < searchQueries.length; i++) {
     const query = searchQueries[i];
@@ -198,6 +209,11 @@ async function handleDetectTrends(effectiveCategory: string, originalCategory: s
         logError(MODULE_NAME, err, { step: 'webSearch', query, attempt: i + 1 });
         return [];
       });
+
+      if (!results || !Array.isArray(results)) {
+        console.warn(`[${MODULE_NAME}] webSearch returned non-array for query "${query}": ${typeof results}`);
+        continue;
+      }
 
       const searchResults = Array.isArray(results) ? results : [];
 
@@ -220,9 +236,10 @@ async function handleDetectTrends(effectiveCategory: string, originalCategory: s
         await new Promise((r) => setTimeout(r, 1000));
       }
     } catch (err) {
-      logError(MODULE_NAME, err, { step: 'webSearch', query, attempt: i + 1 });
+      logStageError(MODULE_NAME, 'WEB_SEARCH', err, { query, attempt: i + 1 });
     }
   }
+  logStageEnd(MODULE_NAME, 'WEB_SEARCH', `Found ${allResults.length} results`);
   console.log(`[${MODULE_NAME}] Web search returned ${allResults.length} results`);
 
   const searchContext = allResults
@@ -267,6 +284,7 @@ async function handleDetectTrends(effectiveCategory: string, originalCategory: s
     .join('\n');
 
   // Use LLM to detect trends from search results (with timeout + retry)
+  logStageStart(MODULE_NAME, 'LLM_TRENDS', `Calling LLM for trend detection`);
   console.log(`[${MODULE_NAME}] Calling LLM for trend detection (${searchContext.length} chars search, ${existingProducts.length} products)...`);
   const trends = await retryWithBackoff(
     () => withTimeout(
@@ -309,6 +327,7 @@ Identify 2-5 significant trends.`,
   );
 
   const safeTrends = Array.isArray(trends) ? trends : [];
+  logStageEnd(MODULE_NAME, 'LLM_TRENDS', `LLM returned ${safeTrends.length} trends`);
   console.log(`[${MODULE_NAME}] LLM returned ${safeTrends.length} trends`);
 
   // If LLM returned 0 trends from valid search results, that's an AI extraction failure
@@ -334,6 +353,7 @@ Identify 2-5 significant trends.`,
   }
 
   // Save detected trends to the database
+  logStageStart(MODULE_NAME, 'SAVE_TRENDS', `Saving ${safeTrends.length} trends to database`);
   console.log(`[${MODULE_NAME}] Saving ${safeTrends.length} trends to database...`);
   const savedTrends: TrendData[] = [];
   for (const trend of safeTrends) {
@@ -356,10 +376,12 @@ Identify 2-5 significant trends.`,
         id: created.id,
       });
     } catch (err) {
+      logStageError(MODULE_NAME, 'SAVE_TREND', err, { trendName: trend.name });
       logError(MODULE_NAME, err, { step: 'saveTrend', trendName: trend.name });
     }
   }
 
+  logStageEnd(MODULE_NAME, 'SAVE_TRENDS', `Saved ${savedTrends.length} trends`);
   console.log(`[${MODULE_NAME}] Trend detection complete: ${savedTrends.length} trends saved`);
   return NextResponse.json(savedTrends);
 }
@@ -374,25 +396,30 @@ async function handleCompareProducts(body: Record<string, unknown>, effectiveCat
   console.log(`[${MODULE_NAME}] handleCompareProducts: starting for "${effectiveCategory}"...`);
 
   let products;
-  if (productIds && Array.isArray(productIds) && productIds.length >= 2) {
-    const areIds = productIds.every((id) => id.length > 10);
-    if (areIds) {
-      products = await db.product.findMany({
-        where: { id: { in: productIds } },
-        include: { gaps: true, complaints: true },
-      });
+  try {
+    if (productIds && Array.isArray(productIds) && productIds.length >= 2) {
+      const areIds = productIds.every((id) => id.length > 10);
+      if (areIds) {
+        products = await db.product.findMany({
+          where: { id: { in: productIds } },
+          include: { gaps: true, complaints: true },
+        });
+      } else {
+        products = await db.product.findMany({
+          where: { name: { in: productIds } },
+          include: { gaps: true, complaints: true },
+        });
+      }
     } else {
       products = await db.product.findMany({
-        where: { name: { in: productIds } },
+        where: originalCategory === 'all' ? {} : { category: originalCategory },
+        take: 5,
         include: { gaps: true, complaints: true },
       });
     }
-  } else {
-    products = await db.product.findMany({
-      where: originalCategory === 'all' ? {} : { category: originalCategory },
-      take: 5,
-      include: { gaps: true, complaints: true },
-    });
+  } catch (error) {
+    logStageError(MODULE_NAME, 'COMPARE_PRODUCTS', error);
+    throw error;
   }
 
   if (products.length < 2) {

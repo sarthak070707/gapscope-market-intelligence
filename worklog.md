@@ -235,3 +235,197 @@ Stage Summary:
 - All backend fixes confirmed: scan (6-query fallback), trends (6-query fallback), opportunities (cooldown+cache), analyze (soft-fail+classifyError never returns unknown)
 - classifyError never returns 'unknown' — falls back to 'api' category
 - All 4 API endpoints now return specific structured errors with no unknown category
+---
+Task ID: 2
+Agent: full-stack-developer
+Task: Fix /api/scan route - stage-level logging, multi-query fallback, remove hardcoded years
+
+Work Log:
+- Added CURRENT_YEAR dynamic year constant (`new Date().getFullYear()`)
+- Updated import line to include `logStageError`, `logStageStart`, `logStageEnd` from `@/lib/error-handler`
+- Replaced 6 search queries with 10 diverse freshness-focused queries using keywords like "latest", "recent", "trending", "this month", "this week", and dynamic `CURRENT_YEAR`
+- Added `[SEARCH QUERIES]` logging before search execution
+- Added safe response validation for webSearch results: checks `!results || !Array.isArray(results)` before processing, warns and continues to next query if invalid
+- Changed `.catch(() => [])` to `.catch(() => null)` so the non-array validation can distinguish between null and empty array
+- Added `logStageError` to every catch block:
+  - `READ_PAGE` in readSinglePage inner function catch
+  - `WEB_SEARCH` in search loop catch
+  - `SAVE_PRODUCT` in product save loop catch
+  - `EXECUTE_SCAN` in inner try/catch
+  - `HANDLER` in outer try/catch
+- Replaced `Promise.all` with `Promise.allSettled` for page reading batch, mapping rejected promises to null
+- Replaced hardcoded `"2025"` in LLM prompt with `"${CURRENT_YEAR}"`
+- Replaced hardcoded `'2025'` in `db.product.create` with `String(CURRENT_YEAR)`
+- Added `logStageStart`/`logStageEnd` stage markers around all 4 major operations:
+  - `WEB_SEARCH` (Step 1)
+  - `READ_PAGES` (Step 2)
+  - `LLM_EXTRACT` (Step 3)
+  - `SAVE_PRODUCTS` (Step 4)
+- Lint passed cleanly with no errors
+
+Stage Summary:
+- /api/scan/route.ts updated with comprehensive stage-level error logging
+- No more hardcoded years - all use CURRENT_YEAR or freshness keywords
+- Search queries now have 10 diverse options with freshness focus (was 6 with hardcoded "2025")
+- All catch blocks log full stack traces via logStageError
+- Promise.allSettled prevents one failed page read from killing the entire batch
+- Stage markers (▶/✔) provide clear execution flow tracing in logs
+---
+Task ID: 3
+Agent: full-stack-developer
+Task: Fix /api/trends route - stage-level logging, multi-query fallback, remove hardcoded years
+
+Work Log:
+- Added CURRENT_YEAR dynamic year constant
+- Replaced all hardcoded "2025" references with freshness keywords + dynamic year
+- Updated search queries with 10 diverse queries using freshness keywords
+- Added [SEARCH QUERIES] logging before execution
+- Added logStageError to every catch block with stack traces
+- Added logStageStart/logStageEnd stage markers around major operations
+- Added safe response validation for webSearch results
+
+Stage Summary:
+- /api/trends/route.ts updated with comprehensive stage-level error logging
+- No more hardcoded years - all use CURRENT_YEAR or freshness keywords
+- Search queries now have 10 diverse options with freshness focus
+- All catch blocks log full stack traces via logStageError
+---
+Task ID: 4
+Agent: full-stack-developer
+Task: Fix /api/opportunities route - stage-level logging with stack traces, rate-limit protection
+
+Work Log:
+- Updated import line to include `logStageError`, `logStageStart`, `logStageEnd` from `@/lib/error-handler`
+- Added `logStageError` to every catch block with full stack traces:
+  - GET_HANDLER catch
+  - POST_HANDLER catch (with context: effectiveCategory, timePeriod)
+  - PATCH_HANDLER catch
+  - DELETE_HANDLER catch
+  - SAVE_OPPORTUNITY loop catch (with context: opportunityTitle)
+- Added `logStageStart`/`logStageEnd` stage markers around 3 major operations:
+  - DB_PRODUCTS (fetching products with gaps and complaints)
+  - LLM_OPPORTUNITIES (calling LLM to generate opportunities)
+  - SAVE_OPPORTUNITIES (saving opportunities to database)
+- Added safe response validation for LLM results: checks `!opportunities || !Array.isArray(opportunities)` and logs via `logStageError(MODULE_NAME, 'LLM_PARSE', ...)`
+- Added effectiveCategory logging to GET handler when category filter is used
+- Improved rate-limit detection in POST_HANDLER catch: added `'too many'`, `'slow down'`, `'throttl'` patterns (was only `'429'` and `'rate limit'`)
+- Added `originalStack` to debug response objects in ALL error responses (GET, POST, PATCH, DELETE): `error.stack?.split('\n').slice(0, 5).join(' | ')`
+- Verified no hardcoded years remain (searched for "2025" — none found)
+- Lint passed cleanly with no errors
+
+Stage Summary:
+- /api/opportunities/route.ts updated with comprehensive stage-level error logging
+- All catch blocks log full stack traces via logStageError
+- Rate-limit protection already solid, just improved detection patterns (429, rate limit, too many, slow down, throttl)
+- Debug responses now include original stack traces (first 5 lines)
+- LLM non-array responses now detected and logged as LLM_PARSE errors
+- Stage markers (▶/✔) provide clear execution flow tracing in logs for DB_PRODUCTS, LLM_OPPORTUNITIES, SAVE_OPPORTUNITIES
+---
+Task ID: 5
+Agent: full-stack-developer
+Task: Fix /api/analyze route - eliminate unknown errors, full stage-level logging with stack traces
+
+Work Log:
+- Added logStageError to EVERY catch block with full stack traces:
+  - MAIN_HANDLER catch (with category context)
+  - DB_HEALTH_CHECK catch
+  - DB_PRODUCT_QUERY catch (with whereClause context)
+  - DB_FALLBACK_QUERY catch
+  - PREPARE_SUMMARIES catch
+  - SERIALIZE_CONTEXT catch
+  - GAPS_ANALYSIS catch (with category context)
+  - SATURATION_ANALYSIS catch (with category context)
+  - COMPLAINTS_ANALYSIS catch (with category context)
+  - GAPS_LLM_CALL catch
+  - GAPS_DB_SAVE catch (with gapTitle context)
+  - SATURATION_OUTER catch
+  - SATURATION_COMPETITORS_LLM catch (with category: cat context)
+  - SATURATION_SUBNICHES_LLM catch (with category: cat context)
+  - SATURATION_BUILD catch (with category: cat context)
+  - COMPLAINTS_LLM catch
+  - COMPLAINTS_CLUSTERS_LLM catch
+  - COMPLAINTS_DB_SAVE catch (with complaintText context)
+- Added logStageStart/logStageEnd stage markers around FULL_ANALYSIS operation
+- Added safe response validation for all LLM results:
+  - GAPS_PARSE: checks if gaps is non-array, logs error
+  - COMPLAINTS_PARSE: checks if complaints is non-array, logs error
+  - COMPETITORS_PARSE: checks if topCompetitors is non-array, logs error, defaults to []
+  - SUBNICHES_PARSE: checks if subNiches is non-array, logs error, defaults to []
+- Added originalStack to debug response in main handler catch (first 5 lines of stack trace)
+- Added CURRENT_YEAR constant (new Date().getFullYear())
+- Logged effectiveCategory at every stage marker (all stageLog calls now include { effectiveCategory })
+- Verified no hardcoded "2025" in file (grep confirmed: none found)
+- Verified no path returns "unknown" error category (classifyError updated in prior tasks, all catch blocks use classifyError)
+- Lint passed cleanly with no errors
+
+Stage Summary:
+- /api/analyze/route.ts updated with comprehensive stage-level error logging
+- Every catch block now logs full stack traces via logStageError
+- No more "unknown" error category possible
+- Debug responses include original stack traces for development
+- effectiveCategory logged at every stage for full traceability
+---
+Task ID: 2-6
+Agent: Main Agent + Subagents
+Task: Add FULL STAGE-LEVEL ERROR LOGGING with STACK TRACES to all 4 API routes, remove hardcoded years, improve search queries
+
+Work Log:
+- Updated error-handler.ts:
+  - Removed 'unknown' from ErrorCategory type — errors must always be classified
+  - Added logStageError() function that logs full stack traces with stage, message, stack, name, cause, raw error
+  - Added logStageStart() and logStageEnd() stage marker helpers
+  - Changed non-Error fallback from 'unknown' to 'api' category
+- Updated /api/scan/route.ts:
+  - Added CURRENT_YEAR constant (dynamic year generation)
+  - Replaced all hardcoded "2025" references with CURRENT_YEAR or freshness keywords
+  - Expanded search queries from 6 to 10 using freshness keywords (latest, recent, trending, this month, this week)
+  - Added [SEARCH QUERIES] logging before execution
+  - Added logStageError to all 5 catch blocks (WEB_SEARCH, READ_PAGE, SAVE_PRODUCT, EXECUTE_SCAN, HANDLER)
+  - Added logStageStart/logStageEnd around 4 major operations
+  - Added safe response validation for webSearch results
+  - Changed Promise.all to Promise.allSettled for page reading batch
+  - Replaced hardcoded "2025" in LLM prompt and DB create with CURRENT_YEAR
+- Updated /api/trends/route.ts:
+  - Added CURRENT_YEAR constant
+  - Replaced search queries with 10 freshness-focused options (removed hardcoded "2025")
+  - Added [SEARCH QUERIES] logging before execution
+  - Added logStageError to all 5 catch blocks
+  - Added logStageStart/logStageEnd around 3 major operations
+  - Added safe response validation for webSearch results
+  - Added effectiveCategory logging to GET handler
+- Updated /api/opportunities/route.ts:
+  - Added logStageError to all 5 catch blocks (GET, POST, PATCH, DELETE, SAVE_OPPORTUNITY)
+  - Added logStageStart/logStageEnd around 3 major operations
+  - Added safe response validation for LLM results
+  - Improved rate-limit detection patterns (added 'slow down', 'throttl')
+  - Added originalStack to all debug response objects
+  - Added effectiveCategory logging to GET handler
+- Updated /api/analyze/route.ts:
+  - Added CURRENT_YEAR constant
+  - Added logStageError to ALL 22 catch blocks across every stage:
+    MAIN_HANDLER, DB_HEALTH_CHECK, DB_PRODUCT_QUERY, DB_FALLBACK_QUERY,
+    PREPARE_SUMMARIES, SERIALIZE_CONTEXT, GAPS_ANALYSIS, SATURATION_ANALYSIS,
+    COMPLAINTS_ANALYSIS, GAPS_LLM_CALL, GAPS_PARSE, GAPS_DB_SAVE,
+    SATURATION_OUTER, SATURATION_COMPETITORS_LLM, COMPETITORS_PARSE,
+    SATURATION_SUBNICHES_LLM, SUBNICHES_PARSE, SATURATION_BUILD,
+    COMPLAINTS_LLM, COMPLAINTS_PARSE, COMPLAINTS_CLUSTERS_LLM, COMPLAINTS_DB_SAVE
+  - Added safe response validation for all LLM results (gaps, complaints, competitors, sub-niches)
+  - Added logStageStart/logStageEnd around FULL_ANALYSIS operation
+  - Added originalStack to debug response
+  - Logged effectiveCategory at every stage marker
+  - Verified no hardcoded "2025" remains
+  - Verified no path returns 'unknown' error category
+- Updated frontend module-error-state.tsx:
+  - Changed CATEGORY_CONFIG type to Record<ErrorCategory | 'unknown', CategoryConfig> to handle legacy/unknown categories
+  - Updated config lookup with safe keyof cast
+
+Stage Summary:
+- ALL 4 API routes now have comprehensive stage-level error logging with full stack traces
+- No more "Error Type: unknown" — classifyError never returns 'unknown' category
+- All hardcoded "2025" years replaced with CURRENT_YEAR or freshness keywords
+- Search queries now use 10 diverse freshness-focused options
+- Every catch block logs via logStageError with stack trace, stage name, and context
+- Safe response validation added before using all SDK/LLM results
+- Promise.allSettled used for page reading batch in scan route
+- Debug responses include original stack traces for development
+- Lint passes cleanly on all files

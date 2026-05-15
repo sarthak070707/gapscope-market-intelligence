@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db, checkDatabaseConnection } from '@/lib/db';
 import { generateStructuredResponse } from '@/lib/zai';
-import { retryWithBackoff, withTimeout, logError, classifyError, withErrorHandler, type ModuleError } from '@/lib/error-handler';
+import { retryWithBackoff, withTimeout, logError, classifyError, withErrorHandler, logStageError, logStageStart, logStageEnd, type ModuleError } from '@/lib/error-handler';
 import { safeJsonParse } from '@/lib/json';
 import type { OpportunitySuggestion } from '@/types';
 
@@ -82,6 +82,10 @@ export async function GET(request: NextRequest) {
     const savedOnly = searchParams.get('saved') === 'true';
     const category = searchParams.get('category');
 
+    if (category) {
+      console.log(`[${MODULE_NAME}] GET: Filtering by category: ${category}`);
+    }
+
     const where: Record<string, unknown> = {};
     if (savedOnly) {
       where.isSaved = true;
@@ -117,6 +121,7 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json(parsed);
   } catch (error) {
+    logStageError(MODULE_NAME, 'GET_HANDLER', error);
     logError(MODULE_NAME, error, { endpoint: '/api/opportunities', method: 'GET' });
     const moduleError = classifyError(error, MODULE_NAME, '/api/opportunities');
     return NextResponse.json(
@@ -125,6 +130,7 @@ export async function GET(request: NextRequest) {
         moduleError,
         debug: {
           originalError: error instanceof Error ? error.message : String(error),
+          originalStack: error instanceof Error ? error.stack?.split('\n').slice(0, 5).join(' | ') : undefined,
           errorCategory: moduleError.category,
         }
       },
@@ -249,7 +255,7 @@ export const POST_HANDLER = withErrorHandler(MODULE_NAME, '/api/opportunities', 
     // Fetch gaps and complaints from the database for this category
     const categoryFilter = category === 'all' ? {} : { category };
 
-    console.log(`[${MODULE_NAME}] Fetching products with gaps and complaints...`);
+    logStageStart(MODULE_NAME, 'DB_PRODUCTS', 'Fetching products with gaps and complaints');
     const products = await db.product.findMany({
       where: categoryFilter,
       include: {
@@ -260,7 +266,7 @@ export const POST_HANDLER = withErrorHandler(MODULE_NAME, '/api/opportunities', 
 
     const allGaps = products.flatMap((p) => p.gaps);
     const allComplaints = products.flatMap((p) => p.complaints);
-    console.log(`[${MODULE_NAME}] Found ${products.length} products, ${allGaps.length} gaps, ${allComplaints.length} complaints`);
+    logStageEnd(MODULE_NAME, 'DB_PRODUCTS', `Found ${products.length} products, ${allGaps.length} gaps, ${allComplaints.length} complaints`);
 
     if (allGaps.length === 0 && allComplaints.length === 0) {
       return NextResponse.json(
@@ -313,7 +319,7 @@ export const POST_HANDLER = withErrorHandler(MODULE_NAME, '/api/opportunities', 
       : '';
 
     // Generate opportunities using LLM with timeout + retry protection
-    console.log(`[${MODULE_NAME}] Calling LLM to generate opportunities (${allGaps.length} gaps, ${allComplaints.length} complaints, ${trends.length} trends)...`);
+    logStageStart(MODULE_NAME, 'LLM_OPPORTUNITIES', `Calling LLM to generate opportunities`);
     const llmStart = Date.now();
     const opportunities = await retryWithBackoff(
       () => withTimeout(
@@ -366,7 +372,14 @@ ${trendsContext || 'No trend data available'}`,
       { maxRetries: MAX_RETRIES },
       MODULE_NAME
     );
-    console.log(`[${MODULE_NAME}] LLM returned ${Array.isArray(opportunities) ? opportunities.length : 0} opportunities in ${Date.now() - llmStart}ms`);
+    logStageEnd(MODULE_NAME, 'LLM_OPPORTUNITIES', `LLM returned ${Array.isArray(opportunities) ? opportunities.length : 0} opportunities in ${Date.now() - llmStart}ms`);
+
+    if (!opportunities || !Array.isArray(opportunities)) {
+      logStageError(MODULE_NAME, 'LLM_PARSE', new Error(`LLM returned non-array: ${typeof opportunities}`), { 
+        opportunityType: typeof opportunities,
+        isNull: opportunities === null,
+      });
+    }
 
     const safeOpportunities = Array.isArray(opportunities) ? opportunities : [];
 
@@ -393,7 +406,7 @@ ${trendsContext || 'No trend data available'}`,
     }
 
     // Save generated opportunities to the database
-    console.log(`[${MODULE_NAME}] Saving ${safeOpportunities.length} opportunities to database...`);
+    logStageStart(MODULE_NAME, 'SAVE_OPPORTUNITIES', `Saving ${safeOpportunities.length} opportunities`);
     const savedOpportunities: OpportunitySuggestion[] = [];
     for (const opp of safeOpportunities) {
       try {
@@ -433,6 +446,7 @@ ${trendsContext || 'No trend data available'}`,
           updatedAt: created.updatedAt.toISOString(),
         });
       } catch (err) {
+        logStageError(MODULE_NAME, 'SAVE_OPPORTUNITY', err, { opportunityTitle: opp.title });
         logError(MODULE_NAME, err, { step: 'saveOpportunity', opportunityTitle: opp.title });
       }
     }
@@ -440,12 +454,13 @@ ${trendsContext || 'No trend data available'}`,
     // Cache successful results
     setCachedResult(effectiveCategory, String(timePeriod), savedOpportunities);
 
-    console.log(`[${MODULE_NAME}] Saved ${savedOpportunities.length} opportunities`);
+    logStageEnd(MODULE_NAME, 'SAVE_OPPORTUNITIES', `Saved ${savedOpportunities.length} opportunities`);
     return NextResponse.json(savedOpportunities);
   } catch (error) {
+    logStageError(MODULE_NAME, 'POST_HANDLER', error, { effectiveCategory, timePeriod: body?.timePeriod });
     // Set cooldown if this was a rate limit error
     const errMsg = error instanceof Error ? error.message.toLowerCase() : '';
-    if (errMsg.includes('429') || errMsg.includes('rate limit')) {
+    if (errMsg.includes('429') || errMsg.includes('rate limit') || errMsg.includes('too many') || errMsg.includes('slow down') || errMsg.includes('throttl')) {
       setCooldown(effectiveCategory, String(body?.timePeriod || '30d'));
       console.log(`[${MODULE_NAME}] Setting rate-limit cooldown for ${effectiveCategory}`);
     }
@@ -464,6 +479,7 @@ ${trendsContext || 'No trend data available'}`,
           receivedCategory: body?.category,
           receivedTimePeriod: body?.timePeriod,
           originalError: error instanceof Error ? error.message : String(error),
+          originalStack: error instanceof Error ? error.stack?.split('\n').slice(0, 5).join(' | ') : undefined,
           errorCategory: moduleError.category,
         }
       },
@@ -530,6 +546,7 @@ export async function PATCH(request: NextRequest) {
       marketQuadrant: safeJsonParse<Record<string, unknown>>(updated.marketQuadrant, {}),
     });
   } catch (error) {
+    logStageError(MODULE_NAME, 'PATCH_HANDLER', error);
     logError(MODULE_NAME, error, { endpoint: '/api/opportunities', method: 'PATCH' });
     const moduleError = classifyError(error, MODULE_NAME, '/api/opportunities');
     return NextResponse.json(
@@ -538,6 +555,7 @@ export async function PATCH(request: NextRequest) {
         moduleError,
         debug: {
           originalError: error instanceof Error ? error.message : String(error),
+          originalStack: error instanceof Error ? error.stack?.split('\n').slice(0, 5).join(' | ') : undefined,
           errorCategory: moduleError.category,
         }
       },
@@ -574,6 +592,7 @@ export async function DELETE(request: NextRequest) {
 
     return NextResponse.json({ success: true, deletedId: id });
   } catch (error) {
+    logStageError(MODULE_NAME, 'DELETE_HANDLER', error);
     logError(MODULE_NAME, error, { endpoint: '/api/opportunities', method: 'DELETE' });
     const moduleError = classifyError(error, MODULE_NAME, '/api/opportunities');
     return NextResponse.json(
@@ -582,6 +601,7 @@ export async function DELETE(request: NextRequest) {
         moduleError,
         debug: {
           originalError: error instanceof Error ? error.message : String(error),
+          originalStack: error instanceof Error ? error.stack?.split('\n').slice(0, 5).join(' | ') : undefined,
           errorCategory: moduleError.category,
         }
       },

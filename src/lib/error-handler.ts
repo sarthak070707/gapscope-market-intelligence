@@ -20,8 +20,8 @@ export type ErrorCategory =
   | 'database'     // Database operation failed
   | 'validation'   // Data validation failed
   | 'rate_limit'   // Rate limited by external API
-  | 'auth'         // Authentication/authorization failed
-  | 'unknown';     // Unclassified error
+  | 'auth';        // Authentication/authorization failed
+// NOTE: 'unknown' category removed — all errors MUST be classified as one of the above
 
 export interface RequestContext {
   category?: string;
@@ -477,13 +477,13 @@ export function classifyError(
     };
   }
 
-  // Non-Error thrown
+  // Non-Error thrown — classify as 'api' (never 'unknown')
   return {
     module,
     category: 'api',
-    message: `${module} encountered an unknown error`,
-    detail: String(error),
-    possibleReason: 'An unexpected non-Error value was thrown. Try again.',
+    message: `${module} encountered an unclassified error`,
+    detail: `Non-Error value thrown: ${String(error).substring(0, 500)}`,
+    possibleReason: 'An unexpected non-Error value was thrown. This is likely a bug in the error handling chain. Check the server logs for the full stack trace.',
     retryable: true,
     timestamp,
     endpoint,
@@ -652,6 +652,57 @@ export function logInfo(module: string, message: string, context?: LogContext): 
     ...context,
   };
   console.log(`[GapScope Info] ${module}:`, JSON.stringify(info));
+}
+
+// ─── Stage-Level Error Logger ────────────────────────────────────
+
+/**
+ * Logs a STAGE-LEVEL error with FULL STACK TRACE.
+ * This is the PRIMARY tool for debugging backend failures.
+ * Every catch block in every route should use this.
+ *
+ * Usage:
+ *   catch (error) {
+ *     logStageError('SCAN', 'webSearch', error);
+ *     throw error; // NEVER swallow the original error
+ *   }
+ */
+export function logStageError(
+  module: string,
+  stage: string,
+  error: unknown,
+  extra?: Record<string, unknown>
+): void {
+  const errorObj = error instanceof Error ? error : undefined;
+  console.error(`[STAGE ERROR] ${module} [${stage}]`, {
+    stage,
+    module,
+    message: errorObj?.message || String(error),
+    stack: errorObj?.stack || 'NO_STACK_AVAILABLE',
+    name: errorObj?.name || typeof error,
+    cause: errorObj?.cause || undefined,
+    raw: error,
+    ...extra,
+  });
+}
+
+/**
+ * Logs a stage START marker for tracing execution flow.
+ */
+export function logStageStart(module: string, stage: string, detail?: string): void {
+  console.log(`[${module}] ▶ [${stage}]${detail ? ` ${detail}` : ''}`);
+}
+
+/**
+ * Logs a stage END marker for tracing execution flow.
+ */
+export function logStageEnd(module: string, stage: string, detail?: string, data?: Record<string, unknown>): void {
+  const msg = `[${module}] ✔ [${stage}]${detail ? ` ${detail}` : ''}`;
+  if (data) {
+    console.log(msg, JSON.stringify(data));
+  } else {
+    console.log(msg);
+  }
 }
 
 // ─── Data Validation Helpers ─────────────────────────────────────

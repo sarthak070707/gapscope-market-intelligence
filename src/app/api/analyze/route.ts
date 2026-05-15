@@ -2,13 +2,14 @@ import { NextRequest, NextResponse } from 'next/server';
 import { db, checkDatabaseConnection } from '@/lib/db';
 import { generateStructuredResponse } from '@/lib/zai';
 import { safeJsonParse } from '@/lib/json';
-import { retryWithBackoff, withTimeout, logError, classifyError, withErrorHandler } from '@/lib/error-handler';
+import { retryWithBackoff, withTimeout, logError, classifyError, withErrorHandler, logStageError, logStageStart, logStageEnd } from '@/lib/error-handler';
 import type { GapAnalysis, MarketSaturation, ComplaintAnalysis, ComplaintCluster, SubNiche, ProductReference } from '@/types';
 
 const MODULE_NAME = 'Gap Analysis';
 const LLM_TIMEOUT_MS = 120_000;
 const MAX_RETRIES = 1; // Reduce from 2 to 1 to minimize rate limit impact
 const INTER_CALL_DELAY_MS = 4000; // 4s pause between LLM calls to avoid rate limits
+const CURRENT_YEAR = new Date().getFullYear();
 
 // ─── Stage Logger Helper ──────────────────────────────────────────
 // Creates a step-by-step log for each major stage with BEFORE/AFTER markers
@@ -57,15 +58,16 @@ export const POST = withErrorHandler(MODULE_NAME, '/api/analyze', async (request
 
     // Resolve 'all' to a specific default category for better LLM analysis
     const effectiveCategory = category === 'all' ? 'AI Tools' : category;
-    stageLog('REQUEST', 'INFO', `Effective category: ${effectiveCategory} (original: ${category})`);
+    stageLog('REQUEST', 'INFO', `Effective category: ${effectiveCategory} (original: ${category})`, { effectiveCategory });
 
     // ═══ STAGE 2: Database health check ═══
-    stageLog('DB_HEALTH', 'START', 'Checking database connection...');
+    stageLog('DB_HEALTH', 'START', 'Checking database connection...', { effectiveCategory });
     let dbHealth: { ok: boolean; error?: string; latencyMs?: number };
     try {
       dbHealth = await checkDatabaseConnection();
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
+      logStageError(MODULE_NAME, 'DB_HEALTH_CHECK', err);
       stageLog('DB_HEALTH', 'ERROR', `Exception during health check: ${msg}`);
       return NextResponse.json(
         {
@@ -98,7 +100,7 @@ export const POST = withErrorHandler(MODULE_NAME, '/api/analyze', async (request
         { status: 503 }
       );
     }
-    stageLog('DB_HEALTH', 'END', `Database OK (${dbHealth.latencyMs}ms)`);
+    stageLog('DB_HEALTH', 'END', `Database OK (${dbHealth.latencyMs}ms)`, { effectiveCategory });
 
     // ═══ STAGE 3: Query products from DB ═══
     const whereClause: Record<string, unknown> = category === 'all' ? {} : { category };
@@ -111,16 +113,17 @@ export const POST = withErrorHandler(MODULE_NAME, '/api/analyze', async (request
       whereClause.launchDate = { gte: cutoff.toISOString().split('T')[0] };
     }
 
-    stageLog('DB_QUERY', 'START', 'Querying products with filter', { whereClause });
+    stageLog('DB_QUERY', 'START', 'Querying products with filter', { whereClause, effectiveCategory });
     let products: Awaited<ReturnType<typeof db.product.findMany>> | null = null;
     try {
       products = await db.product.findMany({
         where: whereClause,
         include: { gaps: true, complaints: true },
       });
-      stageLog('DB_QUERY', 'END', `Found ${products?.length ?? 0} products with time filter`);
+      stageLog('DB_QUERY', 'END', `Found ${products?.length ?? 0} products with time filter`, { effectiveCategory });
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
+      logStageError(MODULE_NAME, 'DB_PRODUCT_QUERY', err, { whereClause });
       stageLog('DB_QUERY', 'ERROR', `Product query failed: ${msg}`);
       // Re-throw with better context for classifyError
       throw new Error(`Database query for products failed: ${msg}`);
@@ -129,15 +132,16 @@ export const POST = withErrorHandler(MODULE_NAME, '/api/analyze', async (request
     // If no products with time filter, fall back to all products in category
     let effectiveProducts = products;
     if (!products || products.length === 0) {
-      stageLog('DB_QUERY', 'INFO', 'No products with time filter, falling back to all products in category');
+      stageLog('DB_QUERY', 'INFO', 'No products with time filter, falling back to all products in category', { effectiveCategory });
       try {
         effectiveProducts = await db.product.findMany({
           where: category === 'all' ? {} : { category },
           include: { gaps: true, complaints: true },
         });
-        stageLog('DB_QUERY', 'END', `Found ${effectiveProducts?.length ?? 0} products without time filter`);
+        stageLog('DB_QUERY', 'END', `Found ${effectiveProducts?.length ?? 0} products without time filter`, { effectiveCategory });
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
+        logStageError(MODULE_NAME, 'DB_FALLBACK_QUERY', err);
         stageLog('DB_QUERY', 'ERROR', `Fallback product query failed: ${msg}`);
         throw new Error(`Database fallback query for products failed: ${msg}`);
       }
@@ -145,12 +149,12 @@ export const POST = withErrorHandler(MODULE_NAME, '/api/analyze', async (request
 
     // Guard against null/undefined effectiveProducts
     if (!effectiveProducts || !Array.isArray(effectiveProducts)) {
-      stageLog('DB_QUERY', 'ERROR', 'effectiveProducts is null or not an array');
+      stageLog('DB_QUERY', 'ERROR', 'effectiveProducts is null or not an array', { effectiveCategory });
       throw new Error('Database returned invalid product data (null or non-array). This may indicate a schema mismatch or database corruption.');
     }
 
     if (effectiveProducts.length === 0) {
-      stageLog('DB_QUERY', 'ERROR', 'No products found for this category');
+      stageLog('DB_QUERY', 'ERROR', 'No products found for this category', { effectiveCategory });
       return NextResponse.json(
         {
           error: 'No products found for this category. Run a scan first to populate the database.',
@@ -171,7 +175,7 @@ export const POST = withErrorHandler(MODULE_NAME, '/api/analyze', async (request
     }
 
     // ═══ STAGE 4: Prepare product summaries ═══
-    stageLog('PREPARE', 'START', `Preparing product summaries from ${effectiveProducts.length} products`);
+    stageLog('PREPARE', 'START', `Preparing product summaries from ${effectiveProducts.length} products`, { effectiveCategory });
     let productSummaries: Array<{
       id: string; name: string; tagline: string; description: string;
       features: string[]; pricing: string; upvotes: number; reviewScore: number;
@@ -190,9 +194,10 @@ export const POST = withErrorHandler(MODULE_NAME, '/api/analyze', async (request
         comments: safeJsonParse<string[]>(p.comments, []),
         category: p.category || '',
       }));
-      stageLog('PREPARE', 'END', `Prepared ${productSummaries.length} product summaries`);
+      stageLog('PREPARE', 'END', `Prepared ${productSummaries.length} product summaries`, { effectiveCategory });
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
+      logStageError(MODULE_NAME, 'PREPARE_SUMMARIES', err);
       stageLog('PREPARE', 'ERROR', `Failed to prepare product summaries: ${msg}`);
       throw new Error(`Failed to prepare product summaries for LLM analysis: ${msg}`);
     }
@@ -200,9 +205,10 @@ export const POST = withErrorHandler(MODULE_NAME, '/api/analyze', async (request
     let productsContext: string;
     try {
       productsContext = JSON.stringify(productSummaries, null, 2);
-      stageLog('PREPARE', 'INFO', `Products context: ${productsContext.length} chars`);
+      stageLog('PREPARE', 'INFO', `Products context: ${productsContext.length} chars`, { effectiveCategory });
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
+      logStageError(MODULE_NAME, 'SERIALIZE_CONTEXT', err);
       stageLog('PREPARE', 'ERROR', `JSON.stringify failed for productsContext: ${msg}`);
       throw new Error(`Failed to serialize product data for LLM analysis: ${msg}`);
     }
@@ -224,14 +230,18 @@ export const POST = withErrorHandler(MODULE_NAME, '/api/analyze', async (request
     // Track partial errors so one failing analysis doesn't break the others
     const partialErrors: Record<string, unknown> = {};
 
+    // ═══ FULL ANALYSIS stage markers ═══
+    logStageStart(MODULE_NAME, 'FULL_ANALYSIS', `category=${effectiveCategory}, type=${analysisType}`);
+
     // ═══ STAGE 5: Gaps analysis ═══
     if (analysisType === 'gaps' || analysisType === 'full') {
-      stageLog('GAPS', 'START', 'Starting gaps analysis');
+      stageLog('GAPS', 'START', 'Starting gaps analysis', { effectiveCategory });
       try {
         result.gaps = await analyzeGaps(productsContext, effectiveProducts, timePeriod as string, effectiveCategory);
-        stageLog('GAPS', 'END', `${result.gaps.length} gaps found`);
+        stageLog('GAPS', 'END', `${result.gaps.length} gaps found`, { effectiveCategory });
       } catch (error) {
         const msg = error instanceof Error ? error.message : String(error);
+        logStageError(MODULE_NAME, 'GAPS_ANALYSIS', error, { category: String(category) });
         stageLog('GAPS', 'ERROR', `Gaps analysis FAILED: ${msg}`);
         logError(MODULE_NAME, error, { endpoint: '/api/analyze', step: 'analyzeGaps', category: String(category) });
         const moduleError = classifyError(error, MODULE_NAME, '/api/analyze', {
@@ -248,12 +258,13 @@ export const POST = withErrorHandler(MODULE_NAME, '/api/analyze', async (request
 
     // ═══ STAGE 6: Saturation analysis ═══
     if (analysisType === 'saturation' || analysisType === 'full') {
-      stageLog('SATURATION', 'START', 'Starting saturation analysis');
+      stageLog('SATURATION', 'START', 'Starting saturation analysis', { effectiveCategory });
       try {
         result.saturation = await analyzeSaturation(productsContext, category as string, effectiveProducts, effectiveCategory);
-        stageLog('SATURATION', 'END', `${result.saturation.length} categories analyzed`);
+        stageLog('SATURATION', 'END', `${result.saturation.length} categories analyzed`, { effectiveCategory });
       } catch (error) {
         const msg = error instanceof Error ? error.message : String(error);
+        logStageError(MODULE_NAME, 'SATURATION_ANALYSIS', error, { category: String(category) });
         stageLog('SATURATION', 'ERROR', `Saturation analysis FAILED: ${msg}`);
         logError(MODULE_NAME, error, { endpoint: '/api/analyze', step: 'analyzeSaturation', category: String(category) });
         const moduleError = classifyError(error, MODULE_NAME, '/api/analyze', {
@@ -270,7 +281,7 @@ export const POST = withErrorHandler(MODULE_NAME, '/api/analyze', async (request
 
     // ═══ STAGE 7: Complaints analysis ═══
     if (analysisType === 'complaints' || analysisType === 'full') {
-      stageLog('COMPLAINTS', 'START', 'Starting complaints analysis');
+      stageLog('COMPLAINTS', 'START', 'Starting complaints analysis', { effectiveCategory });
       try {
         const complaintResult = await analyzeComplaints(productsContext, effectiveProducts, effectiveCategory);
         // Guard: validate complaintResult shape before destructuring
@@ -282,9 +293,10 @@ export const POST = withErrorHandler(MODULE_NAME, '/api/analyze', async (request
           result.complaints = [];
           result.complaintClusters = [];
         }
-        stageLog('COMPLAINTS', 'END', `${result.complaints.length} complaints, ${result.complaintClusters.length} clusters`);
+        stageLog('COMPLAINTS', 'END', `${result.complaints.length} complaints, ${result.complaintClusters.length} clusters`, { effectiveCategory });
       } catch (error) {
         const msg = error instanceof Error ? error.message : String(error);
+        logStageError(MODULE_NAME, 'COMPLAINTS_ANALYSIS', error, { category: String(category) });
         stageLog('COMPLAINTS', 'ERROR', `Complaints analysis FAILED: ${msg}`);
         logError(MODULE_NAME, error, { endpoint: '/api/analyze', step: 'analyzeComplaints', category: String(category) });
         const moduleError = classifyError(error, MODULE_NAME, '/api/analyze', {
@@ -300,7 +312,7 @@ export const POST = withErrorHandler(MODULE_NAME, '/api/analyze', async (request
     // Attach partial errors if any
     if (Object.keys(partialErrors).length > 0) {
       result.partialErrors = partialErrors;
-      stageLog('RESPONSE', 'INFO', `Partial errors attached: ${Object.keys(partialErrors).join(', ')}`);
+      stageLog('RESPONSE', 'INFO', `Partial errors attached: ${Object.keys(partialErrors).join(', ')}`, { effectiveCategory });
     }
 
     // If ALL sub-analyses failed, return a structured error instead of empty 200
@@ -310,7 +322,7 @@ export const POST = withErrorHandler(MODULE_NAME, '/api/analyze', async (request
       && Object.keys(partialErrors).length > 0;
 
     if (allFailed) {
-      stageLog('RESPONSE', 'ERROR', 'All sub-analyses failed — returning structured error');
+      stageLog('RESPONSE', 'ERROR', 'All sub-analyses failed — returning structured error', { effectiveCategory });
       // Use the first partial error as the primary error, but include all
       const firstError = Object.values(partialErrors)[0] as Record<string, unknown>;
       const primaryError = firstError && typeof firstError === 'object' && 'category' in firstError
@@ -338,10 +350,12 @@ export const POST = withErrorHandler(MODULE_NAME, '/api/analyze', async (request
       );
     }
 
-    stageLog('RESPONSE', 'END', `Analysis complete: ${result.gaps.length} gaps, ${result.saturation.length} saturation, ${result.complaints.length} complaints`);
+    logStageEnd(MODULE_NAME, 'FULL_ANALYSIS', `Complete: ${result.gaps.length} gaps, ${result.saturation.length} saturation, ${result.complaints.length} complaints`);
+    stageLog('RESPONSE', 'END', `Analysis complete: ${result.gaps.length} gaps, ${result.saturation.length} saturation, ${result.complaints.length} complaints`, { effectiveCategory });
     return NextResponse.json(result);
   } catch (error) {
     const msg = error instanceof Error ? error.message : String(error);
+    logStageError(MODULE_NAME, 'MAIN_HANDLER', error, { category: body?.category });
     stageLog('HANDLER', 'ERROR', `Unhandled error in main handler: ${msg}`);
     logError(MODULE_NAME, error, { endpoint: '/api/analyze' });
     const moduleError = classifyError(error, MODULE_NAME, '/api/analyze', {
@@ -357,6 +371,7 @@ export const POST = withErrorHandler(MODULE_NAME, '/api/analyze', async (request
           receivedCategory: body?.category,
           receivedTimePeriod: body?.timePeriod,
           originalError: msg,
+          originalStack: error instanceof Error ? error.stack?.split('\n').slice(0, 5).join(' | ') : undefined,
           errorConstructor: error instanceof Error ? error.constructor.name : typeof error,
           errorCategory: moduleError.category,
           caughtBy: 'main_handler_try_catch',
@@ -377,7 +392,7 @@ async function analyzeGaps(
   timePeriod: string,
   effectiveCategory: string
 ): Promise<GapAnalysis[]> {
-  stageLog('GAPS_LLM', 'START', `Calling LLM for gap analysis (${products.length} products)`);
+  stageLog('GAPS_LLM', 'START', `Calling LLM for gap analysis (${products.length} products)`, { effectiveCategory });
 
   let gaps: unknown;
   try {
@@ -411,19 +426,23 @@ Identify 3-8 meaningful gaps. Base your analysis ONLY on the product data provid
       { maxRetries: MAX_RETRIES },
       MODULE_NAME
     );
-    stageLog('GAPS_LLM', 'END', `LLM returned gaps response`);
+    stageLog('GAPS_LLM', 'END', `LLM returned gaps response`, { effectiveCategory });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
+    logStageError(MODULE_NAME, 'GAPS_LLM_CALL', err);
     stageLog('GAPS_LLM', 'ERROR', `LLM call failed after retries: ${msg}`);
     throw err; // Re-throw to be caught by the caller's try/catch
   }
 
   // Validate and normalize the LLM response
   const safeGaps = Array.isArray(gaps) ? gaps : [];
-  stageLog('GAPS_PARSE', 'INFO', `Parsed ${safeGaps.length} gaps from LLM response`);
+  if (!gaps || !Array.isArray(gaps)) {
+    logStageError(MODULE_NAME, 'GAPS_PARSE', new Error(`LLM returned non-array for gaps: ${typeof gaps}`), { type: typeof gaps });
+  }
+  stageLog('GAPS_PARSE', 'INFO', `Parsed ${safeGaps.length} gaps from LLM response`, { effectiveCategory });
 
   // ═══ Save gaps to the database ═══
-  stageLog('GAPS_SAVE', 'START', `Saving ${safeGaps.length} gaps to database`);
+  stageLog('GAPS_SAVE', 'START', `Saving ${safeGaps.length} gaps to database`, { effectiveCategory });
   let savedCount = 0;
   for (const gap of safeGaps) {
     try {
@@ -455,11 +474,12 @@ Identify 3-8 meaningful gaps. Base your analysis ONLY on the product data provid
       }
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
+      logStageError(MODULE_NAME, 'GAPS_DB_SAVE', err, { gapTitle: gap?.title });
       stageLog('GAPS_SAVE', 'ERROR', `Failed to save gap "${gap?.title || 'unknown'}": ${msg}`);
       logError(MODULE_NAME, err, { step: 'saveGap', gapTitle: gap?.title });
     }
   }
-  stageLog('GAPS_SAVE', 'END', `Saved ${savedCount}/${safeGaps.length} gaps to database`);
+  stageLog('GAPS_SAVE', 'END', `Saved ${savedCount}/${safeGaps.length} gaps to database`, { effectiveCategory });
 
   return safeGaps;
 }
@@ -658,8 +678,15 @@ For each competitor, provide:
       stageLog('SATURATION_LLM_COMPETITORS', 'END', `Got ${topCompetitors.length} top competitors`);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
+      logStageError(MODULE_NAME, 'SATURATION_COMPETITORS_LLM', err, { category: cat });
       stageLog('SATURATION_LLM_COMPETITORS', 'ERROR', `Failed: ${msg}`);
       logError(MODULE_NAME, err, { step: 'saturation-topCompetitors', category: cat });
+      topCompetitors = [];
+    }
+
+    // Validate competitors result
+    if (!topCompetitors || !Array.isArray(topCompetitors)) {
+      logStageError(MODULE_NAME, 'COMPETITORS_PARSE', new Error(`LLM returned non-array for competitors`), { category: cat });
       topCompetitors = [];
     }
 
@@ -698,8 +725,15 @@ For each sub-niche:
       stageLog('SATURATION_LLM_SUBNICHES', 'END', `Got ${subNiches.length} sub-niches`);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
+      logStageError(MODULE_NAME, 'SATURATION_SUBNICHES_LLM', err, { category: cat });
       stageLog('SATURATION_LLM_SUBNICHES', 'ERROR', `Failed: ${msg}`);
       logError(MODULE_NAME, err, { step: 'saturation-subNiches', category: cat });
+      subNiches = [];
+    }
+
+    // Validate sub-niches result
+    if (!subNiches || !Array.isArray(subNiches)) {
+      logStageError(MODULE_NAME, 'SUBNICHES_PARSE', new Error(`LLM returned non-array for sub-niches`), { category: cat });
       subNiches = [];
     }
 
@@ -721,6 +755,7 @@ For each sub-niche:
       });
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
+      logStageError(MODULE_NAME, 'SATURATION_BUILD', err, { category: cat });
       stageLog('SATURATION_BUILD', 'ERROR', `Failed to build saturation result for "${cat}": ${msg}`);
       logError(MODULE_NAME, err, { step: 'saturationResults.push', category: cat });
     }
@@ -731,6 +766,7 @@ For each sub-niche:
 
   } catch (error) {
     const msg = error instanceof Error ? error.message : String(error);
+    logStageError(MODULE_NAME, 'SATURATION_OUTER', error);
     stageLog('SATURATION', 'ERROR', `Saturation analysis outer catch: ${msg}`);
     logError(MODULE_NAME, error, { step: 'analyzeSaturation' });
     // Return empty array instead of throwing - let the main handler continue with other analyses
@@ -778,6 +814,7 @@ Extract 3-10 distinct complaints.`,
     stageLog('COMPLAINTS_LLM', 'END', 'LLM complaint extraction completed');
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
+    logStageError(MODULE_NAME, 'COMPLAINTS_LLM', err);
     stageLog('COMPLAINTS_LLM', 'ERROR', `LLM complaint extraction failed: ${msg}`);
     // Track if rate limit was hit to skip clustering call
     if (msg.includes('429') || msg.includes('rate limit') || msg.includes('too many')) {
@@ -789,6 +826,9 @@ Extract 3-10 distinct complaints.`,
   }
 
   const safeComplaints = Array.isArray(complaints) ? complaints : [];
+  if (!complaints || !Array.isArray(complaints)) {
+    logStageError(MODULE_NAME, 'COMPLAINTS_PARSE', new Error(`LLM returned non-array for complaints: ${typeof complaints}`), { type: typeof complaints });
+  }
   stageLog('COMPLAINTS_PARSE', 'INFO', `Extracted ${safeComplaints.length} complaints`);
 
   // ═══ LLM: Generate complaint clusters ═══
@@ -832,6 +872,7 @@ For each cluster, provide:
       stageLog('COMPLAINTS_LLM_CLUSTERS', 'END', `Got ${clusters.length} clusters`);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
+      logStageError(MODULE_NAME, 'COMPLAINTS_CLUSTERS_LLM', err);
       stageLog('COMPLAINTS_LLM_CLUSTERS', 'ERROR', `Clustering failed: ${msg}`);
       logError(MODULE_NAME, err, { step: 'complaintClusters' });
       clusters = [];
@@ -861,6 +902,7 @@ For each cluster, provide:
       }
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
+      logStageError(MODULE_NAME, 'COMPLAINTS_DB_SAVE', err, { complaintText: complaint?.text?.substring(0, 50) });
       stageLog('COMPLAINTS_SAVE', 'ERROR', `Failed to save complaint: ${msg}`);
       logError(MODULE_NAME, err, { step: 'saveComplaint' });
     }
