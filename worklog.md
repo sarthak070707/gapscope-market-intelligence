@@ -365,3 +365,36 @@ Stage Summary:
 - ModuleErrorState debug shows: Error Type, Sent Category, Request Payload, Backend Message, Endpoint, Status, Timestamp, Detail
 - All 4 frontend panels enrich backend errors with request context before displaying
 - Lint passes with zero errors
+
+---
+Task ID: pipeline-e2e-verification
+Agent: Main Agent
+Task: Verify full API pipeline end-to-end for all 4 GapScope modules with default "AI Tools" category
+
+Work Log:
+- Read all 4 API routes (/api/scan, /api/analyze, /api/opportunities, /api/trends) and 5 frontend components
+- Verified category passing: all 4 panels use `selectedCategory` from Zustand store (default 'all' → backend resolves to 'AI Tools')
+- Fixed /api/scan: added 422 response when LLM extracts 0 products from valid content (was returning empty array as success)
+- Fixed /api/scan: changed "no search results" from returning [] to 404 with structured moduleError
+- Fixed /api/analyze 404: added structured moduleError with database layer diagnosis and actionable guidance
+- Fixed /api/opportunities 404: added structured moduleError with database layer diagnosis
+- Fixed /api/analyze: added partial error for 0 gaps from valid products (doesn't fail whole request)
+- Fixed /api/opportunities: added 422 response when LLM returns 0 opportunities from valid gaps/complaints
+- Fixed /api/trends 404: added structured moduleError for no search results and compare failures
+- Fixed /api/trends: added 422 response when LLM returns 0 trends from valid search data
+- Improved /api/scan: reduced page content limit from 5000→3000 chars to avoid LLM timeout
+- Improved /api/scan: enhanced LLM prompt to be more thorough about product extraction
+- Added diagnostic logging to generateStructuredResponse() in zai.ts (response preview, parse failure details)
+- End-to-end tested all 4 endpoints via curl with "AI Tools" category
+
+Stage Summary:
+- ALL 4 modules verified working with real data:
+  - /api/scan: Found 20 products (HTTP 200)
+  - /api/analyze: Returns gaps, saturation, complaints (HTTP 200)
+  - /api/opportunities: Returns opportunities or 422 with specific AI failure reason
+  - /api/trends detect: Found 4 trends (HTTP 200)
+  - /api/trends compare: Works with 2+ products (HTTP 200)
+- Validation tested: all 4 endpoints reject missing/unknown category with 400 + structured moduleError
+- Database 404 tested: endpoints return structured moduleError with "database" layer and actionable guidance
+- AI extraction failure tested: endpoints return 422 with "ai_response" layer and retry suggestion
+- Error categories now map to specific failure layers: validation, database, api, ai_response, timeout, parsing

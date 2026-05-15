@@ -49,10 +49,21 @@ export async function generateStructuredResponse<T>(
   ]);
 
   if (!response || !response.trim()) {
+    console.error('[ZAI] LLM returned empty response');
     throw new Error('AI returned an empty response');
   }
 
-  return extractJsonFromResponse<T>(response);
+  // Log response length for debugging (truncate content to avoid flooding logs)
+  const preview = response.length > 200 ? response.substring(0, 200) + '...' : response;
+  console.log(`[ZAI] LLM response received: ${response.length} chars, preview: ${preview}`);
+
+  try {
+    return extractJsonFromResponse<T>(response);
+  } catch (parseError) {
+    console.error('[ZAI] JSON extraction failed. Response length:', response.length);
+    console.error('[ZAI] Response preview:', response.substring(0, 500));
+    throw parseError;
+  }
 }
 
 /**

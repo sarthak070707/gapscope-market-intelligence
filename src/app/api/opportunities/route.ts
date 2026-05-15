@@ -126,8 +126,18 @@ export async function POST(request: NextRequest) {
     if (allGaps.length === 0 && allComplaints.length === 0) {
       return NextResponse.json(
         {
-          error:
-            'No gaps or complaints found for this category. Run an analysis first.',
+          error: 'No gaps or complaints found for this category. Run an analysis first.',
+          moduleError: {
+            module: MODULE_NAME,
+            category: 'database',
+            message: 'No gap analysis results found in database',
+            detail: `Searched for gaps and complaints with category="${category}" (effective: "${effectiveCategory}"). Found ${allGaps.length} gaps and ${allComplaints.length} complaints across ${products.length} products. The Opportunity Generator requires existing gap analysis or complaint data.`,
+            possibleReason: 'You need to run the Gap Analysis module first to identify market gaps and complaints. Go to the Analysis tab and run a full analysis for this category.',
+            retryable: false,
+            timestamp: new Date().toISOString(),
+            endpoint: '/api/opportunities',
+            requestCategory: category,
+          }
         },
         { status: 404 }
       );
@@ -215,6 +225,28 @@ ${trendsContext || 'No trend data available'}`,
     );
 
     const safeOpportunities = Array.isArray(opportunities) ? opportunities : [];
+
+    // If LLM generated 0 opportunities despite having gaps and complaints, that's an AI failure
+    if (safeOpportunities.length === 0 && (allGaps.length > 0 || allComplaints.length > 0)) {
+      console.error(`[${MODULE_NAME}] AI extraction failed: 0 opportunities generated from ${allGaps.length} gaps and ${allComplaints.length} complaints`);
+      return NextResponse.json(
+        {
+          error: 'AI could not generate opportunities from the available gap and complaint data. The model may have timed out.',
+          moduleError: {
+            module: MODULE_NAME,
+            category: 'ai_response',
+            message: 'AI returned 0 opportunities from valid input data',
+            detail: `Provided ${allGaps.length} gaps, ${allComplaints.length} complaints, and ${trends.length} trends as input for category "${effectiveCategory}", but the AI model returned an empty result. This typically happens when the model times out (response took >${LLM_TIMEOUT_MS / 1000}s) or returns a truncated response.`,
+            possibleReason: 'The AI model may have timed out due to the large amount of input data. Try again — retrying often succeeds. You can also try a different category with less data.',
+            retryable: true,
+            timestamp: new Date().toISOString(),
+            endpoint: '/api/opportunities',
+            requestCategory: category,
+          }
+        },
+        { status: 422 }
+      );
+    }
 
     // Save generated opportunities to the database
     const savedOpportunities: OpportunitySuggestion[] = [];

@@ -74,7 +74,20 @@ export async function POST(request: NextRequest) {
 
     if (effectiveProducts.length === 0) {
       return NextResponse.json(
-        { error: 'No products found for this category. Run a scan first.' },
+        {
+          error: 'No products found for this category. Run a scan first to populate the database.',
+          moduleError: {
+            module: MODULE_NAME,
+            category: 'database',
+            message: 'No scanned products found in database',
+            detail: `Searched for products with category="${category}" (effective: "${effectiveCategory}") and timePeriod="${timePeriod}". The database has 0 products matching these filters. The Gap Analysis module requires scanned products to analyze.`,
+            possibleReason: 'You need to run the Product Hunt Scanner first to populate the database with products. Go to the Scanner tab and run a scan for this category.',
+            retryable: false,
+            timestamp: new Date().toISOString(),
+            endpoint: '/api/analyze',
+            requestCategory: category,
+          }
+        },
         { status: 404 }
       );
     }
@@ -288,6 +301,24 @@ Identify 3-8 meaningful gaps. Base your analysis ONLY on the product data provid
   );
 
   const safeGaps = Array.isArray(gaps) ? gaps : [];
+
+  // If LLM returned 0 gaps from valid product data, log a warning
+  if (safeGaps.length === 0 && effectiveProducts.length > 0) {
+    console.warn(`[${MODULE_NAME}] AI returned 0 gaps from ${effectiveProducts.length} products. This may indicate a model timeout or extraction failure.`);
+    // Don't fail the whole request — saturation and complaints may still succeed
+    // But add a partial error for the gaps step
+    partialErrors.gaps = {
+      module: MODULE_NAME,
+      category: 'ai_response' as const,
+      message: 'AI returned 0 market gaps from valid product data',
+      detail: `Analyzed ${effectiveProducts.length} products in "${effectiveCategory}" but the AI model returned an empty gaps array. This typically happens when the model times out or the product data is insufficient for gap identification.`,
+      possibleReason: 'The AI model may have timed out. Try again or use a category with more products.',
+      retryable: true,
+      timestamp: new Date().toISOString(),
+      endpoint: '/api/analyze',
+      requestCategory: effectiveCategory,
+    };
+  }
 
   // Save gaps to the database
   for (const gap of safeGaps) {

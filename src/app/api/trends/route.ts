@@ -184,7 +184,20 @@ async function handleDetectTrends(effectiveCategory: string, originalCategory: s
 
   if (!searchContext.trim()) {
     return NextResponse.json(
-      { error: 'No search results found for trend detection' },
+      {
+        error: 'No search results found for trend detection. Try a different category.',
+        moduleError: {
+          module: 'Trend Detection',
+          category: 'api',
+          message: 'Web search returned no results for trend detection',
+          detail: `Searched for "${effectiveCategory}" trends on Product Hunt using 2 queries but got no usable results. The trend detection module requires web search results to identify trends.`,
+          possibleReason: 'The category may be too niche for Product Hunt trend detection, or the web search API is temporarily unavailable. Try "AI Tools" or "Productivity" which have more activity.',
+          retryable: true,
+          timestamp: new Date().toISOString(),
+          endpoint: '/api/trends',
+          requestCategory: effectiveCategory,
+        }
+      },
       { status: 404 }
     );
   }
@@ -252,6 +265,28 @@ Identify 2-5 significant trends.`,
 
   const safeTrends = Array.isArray(trends) ? trends : [];
 
+  // If LLM returned 0 trends from valid search results, that's an AI extraction failure
+  if (safeTrends.length === 0 && searchContext.trim().length > 0) {
+    console.error('[Trend Detection] AI extraction failed: 0 trends from valid search context');
+    return NextResponse.json(
+      {
+        error: 'AI could not extract trends from the search results. The model may have timed out.',
+        moduleError: {
+          module: 'Trend Detection',
+          category: 'ai_response',
+          message: 'AI returned 0 trends from valid search data',
+          detail: `Web search found results for "${effectiveCategory}" but the AI model could not identify any trends from them. Search context was ${searchContext.length} chars. This typically happens when the model times out or returns a truncated response.`,
+          possibleReason: 'The AI model may have timed out. Retrying often succeeds. You can also try a different category.',
+          retryable: true,
+          timestamp: new Date().toISOString(),
+          endpoint: '/api/trends',
+          requestCategory: effectiveCategory,
+        }
+      },
+      { status: 422 }
+    );
+  }
+
   // Save detected trends to the database
   const savedTrends: TrendData[] = [];
   for (const trend of safeTrends) {
@@ -312,7 +347,20 @@ async function handleCompareProducts(body: Record<string, unknown>, effectiveCat
 
   if (products.length < 2) {
     return NextResponse.json(
-      { error: 'Could not find enough products for comparison. Run a scan first.' },
+      {
+        error: 'Could not find enough products for comparison. Run a scan first.',
+        moduleError: {
+          module: 'Trend Detection',
+          category: 'database',
+          message: 'Not enough products in database for comparison',
+          detail: `Found ${products.length} products for comparison (need at least 2). Searched with category="${originalCategory}". The comparison feature requires at least 2 scanned products.`,
+          possibleReason: 'You need to run the Product Hunt Scanner first to populate the database with products before you can compare them.',
+          retryable: false,
+          timestamp: new Date().toISOString(),
+          endpoint: '/api/trends',
+          requestCategory: effectiveCategory,
+        }
+      },
       { status: 404 }
     );
   }

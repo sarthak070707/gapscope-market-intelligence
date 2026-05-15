@@ -181,7 +181,7 @@ async function executeScan(category: string, scanJobId: string, originalCategory
         .replace(/\s+/g, ' ')
         .trim();
       if (text) {
-        return { url, content: text.slice(0, 5000) };
+        return { url, content: text.slice(0, 3000) };
       }
       return null;
     } catch (err) {
@@ -222,12 +222,27 @@ async function executeScan(category: string, scanJobId: string, originalCategory
     await db.scanJob.update({
       where: { id: scanJobId },
       data: {
-        status: 'completed',
-        resultCount: 0,
+        status: 'failed',
         errors: JSON.stringify(['No search results found']),
       },
     });
-    return NextResponse.json([]);
+    return NextResponse.json(
+      {
+        error: 'Product Hunt search returned no results for this category. Try a different category or time period.',
+        moduleError: {
+          module: MODULE_NAME,
+          category: 'api',
+          message: 'Product Hunt fetch returned no results',
+          detail: `Web search for "${category}" products on Product Hunt returned no usable content. Both search queries and page reads yielded empty results.`,
+          possibleReason: 'The category may be too niche or Product Hunt may not have recent launches in this area. Try "AI Tools" or "Productivity" which have more listings.',
+          retryable: true,
+          timestamp: new Date().toISOString(),
+          endpoint: '/api/scan',
+          requestCategory: category,
+        }
+      },
+      { status: 404 }
+    );
   }
 
   // Delay before LLM call to avoid rate limits (webSearch may have triggered API limits)
@@ -256,7 +271,7 @@ For each product, provide:
 
 Only include real products that are clearly described. Do not fabricate products.
 If you cannot find any products, return an empty array.`,
-        `Extract Product Hunt products from this content:\n\n${rawContent}`,
+        `Extract ALL Product Hunt products from this content. Be thorough - identify every product mentioned, even briefly:\n\n${rawContent}`,
         `Return a JSON array of objects with fields: name, tagline, description, url, category, upvotes (number), launchDate, features (string[]), pricing, comments (string[]), reviewScore (number), sourceUrl`
       ),
       LLM_TIMEOUT_MS,
@@ -268,6 +283,35 @@ If you cannot find any products, return an empty array.`,
   console.log(`[${MODULE_NAME}] Step 3 complete: LLM returned ${Array.isArray(products) ? products.length : 0} products in ${Date.now() - llmStart}ms`);
 
   const safeProducts = Array.isArray(products) ? products : [];
+
+  // If LLM extracted 0 products from non-empty content, that's an AI extraction failure
+  if (safeProducts.length === 0 && rawContent.trim().length > 0) {
+    console.error(`[${MODULE_NAME}] AI extraction failed: 0 products extracted from ${rawContent.length} chars of content`);
+    await db.scanJob.update({
+      where: { id: scanJobId },
+      data: {
+        status: 'failed',
+        errors: JSON.stringify(['AI extraction returned 0 products despite having content']),
+      },
+    });
+    return NextResponse.json(
+      {
+        error: 'AI could not extract any products from the Product Hunt pages. The content may not contain structured product data.',
+        moduleError: {
+          module: MODULE_NAME,
+          category: 'ai_response',
+          message: 'AI extraction returned 0 products',
+          detail: `Successfully fetched ${pageContents.length} Product Hunt pages (${rawContent.length} chars), but the AI could not parse any products from the content. This may be due to non-standard page formatting or the LLM timing out.`,
+          possibleReason: 'Product Hunt pages may have changed their HTML structure, or the AI model timed out while parsing. Retrying may help, or try a different category.',
+          retryable: true,
+          timestamp: new Date().toISOString(),
+          endpoint: '/api/scan',
+          requestCategory: category,
+        }
+      },
+      { status: 422 }
+    );
+  }
 
   // Step 4: Save scanned products to the database
   console.log(`[${MODULE_NAME}] Step 4: Saving ${safeProducts.length} products to database`);
