@@ -80,8 +80,10 @@ function formatLastUpdated(dateStr: string | undefined) {
   if (!dateStr) return 'Recently'
   try {
     const date = new Date(dateStr)
+    if (isNaN(date.getTime())) return 'Recently'
     const now = new Date()
     const diffMs = now.getTime() - date.getTime()
+    if (diffMs < 0) return 'Recently'
     const diffMins = Math.floor(diffMs / 60000)
     if (diffMins < 1) return 'Just now'
     if (diffMins < 60) return `${diffMins}m ago`
@@ -438,9 +440,8 @@ export function DashboardOverview() {
   }))
 
   const hasData = dashboardData.totalProducts > 0 || dashboardData.totalGaps > 0 || dashboardData.totalOpportunities > 0
-  const latestScanTime = dashboardData.recentGaps.length > 0
-    ? dashboardData.recentGaps[0].evidence || undefined
-    : undefined
+  // Use current time as "last updated" since we don't have a reliable timestamp from gaps
+  const latestScanTime: string | undefined = undefined
 
   const mm = dashboardData.marketMetrics
   const productsTrend: 'up' | 'down' | 'stable' = mm

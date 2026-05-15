@@ -133,3 +133,29 @@ Stage Summary:
 - Fix: Added CSS-only loading skeleton visible in SSR HTML
 - Hydration flow: SSR skeleton visible → JS loads → GapScopeApp mounts → adds 'app-ready' class → skeleton hidden, app shown
 - Page now always shows content even if JavaScript is slow or fails to load
+---
+Task ID: 5
+Agent: main
+Task: Fix blank preview - page renders correctly now, fixed NaN bug
+
+Work Log:
+- Investigated blank preview: server was crashing repeatedly due to process management issues in the sandbox
+- Found that `npx next dev -p 3000` with proper backgrounding keeps the server alive
+- Used agent-browser to verify the page actually renders correctly through Caddy proxy
+- Confirmed all 5 tabs work: Dashboard, Scanner, Gap Analysis, Opportunities, Trends
+- Dashboard shows: 88 products, 13 gaps, 6 opportunities, 54% saturation
+- Scanner shows: 25 products found with full table
+- Fixed "Updated NaNd ago" bug in dashboard-overview.tsx:
+  - Root cause: `latestScanTime` was set to `dashboardData.recentGaps[0].evidence` which is a text string, not a date
+  - `new Date(textString)` returns Invalid Date → NaN in time calculations
+  - Fix 1: Added `isNaN(date.getTime())` check in `formatLastUpdated()` function
+  - Fix 2: Changed `latestScanTime` to `undefined` since there's no reliable timestamp from gaps
+- Lint passes cleanly
+- Server stable and serving pages through Caddy proxy (port 81)
+
+Stage Summary:
+- Preview is NOT blank - the page renders correctly with all data
+- Previous blank preview was caused by server process dying, not by rendering issues
+- Fixed NaN display bug in stat cards
+- All 5 navigation tabs render correctly with data
+- SSR loading skeleton ensures page is never blank even before JS loads
