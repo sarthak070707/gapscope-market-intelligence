@@ -7,6 +7,7 @@
  * - Structured error logging
  * - Data validation helpers
  * - Module-level error classification
+ * - Global route handler wrapper
  */
 
 // ─── Error Classification ─────────────────────────────────────────
@@ -18,6 +19,8 @@ export type ErrorCategory =
   | 'ai_response'  // LLM returned invalid/unparseable response
   | 'database'     // Database operation failed
   | 'validation'   // Data validation failed
+  | 'rate_limit'   // Rate limited by external API
+  | 'auth'         // Authentication/authorization failed
   | 'unknown';     // Unclassified error
 
 export interface RequestContext {
@@ -73,14 +76,53 @@ export function classifyError(
   if (error instanceof Error) {
     const msg = error.message.toLowerCase();
 
-    // AI response parsing errors
-    if (msg.includes('failed to parse ai response') || msg.includes('json')) {
+    // ── Rate limit errors (check FIRST — most common production issue) ──
+    if (msg.includes('429') || msg.includes('rate limit') || msg.includes('too many requests') || msg.includes('throttl')) {
+      return {
+        module,
+        category: 'rate_limit',
+        message: `${module} hit a rate limit`,
+        detail: error.message,
+        possibleReason: 'Too many API requests were sent in a short period. The ZAI SDK enforces rate limits. Wait 30-60 seconds before retrying.',
+        retryable: true,
+        timestamp,
+        endpoint,
+        statusCode: 429,
+        ...ctx,
+      };
+    }
+
+    // ── Authentication / API key errors ──
+    if (msg.includes('unauthorized') || msg.includes('forbidden') || 
+        msg.includes('auth') || msg.includes('api key') || 
+        msg.includes('zai sdk initialization') || msg.includes('check api key')) {
+      const statusCode = msg.includes('forbidden') ? 403 : 401;
+      return {
+        module,
+        category: 'auth',
+        message: `${module} authentication failed`,
+        detail: error.message,
+        possibleReason: 'The API request lacked proper authentication. Check that ZAI_API_KEY or other required environment variables are set correctly. Restart the server after fixing.',
+        retryable: false,
+        timestamp,
+        endpoint,
+        statusCode,
+        ...ctx,
+      };
+    }
+
+    // ── AI response parsing errors ──
+    if (msg.includes('failed to parse ai response') || 
+        msg.includes('json extraction failed') ||
+        msg.includes('unparseable response') ||
+        msg.includes('truncated') ||
+        (msg.includes('json') && msg.includes('parse'))) {
       return {
         module,
         category: 'ai_response',
         message: `${module} received an invalid AI response`,
         detail: error.message,
-        possibleReason: 'The AI model returned data in an unexpected format. Retrying usually resolves this.',
+        possibleReason: 'The AI model returned data in an unexpected format or the response was truncated. Retrying usually resolves this.',
         retryable: true,
         timestamp,
         endpoint,
@@ -88,7 +130,53 @@ export function classifyError(
       };
     }
 
-    // Network/API errors
+    // ── AI empty response ──
+    if (msg.includes('empty response') || msg.includes('ai returned an empty')) {
+      return {
+        module,
+        category: 'ai_response',
+        message: `${module} received an empty AI response`,
+        detail: error.message,
+        possibleReason: 'The AI model returned no content. This may be due to the model being overloaded or the prompt being too long. Try again with a shorter prompt.',
+        retryable: true,
+        timestamp,
+        endpoint,
+        ...ctx,
+      };
+    }
+
+    // ── AI completion failure ──
+    if (msg.includes('ai chat completion failed') || msg.includes('ai generation') || msg.includes('ai server error')) {
+      return {
+        module,
+        category: 'api',
+        message: `${module} AI generation failed`,
+        detail: error.message,
+        possibleReason: 'The AI service encountered an error. This is usually transient — retry after a short wait.',
+        retryable: true,
+        timestamp,
+        endpoint,
+        statusCode: 500,
+        ...ctx,
+      };
+    }
+
+    // ── Web search / page reader failures ──
+    if (msg.includes('web search failed') || msg.includes('page reading failed')) {
+      return {
+        module,
+        category: 'api',
+        message: `${module} web data fetch failed`,
+        detail: error.message,
+        possibleReason: 'The web search or page reading service is temporarily unavailable. Try again in a few seconds.',
+        retryable: true,
+        timestamp,
+        endpoint,
+        ...ctx,
+      };
+    }
+
+    // ── Network/API errors ──
     if (msg.includes('fetch') || msg.includes('network') || msg.includes('econnrefused') || msg.includes('enetunreach')) {
       return {
         module,
@@ -103,7 +191,7 @@ export function classifyError(
       };
     }
 
-    // Database errors
+    // ── Database errors ──
     if (msg.includes('prisma') || msg.includes('sqlite') || msg.includes('database')) {
       return {
         module,
@@ -118,7 +206,7 @@ export function classifyError(
       };
     }
 
-    // Status code based errors
+    // ── Status code based errors ──
     if (msg.includes('404') || msg.includes('not found')) {
       return {
         module,
@@ -130,21 +218,6 @@ export function classifyError(
         timestamp,
         endpoint,
         statusCode: 404,
-        ...ctx,
-      };
-    }
-
-    if (msg.includes('429') || msg.includes('rate limit') || msg.includes('too many') || msg.includes('throttl')) {
-      return {
-        module,
-        category: 'api',
-        message: `${module} hit a rate limit`,
-        detail: error.message,
-        possibleReason: 'Too many requests were sent. Wait a moment before retrying.',
-        retryable: true,
-        timestamp,
-        endpoint,
-        statusCode: 429,
         ...ctx,
       };
     }
@@ -164,7 +237,22 @@ export function classifyError(
       };
     }
 
-    // Empty / no result errors
+    if (msg.includes('503') || msg.includes('service unavailable') || msg.includes('overloaded')) {
+      return {
+        module,
+        category: 'api',
+        message: `${module} service is unavailable`,
+        detail: error.message,
+        possibleReason: 'The external service is temporarily unavailable or overloaded. Try again later.',
+        retryable: true,
+        timestamp,
+        endpoint,
+        statusCode: 503,
+        ...ctx,
+      };
+    }
+
+    // ── Empty / no result errors ──
     if (msg.includes('empty') || msg.includes('no result') || msg.includes('no data') || msg.includes('nothing found')) {
       return {
         module,
@@ -179,7 +267,7 @@ export function classifyError(
       };
     }
 
-    // Invalid / malformed errors
+    // ── Invalid / malformed errors ──
     if (msg.includes('invalid') || msg.includes('malformed')) {
       return {
         module,
@@ -194,7 +282,7 @@ export function classifyError(
       };
     }
 
-    // Missing category / category required errors
+    // ── Missing category / category required errors ──
     if (msg.includes('missing category') || msg.includes('category is required')) {
       return {
         module,
@@ -209,7 +297,7 @@ export function classifyError(
       };
     }
 
-    // Abort / cancel errors
+    // ── Abort / cancel errors ──
     if (msg.includes('abort') || msg.includes('cancel')) {
       return {
         module,
@@ -224,24 +312,7 @@ export function classifyError(
       };
     }
 
-    // Unauthorized / forbidden / auth errors
-    if (msg.includes('unauthorized') || msg.includes('forbidden') || msg.includes('auth')) {
-      const statusCode = msg.includes('forbidden') ? 403 : 401;
-      return {
-        module,
-        category: 'api',
-        message: `${module} authentication failed`,
-        detail: error.message,
-        possibleReason: 'The API request lacked proper authentication or authorization. Check API keys and permissions.',
-        retryable: false,
-        timestamp,
-        endpoint,
-        statusCode,
-        ...ctx,
-      };
-    }
-
-    // Bad request errors
+    // ── Bad request errors ──
     if (msg.includes('bad request')) {
       return {
         module,
@@ -257,29 +328,13 @@ export function classifyError(
       };
     }
 
-    // Service unavailable / overloaded errors
-    if (msg.includes('service unavailable') || msg.includes('overloaded')) {
-      return {
-        module,
-        category: 'api',
-        message: `${module} service is unavailable`,
-        detail: error.message,
-        possibleReason: 'The external service is temporarily unavailable or overloaded. Try again later.',
-        retryable: true,
-        timestamp,
-        endpoint,
-        statusCode: 503,
-        ...ctx,
-      };
-    }
-
-    // Generic error with message
+    // ── Generic error with message — include original error message in detail ──
     return {
       module,
       category: 'unknown',
-      message: `${module} failed`,
+      message: `${module} encountered an unexpected error`,
       detail: error.message,
-      possibleReason: 'An unexpected error occurred. Try again, and if it persists, try a different category or scope.',
+      possibleReason: 'An unexpected error occurred. The error has been logged. Try again, and if it persists, try a different category or scope.',
       retryable: true,
       timestamp,
       endpoint,
@@ -293,7 +348,7 @@ export function classifyError(
     category: 'unknown',
     message: `${module} encountered an unknown error`,
     detail: String(error),
-    possibleReason: 'An unexpected error occurred. Try again.',
+    possibleReason: 'An unexpected non-Error value was thrown. Try again.',
     retryable: true,
     timestamp,
     endpoint,
@@ -335,6 +390,14 @@ function isRateLimitError(error: unknown): boolean {
   return false;
 }
 
+function isAuthError(error: unknown): boolean {
+  if (error instanceof Error) {
+    const msg = error.message.toLowerCase();
+    return msg.includes('unauthorized') || msg.includes('api key') || msg.includes('forbidden') || msg.includes('auth');
+  }
+  return false;
+}
+
 export async function retryWithBackoff<T>(
   fn: () => Promise<T>,
   options: Partial<RetryOptions> = {},
@@ -348,6 +411,12 @@ export async function retryWithBackoff<T>(
       return await fn();
     } catch (error) {
       lastError = error;
+
+      // Don't retry auth errors — they won't fix themselves
+      if (isAuthError(error)) {
+        console.warn(`[${module}] Auth error detected, not retrying: ${error instanceof Error ? error.message : String(error)}`);
+        throw error;
+      }
 
       // Don't retry if shouldRetry returns false
       if (opts.shouldRetry && !opts.shouldRetry(error)) {
@@ -363,7 +432,7 @@ export async function retryWithBackoff<T>(
       // Use much longer delays for rate-limited requests
       const isRateLimited = isRateLimitError(error);
       const baseDelay = isRateLimited ? (opts.rateLimitBaseDelayMs || 5000) : opts.baseDelayMs;
-      const maxDelay = isRateLimited ? 60000 : opts.maxDelayMs;
+      const maxDelay = isRateLimited ? 120000 : opts.maxDelayMs; // Up to 2min for rate limits
       
       const delay = Math.min(
         baseDelay * Math.pow(2, attempt) + Math.random() * 1000,
@@ -377,6 +446,7 @@ export async function retryWithBackoff<T>(
         isRateLimited,
       });
       
+      console.log(`[${module}] Retry ${attempt + 1}/${opts.maxRetries} in ${Math.round(delay)}ms${isRateLimited ? ' (rate limited)' : ''}`);
       await new Promise((resolve) => setTimeout(resolve, delay));
     }
   }
@@ -424,6 +494,7 @@ export function logError(
     module,
     errorMessage: error instanceof Error ? error.message : String(error),
     errorType: error instanceof Error ? error.constructor.name : typeof error,
+    errorStack: error instanceof Error ? error.stack?.split('\n').slice(0, 3).join(' | ') : undefined,
     ...context,
     ...(requestContext ? {
       requestCategory: requestContext.category,
@@ -524,5 +595,84 @@ export function validateDashboardStats(data: unknown): {
   return {
     isValid: missingFields.length === 0,
     missingFields,
+  };
+}
+
+// ─── Global Route Handler Wrapper ─────────────────────────────────
+
+/**
+ * Wraps an async route handler with global error catching.
+ * Ensures ALL errors (including uncaught ones from shared services)
+ * are converted into structured ModuleError responses instead of
+ * generic 500 errors.
+ * 
+ * Usage:
+ *   export const POST = withErrorHandler('Module Name', '/api/endpoint', async (request) => {
+ *     // ... handler logic
+ *   });
+ */
+export function withErrorHandler(
+  moduleName: string,
+  endpoint: string,
+  handler: (request: Request) => Promise<Response>
+): (request: Request) => Promise<Response> {
+  return async (request: Request) => {
+    const startTime = Date.now();
+    console.log(`[${moduleName}] >>> ${request.method} ${endpoint} request started`);
+    
+    try {
+      const response = await handler(request);
+      const duration = Date.now() - startTime;
+      console.log(`[${moduleName}] <<< ${request.method} ${endpoint} completed in ${duration}ms (status: ${response.status})`);
+      return response;
+    } catch (error) {
+      const duration = Date.now() - startTime;
+      console.error(`[${moduleName}] !!! ${request.method} ${endpoint} UNHANDLED ERROR after ${duration}ms:`, error);
+      
+      // This catch handles errors that escaped the handler's own try/catch
+      // (e.g., module-level import errors, shared service initialization failures)
+      const moduleError = classifyError(error, moduleName, endpoint, {
+        backendMessage: error instanceof Error ? error.message : String(error),
+      });
+
+      logError(moduleName, error, { 
+        endpoint, 
+        method: request.method,
+        duration,
+        context: 'UNHANDLED_ERROR_CAUGHT_BY_GLOBAL_HANDLER',
+      });
+
+      // Try to parse request body for debug info (best effort)
+      let debugInfo: Record<string, unknown> = {};
+      try {
+        const clonedRequest = request.clone();
+        const body = await clonedRequest.json();
+        debugInfo = {
+          receivedCategory: body?.category,
+          receivedTimePeriod: body?.timePeriod,
+          receivedAction: body?.action,
+        };
+      } catch {
+        debugInfo = { note: 'Could not parse request body for debug info' };
+      }
+
+      return new Response(
+        JSON.stringify({
+          error: moduleError.message,
+          moduleError,
+          debug: {
+            ...debugInfo,
+            originalError: error instanceof Error ? error.message : String(error),
+            errorType: error instanceof Error ? error.constructor.name : typeof error,
+            caughtBy: 'global_error_handler',
+            duration,
+          },
+        }),
+        {
+          status: 500,
+          headers: { 'Content-Type': 'application/json' },
+        }
+      );
+    }
   };
 }

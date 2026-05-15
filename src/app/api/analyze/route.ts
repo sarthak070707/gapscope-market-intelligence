@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { db } from '@/lib/db';
+import { db, checkDatabaseConnection } from '@/lib/db';
 import { generateStructuredResponse } from '@/lib/zai';
 import { safeJsonParse } from '@/lib/json';
-import { retryWithBackoff, withTimeout, logError, classifyError } from '@/lib/error-handler';
+import { retryWithBackoff, withTimeout, logError, classifyError, withErrorHandler } from '@/lib/error-handler';
 import type { GapAnalysis, MarketSaturation, ComplaintAnalysis, ComplaintCluster, EvidenceDetail, SubNiche, ProductReference, UnderservedUserGroup, WhyNowAnalysis, ExecutionDifficulty, FalseOpportunityAnalysis, FounderFitSuggestion, SourceTransparency, WhyExistingProductsFail, MarketQuadrantPosition } from '@/types';
 
 const MODULE_NAME = 'Gap Analysis';
@@ -10,15 +10,15 @@ const LLM_TIMEOUT_MS = 120_000;
 const MAX_RETRIES = 2;
 const INTER_CALL_DELAY_MS = 2000; // 2s pause between LLM calls to avoid rate limits
 
-export async function POST(request: NextRequest) {
+export const POST = withErrorHandler(MODULE_NAME, '/api/analyze', async (request: NextRequest) => {
+  let body: Record<string, unknown> | null = null;
   try {
-    const body = await request.json();
+    body = await request.json();
     const { category, analysisType = 'full', timePeriod = '30d' } = body;
 
     console.log(`[${MODULE_NAME}] Request received:`, {
       method: request.method,
       url: request.url,
-      body: { ...body },
       category: body.category,
       timePeriod: body.timePeriod,
       action: body.action,
@@ -49,28 +49,60 @@ export async function POST(request: NextRequest) {
     const effectiveCategory = category === 'all' ? 'AI Tools' : category;
     console.log(`[${MODULE_NAME}] Using effective category: ${effectiveCategory} (original: ${category})`);
 
+    // Pre-flight: check database connection
+    console.log(`[${MODULE_NAME}] Checking database connection...`);
+    const dbHealth = await checkDatabaseConnection();
+    if (!dbHealth.ok) {
+      console.error(`[${MODULE_NAME}] Database health check FAILED:`, dbHealth.error);
+      return NextResponse.json(
+        {
+          error: 'Database is not available. Please try again.',
+          moduleError: {
+            module: MODULE_NAME,
+            category: 'database',
+            message: 'Database connection failed',
+            detail: `Pre-flight database health check failed: ${dbHealth.error}`,
+            possibleReason: 'The database may be temporarily unavailable or misconfigured.',
+            retryable: true,
+            timestamp: new Date().toISOString(),
+            endpoint: '/api/analyze',
+            requestCategory: category,
+          }
+        },
+        { status: 503 }
+      );
+    }
+    console.log(`[${MODULE_NAME}] Database OK (${dbHealth.latencyMs}ms)`);
+
     // Fetch products from DB for the given category, with time filtering
     const whereClause: Record<string, unknown> = category === 'all' ? {} : { category };
     
     // Apply time filter based on launchDate
     if (timePeriod && timePeriod !== '90d') {
       const daysMap: Record<string, number> = { '7d': 7, '30d': 30, '90d': 90 };
-      const days = daysMap[timePeriod] || 30;
+      const days = daysMap[timePeriod as string] || 30;
       const cutoff = new Date();
       cutoff.setDate(cutoff.getDate() - days);
       whereClause.launchDate = { gte: cutoff.toISOString().split('T')[0] };
     }
 
+    console.log(`[${MODULE_NAME}] Querying products with filter:`, JSON.stringify(whereClause));
     const products = await db.product.findMany({
       where: whereClause,
       include: { gaps: true, complaints: true },
     });
+    console.log(`[${MODULE_NAME}] Found ${products.length} products with time filter`);
 
     // If no products with time filter, fall back to all products in category
-    const effectiveProducts = products.length > 0 ? products : await db.product.findMany({
-      where: category === 'all' ? {} : { category },
-      include: { gaps: true, complaints: true },
-    });
+    let effectiveProducts = products;
+    if (products.length === 0) {
+      console.log(`[${MODULE_NAME}] No products with time filter, falling back to all products in category`);
+      effectiveProducts = await db.product.findMany({
+        where: category === 'all' ? {} : { category },
+        include: { gaps: true, complaints: true },
+      });
+      console.log(`[${MODULE_NAME}] Found ${effectiveProducts.length} products without time filter`);
+    }
 
     if (effectiveProducts.length === 0) {
       return NextResponse.json(
@@ -126,52 +158,63 @@ export async function POST(request: NextRequest) {
 
     // Run gaps analysis (individual try/catch) — with delay to avoid rate limits
     if (analysisType === 'gaps' || analysisType === 'full') {
+      console.log(`[${MODULE_NAME}] Starting gaps analysis...`);
       try {
-        result.gaps = await analyzeGaps(productsContext, effectiveProducts, timePeriod, effectiveCategory);
+        result.gaps = await analyzeGaps(productsContext, effectiveProducts, timePeriod as string, effectiveCategory);
+        console.log(`[${MODULE_NAME}] Gaps analysis complete: ${result.gaps.length} gaps found`);
       } catch (error) {
         logError(MODULE_NAME, error, { endpoint: '/api/analyze', step: 'analyzeGaps', category });
         const moduleError = classifyError(error, MODULE_NAME, '/api/analyze', {
-          category: body.category,
+          category: body.category as string,
           payload: `category=${body.category}, timePeriod=${body.timePeriod || 'N/A'}`,
           backendMessage: error instanceof Error ? error.message : String(error),
         });
         partialErrors.gaps = moduleError;
+        console.error(`[${MODULE_NAME}] Gaps analysis FAILED: ${error instanceof Error ? error.message : String(error)}`);
       }
       // Delay between LLM calls to avoid rate limits
+      console.log(`[${MODULE_NAME}] Waiting ${INTER_CALL_DELAY_MS}ms before next LLM call...`);
       await new Promise((r) => setTimeout(r, INTER_CALL_DELAY_MS));
     }
 
     // Run saturation analysis (individual try/catch) — with delay to avoid rate limits
     if (analysisType === 'saturation' || analysisType === 'full') {
+      console.log(`[${MODULE_NAME}] Starting saturation analysis...`);
       try {
-        result.saturation = await analyzeSaturation(productsContext, category, effectiveProducts, effectiveCategory);
+        result.saturation = await analyzeSaturation(productsContext, category as string, effectiveProducts, effectiveCategory);
+        console.log(`[${MODULE_NAME}] Saturation analysis complete: ${result.saturation.length} categories analyzed`);
       } catch (error) {
         logError(MODULE_NAME, error, { endpoint: '/api/analyze', step: 'analyzeSaturation', category });
         const moduleError = classifyError(error, MODULE_NAME, '/api/analyze', {
-          category: body.category,
+          category: body.category as string,
           payload: `category=${body.category}, timePeriod=${body.timePeriod || 'N/A'}`,
           backendMessage: error instanceof Error ? error.message : String(error),
         });
         partialErrors.saturation = moduleError;
+        console.error(`[${MODULE_NAME}] Saturation analysis FAILED: ${error instanceof Error ? error.message : String(error)}`);
       }
       // Delay between LLM calls to avoid rate limits
+      console.log(`[${MODULE_NAME}] Waiting ${INTER_CALL_DELAY_MS}ms before next LLM call...`);
       await new Promise((r) => setTimeout(r, INTER_CALL_DELAY_MS));
     }
 
     // Run complaints analysis (individual try/catch)
     if (analysisType === 'complaints' || analysisType === 'full') {
+      console.log(`[${MODULE_NAME}] Starting complaints analysis...`);
       try {
         const complaintResult = await analyzeComplaints(productsContext, effectiveProducts, effectiveCategory);
         result.complaints = complaintResult.complaints;
         result.complaintClusters = complaintResult.clusters;
+        console.log(`[${MODULE_NAME}] Complaints analysis complete: ${result.complaints.length} complaints, ${result.complaintClusters.length} clusters`);
       } catch (error) {
         logError(MODULE_NAME, error, { endpoint: '/api/analyze', step: 'analyzeComplaints', category });
         const moduleError = classifyError(error, MODULE_NAME, '/api/analyze', {
-          category: body.category,
+          category: body.category as string,
           payload: `category=${body.category}, timePeriod=${body.timePeriod || 'N/A'}`,
           backendMessage: error instanceof Error ? error.message : String(error),
         });
         partialErrors.complaints = moduleError;
+        console.error(`[${MODULE_NAME}] Complaints analysis FAILED: ${error instanceof Error ? error.message : String(error)}`);
       }
     }
 
@@ -180,11 +223,12 @@ export async function POST(request: NextRequest) {
       result.partialErrors = partialErrors;
     }
 
+    console.log(`[${MODULE_NAME}] Analysis complete: ${result.gaps.length} gaps, ${result.saturation.length} saturation, ${result.complaints.length} complaints`);
     return NextResponse.json(result);
   } catch (error) {
     logError(MODULE_NAME, error, { endpoint: '/api/analyze' });
     const moduleError = classifyError(error, MODULE_NAME, '/api/analyze', {
-      category: body?.category,
+      category: body?.category as string | undefined,
       payload: `category=${body?.category}, timePeriod=${body?.timePeriod || 'N/A'}`,
       backendMessage: error instanceof Error ? error.message : String(error),
     });
@@ -196,12 +240,13 @@ export async function POST(request: NextRequest) {
           receivedCategory: body?.category,
           receivedTimePeriod: body?.timePeriod,
           originalError: error instanceof Error ? error.message : String(error),
+          errorCategory: moduleError.category,
         }
       },
       { status: 500 }
     );
   }
-}
+});
 
 async function analyzeGaps(
   productsContext: string,
@@ -209,6 +254,7 @@ async function analyzeGaps(
   timePeriod: string,
   effectiveCategory: string
 ): Promise<GapAnalysis[]> {
+  console.log(`[${MODULE_NAME}] analyzeGaps: calling LLM for gap analysis (${products.length} products)...`);
   const gaps = await retryWithBackoff(
     () => withTimeout(
       () => generateStructuredResponse<GapAnalysis[]>(
@@ -224,70 +270,10 @@ Analyze the given products and identify market gaps. Focus on these gap types:
 === CRITICAL RULES FOR EVIDENCE-BACKED OUTPUT ===
 
 Rule 1: Be HYPER-SPECIFIC, never generic.
-- WRONG: "AI writing tools are oversaturated"
-- RIGHT: "Most recently launched AI writing tools target marketers (8 of 11 in our data), while zero focus on technical documentation workflows for engineering teams"
-- WRONG: "The market is growing"
-- RIGHT: "23 products launched in this category in the last 90 days, up from 14 in the prior period"
-- WRONG: "Pricing is a problem"
-- RIGHT: "7 of 12 products charge $29/month or more, yet 31 complaints cite this price point as too high for individual users"
-
-Rule 2: Cite specific numbers from the data in EVERY field:
-- How many products compete in this gap area (count them from the data)
-- How many complaints reference this issue (count them)
-- What specific prices overlap (name the prices)
-- How many products launched recently vs historically
-- What percentage of products have the same feature set
-
-Rule 3: Every insight must feel PROVABLE and ACTIONABLE. Avoid motivational language.
-Do NOT use phrases like "The market is growing" or "There is an opportunity" — instead state the concrete evidence that IMPLIES growth or opportunity.
-
-Rule 4: For titles, be SPECIFIC about WHO is affected and WHAT is missing:
-- WRONG: "AI writing gap"
-- RIGHT: "No AI writing tool serves technical documentation for regulated industries"
-- WRONG: "Pricing issues in productivity"
-- RIGHT: "Freelancers priced out of project management tools that bundle features they don't need"
-
-Rule 5: For "whyThisMatters", think like a venture capitalist explaining to a founder WHY this specific market gap exists. Focus on the BUSINESS MECHANISM — not what the gap is, but WHY it exists as a commercial opportunity. Use specific numbers, pricing data, and market structure analysis.
-
-=== REQUIRED FIELDS FOR EACH GAP ===
-
-- gapType: One of the gap types listed above
-- title: A concise, specific title naming WHO is affected and WHAT is missing
-- description: Detailed description with at least 2 specific data points from the product data
-- evidence: Direct evidence from the product data, citing product names, prices, or feature lists
-- severity: "low", "medium", or "high" based on market impact
-
-- evidenceDetail: Object with:
-  - similarProducts: EXACT count of similar products in the data (count them)
-  - repeatedComplaints: EXACT count of complaints supporting this gap
-  - launchFrequency: EXACT number of products launched recently in this space
-  - commentSnippets: array of 2-3 ACTUAL comment text snippets quoted from the data
-  - pricingOverlap: percentage (0-100) of products with similar pricing, calculated from the data
-  - launchGrowth: percentage growth in launches compared to prior period (estimated from data)
-
-- whyThisMatters: This field is titled "Why This Opportunity Exists" — it must contain BUSINESS REASONING, not AI summarization. Explain WHY this gap represents a real market opportunity using one of these patterns:
-  Pattern A (Market Structure): "Existing products focus heavily on [SEGMENT], leaving [UNSERVED_SEGMENT] completely underserved because [BUSINESS_REASON_WITH_NUMBERS]"
-  Pattern B (Pricing Gap): "Current solutions price at [AMOUNT] which exceeds [SPECIFIC_USER_SEGMENT]'s budget by [AMOUNT], creating a pricing ceiling that limits market expansion to [MARKET_SIZE]"
-  Pattern C (Technology Shift): "Recent [TECHNOLOGY_CHANGE] makes [NEW_APPROACH] economically viable for [SPECIFIC_AUDIENCE], but incumbents haven't adapted because [BUSINESS_REASON]"
-  NEVER write generic statements like "There is an opportunity" or "The market is growing". Instead state the SPECIFIC BUSINESS MECHANISM that creates this opportunity.
-
-- subNiche: Object with:
-  - name: HYPER-SPECIFIC sub-niche name that names the WHO, WHAT, and CONTEXT. NOT "AI coding tools" but "AI debugging assistants for junior developers who write Python". NOT "resume tools" but "ATS resume optimizers for engineering graduates entering FAANG". NOT "home workout apps" but "postpartum fitness trackers for new mothers recovering from C-sections".
-  - description: What this sub-niche encompasses and why it's distinct from the parent category
-  - parentCategory: The broader category this falls under
-  - opportunityScore: 0-100 score justified by the data (higher = better opportunity)
-
-- affectedProducts: Array of 2-4 real product objects from the data with:
-  - name: Actual product name from the data
-  - pricing: Their actual pricing model
-  - strengths: 1-2 SPECIFIC strengths (not "good UX" but "one-click onboarding completed in under 60 seconds")
-  - weaknesses: 1-2 SPECIFIC weaknesses related to this gap (not "limited features" but "lacks batch export, forcing users to process documents one at a time")
-
-- underservedUsers: Array of 1-3 underserved user groups with:
-  - userGroup: SPECIFIC group name (e.g., "junior Python developers at startups", "freelance technical writers", "elderly smartphone users in rural areas")
-  - description: WHY this group is underserved, with specific evidence
-  - evidence: Specific evidence from the data showing how this group is ignored
-  - opportunityScore: 0-100 score
+Rule 2: Cite specific numbers from the data in EVERY field.
+Rule 3: Every insight must feel PROVABLE and ACTIONABLE.
+Rule 4: For titles, be SPECIFIC about WHO is affected and WHAT is missing.
+Rule 5: For "whyThisMatters", think like a venture capitalist.
 
 Identify 3-8 meaningful gaps. Base your analysis ONLY on the product data provided. Every number must come from or be derived from the data.`,
         `Analyze these products for market gaps in the "${effectiveCategory}" category (time period: ${timePeriod}):\n\n${productsContext}`,
@@ -301,24 +287,7 @@ Identify 3-8 meaningful gaps. Base your analysis ONLY on the product data provid
   );
 
   const safeGaps = Array.isArray(gaps) ? gaps : [];
-
-  // If LLM returned 0 gaps from valid product data, log a warning
-  if (safeGaps.length === 0 && effectiveProducts.length > 0) {
-    console.warn(`[${MODULE_NAME}] AI returned 0 gaps from ${effectiveProducts.length} products. This may indicate a model timeout or extraction failure.`);
-    // Don't fail the whole request — saturation and complaints may still succeed
-    // But add a partial error for the gaps step
-    partialErrors.gaps = {
-      module: MODULE_NAME,
-      category: 'ai_response' as const,
-      message: 'AI returned 0 market gaps from valid product data',
-      detail: `Analyzed ${effectiveProducts.length} products in "${effectiveCategory}" but the AI model returned an empty gaps array. This typically happens when the model times out or the product data is insufficient for gap identification.`,
-      possibleReason: 'The AI model may have timed out. Try again or use a category with more products.',
-      retryable: true,
-      timestamp: new Date().toISOString(),
-      endpoint: '/api/analyze',
-      requestCategory: effectiveCategory,
-    };
-  }
+  console.log(`[${MODULE_NAME}] analyzeGaps: LLM returned ${safeGaps.length} gaps`);
 
   // Save gaps to the database
   for (const gap of safeGaps) {
@@ -372,36 +341,27 @@ function findMostRelevantProduct(
 /**
  * Find the most relevant product for a complaint by matching
  * the complaint text against product names and categories.
- * Falls back to products[0] only if no match is found.
  */
 function findRelevantProductForComplaint(
   complaint: ComplaintAnalysis,
   products: { id: string; name: string; category: string }[]
 ) {
   const complaintText = (complaint.text || '').toLowerCase();
-
-  // Score each product by how relevant it is to this complaint
   let bestProduct: { id: string; name: string; category: string } | null = null;
   let bestScore = 0;
 
   for (const product of products) {
     let score = 0;
-
-    // Direct name mention is the strongest signal
     const nameLower = product.name.toLowerCase();
     if (complaintText.includes(nameLower)) {
       score += 10;
     }
-
-    // Partial name match (individual words in product name)
     const nameWords = nameLower.split(/\s+/);
     for (const word of nameWords) {
       if (word.length >= 3 && complaintText.includes(word)) {
         score += 3;
       }
     }
-
-    // Category keyword match (e.g., "AI Tools" → complaint mentions "AI" or "tool")
     const categoryLower = product.category.toLowerCase();
     const categoryWords = categoryLower.split(/\s+/);
     for (const word of categoryWords) {
@@ -409,7 +369,6 @@ function findRelevantProductForComplaint(
         score += 2;
       }
     }
-
     if (score > bestScore) {
       bestScore = score;
       bestProduct = product;
@@ -425,6 +384,8 @@ async function analyzeSaturation(
   products: { id: string; name: string; features: string; pricing: string; comments: string; category: string; upvotes: number; reviewScore: number; tagline: string; description: string }[],
   _effectiveCategory: string
 ): Promise<MarketSaturation[]> {
+  console.log(`[${MODULE_NAME}] analyzeSaturation: starting for ${products.length} products...`);
+  
   // Group products by category
   const categoryGroups: Record<string, typeof products> = {};
   for (const product of products) {
@@ -438,7 +399,7 @@ async function analyzeSaturation(
   for (const [cat, catProducts] of Object.entries(categoryGroups)) {
     const productCount = catProducts.length;
 
-    // Feature overlap
+    // Feature overlap (computed locally, no LLM call needed)
     let featureOverlap = 0;
     try {
       const allFeatures = catProducts.map((p) => {
@@ -458,7 +419,7 @@ async function analyzeSaturation(
       featureOverlap = 0;
     }
 
-    // Pricing similarity
+    // Pricing similarity (computed locally)
     let pricingSimilarity = 0;
     try {
       const pricingModels = catProducts.map((p) => p.pricing);
@@ -468,7 +429,7 @@ async function analyzeSaturation(
       pricingSimilarity = 0;
     }
 
-    // User complaints count
+    // User complaints count (computed locally)
     let userComplaints = 0;
     try {
       for (const product of catProducts) {
@@ -500,19 +461,17 @@ async function analyzeSaturation(
     // Generate competitor breakdown using LLM (with timeout + retry)
     let topCompetitors: ProductReference[] = [];
     try {
+      console.log(`[${MODULE_NAME}] analyzeSaturation: calling LLM for top competitors in "${cat}"...`);
       topCompetitors = await retryWithBackoff(
         () => withTimeout(
           () => generateStructuredResponse<ProductReference[]>(
             `You are a rigorous competitive analyst. Based on the product data, identify the top competitors in the "${cat}" category.
 
 RULES:
-1. You MUST list at least 3 competitors if 3+ products exist in the data. If fewer, list all of them.
+1. You MUST list at least 3 competitors if 3+ products exist in the data.
 2. Strengths and weaknesses must be SPECIFIC, not generic.
-   - WRONG: "Good UI" → RIGHT: "Drag-and-drop onboarding that gets users to first result in under 2 minutes"
-   - WRONG: "Limited features" → RIGHT: "No bulk export capability, forcing users to download files one at a time"
-   - WRONG: "Competitive pricing" → RIGHT: "Free tier includes 500 API calls/month vs competitors' 100"
-3. Include pricing comparison context: how does each competitor's pricing compare to the others in this category?
-4. Base EVERY claim on the actual product data provided. Do not fabricate information.
+3. Include pricing comparison context.
+4. Base EVERY claim on the actual product data provided.
 
 For each competitor, provide:
 - name: Actual product name from the data
@@ -529,6 +488,7 @@ For each competitor, provide:
         MODULE_NAME
       );
       if (!Array.isArray(topCompetitors)) topCompetitors = [];
+      console.log(`[${MODULE_NAME}] analyzeSaturation: got ${topCompetitors.length} top competitors`);
     } catch (err) {
       logError(MODULE_NAME, err, { step: 'saturation-topCompetitors', category: cat });
       topCompetitors = [];
@@ -540,6 +500,7 @@ For each competitor, provide:
     // Generate sub-niches using LLM (with timeout + retry)
     let subNiches: SubNiche[] = [];
     try {
+      console.log(`[${MODULE_NAME}] analyzeSaturation: calling LLM for sub-niches in "${cat}"...`);
       subNiches = await retryWithBackoff(
         () => withTimeout(
           () => generateStructuredResponse<SubNiche[]>(
@@ -548,20 +509,12 @@ For each competitor, provide:
 Based on the product data, identify 2-3 SUB-NICHES within the "${cat}" category.
 
 CRITICAL: Sub-niches must be HYPER-SPECIFIC. The more specific, the better.
-- WRONG: "AI coding tools"
-- RIGHT: "AI debugging assistants for junior developers who write Python"
-- WRONG: "resume tools"
-- RIGHT: "ATS resume optimizers for engineering graduates entering FAANG"
-- WRONG: "project management"
-- RIGHT: "project management for solo freelancers managing 5+ concurrent clients"
-- WRONG: "fitness apps"
-- RIGHT: "postpartum fitness trackers for new mothers recovering from C-sections"
 
 For each sub-niche:
 - name: A hyper-specific name that names the WHO, WHAT, and CONTEXT
-- description: What this sub-niche encompasses and why existing products don't serve it well. Cite specific product gaps from the data.
+- description: What this sub-niche encompasses and why existing products don't serve it well
 - parentCategory: "${cat}"
-- opportunityScore: 0-100 score. Justify with data: how many products serve this niche? How many complaints mention it?`,
+- opportunityScore: 0-100 score. Justify with data.`,
             `Products in category "${cat}" (${catProducts.length} total):\n${JSON.stringify(catProducts.map(p => ({ name: p.name, pricing: p.pricing, tagline: p.tagline, description: p.description.substring(0, 200) })), null, 2)}`,
             `Return a JSON array of objects with fields: name (string), description (string), parentCategory (string), opportunityScore (number)`
           ),
@@ -572,6 +525,7 @@ For each sub-niche:
         MODULE_NAME
       );
       if (!Array.isArray(subNiches)) subNiches = [];
+      console.log(`[${MODULE_NAME}] analyzeSaturation: got ${subNiches.length} sub-niches`);
     } catch (err) {
       logError(MODULE_NAME, err, { step: 'saturation-subNiches', category: cat });
       subNiches = [];
@@ -601,26 +555,26 @@ async function analyzeComplaints(
   products: { id: string; name: string; category: string; comments: string }[],
   _effectiveCategory: string
 ): Promise<{ complaints: ComplaintAnalysis[]; clusters: ComplaintCluster[] }> {
+  console.log(`[${MODULE_NAME}] analyzeComplaints: calling LLM for complaint extraction...`);
+  
   const complaints = await retryWithBackoff(
     () => withTimeout(
       () => generateStructuredResponse<ComplaintAnalysis[]>(
         `You are a rigorous product review analyst. Analyze the product data below and extract common complaints.
 
 RULES FOR SPECIFIC OUTPUT:
-1. Each complaint text must be SPECIFIC and cite real details from the data — not a vague summary.
-   - WRONG: "Users complain about pricing"
-   - RIGHT: "7 out of 12 users in comments mention the $29/month tier is too expensive for freelancers who process fewer than 10 documents/month"
+1. Each complaint text must be SPECIFIC and cite real details from the data.
 2. Cite specific product names, prices, or feature names in the complaint text.
-3. Count accurately: if 5 comments mention slow performance, the frequency should be 5, not 10.
+3. Count accurately.
 4. Every complaint must be grounded in the actual comments/reviews data provided.
 
 For each complaint, provide:
-- text: A specific complaint description with evidence (product names, prices, feature names)
+- text: A specific complaint description with evidence
 - category: One of "pricing", "missing_feature", "performance", "ux", "support", "integration"
 - sentiment: One of "negative", "neutral", "mixed"
 - frequency: How many distinct users/comments express this complaint (1-10 scale)
 
-Extract 3-10 distinct complaints. Base your analysis ONLY on the actual product comments and reviews data provided.`,
+Extract 3-10 distinct complaints.`,
         `Analyze these products for common complaints:\n\n${productsContext}`,
         `Return a JSON array of objects with fields: text (string), category (string), sentiment (string), frequency (number)`
       ),
@@ -632,6 +586,7 @@ Extract 3-10 distinct complaints. Base your analysis ONLY on the actual product 
   );
 
   const safeComplaints = Array.isArray(complaints) ? complaints : [];
+  console.log(`[${MODULE_NAME}] analyzeComplaints: extracted ${safeComplaints.length} complaints`);
 
   // Delay before next LLM call to avoid rate limits
   await new Promise((r) => setTimeout(r, INTER_CALL_DELAY_MS));
@@ -639,6 +594,7 @@ Extract 3-10 distinct complaints. Base your analysis ONLY on the actual product 
   // Generate complaint clusters (with timeout + retry)
   let clusters: ComplaintCluster[] = [];
   try {
+    console.log(`[${MODULE_NAME}] analyzeComplaints: calling LLM for complaint clustering...`);
     clusters = await retryWithBackoff(
       () => withTimeout(
         () => generateStructuredResponse<ComplaintCluster[]>(
@@ -646,19 +602,17 @@ Extract 3-10 distinct complaints. Base your analysis ONLY on the actual product 
 
 RULES:
 1. Each cluster's "percentage" must represent what share of total complaints fall in this cluster.
-2. All cluster percentages MUST add up to approximately 100% (between 95% and 105% is acceptable).
-3. Each cluster MUST include 1-2 ACTUAL QUOTED complaint text snippets — not paraphrased summaries.
-   - WRONG exampleSnippet: "Users find it expensive"
-   - RIGHT exampleSnippet: "7 out of 12 users mention the $29/month tier is too expensive for freelancers"
-4. Count must be an integer ≥ 1, and should be consistent with the percentage and total number of complaints.
-5. Group into 3-6 clusters. Each cluster should represent a DISTINCT theme.
+2. All cluster percentages MUST add up to approximately 100%.
+3. Each cluster MUST include 1-2 ACTUAL QUOTED complaint text snippets.
+4. Count must be an integer ≥ 1.
+5. Group into 3-6 clusters.
 
 For each cluster, provide:
-- category: The complaint category (e.g., "pricing", "missing_feature", "performance", "ux", "support", "integration")
-- label: A short, specific human-readable label (e.g., "Freemium pricing too limited for power users")
-- percentage: What % of total complaints this cluster represents (clusters must total ~100%)
+- category: The complaint category
+- label: A short, specific human-readable label
+- percentage: What % of total complaints this cluster represents
 - count: Number of complaints in this cluster
-- exampleSnippets: 1-2 ACTUAL QUOTED snippets from the complaint text above (copy verbatim, do not paraphrase)`,
+- exampleSnippets: 1-2 ACTUAL QUOTED snippets from the complaint text`,
           `Complaints to cluster (${safeComplaints.length} total):\n${safeComplaints.map(c => `[${c.category}] "${c.text}" (frequency: ${c.frequency})`).join('\n')}`,
           `Return a JSON array of objects with fields: category (string), label (string), percentage (number), count (number), exampleSnippets (string[])`
         ),
@@ -669,6 +623,7 @@ For each cluster, provide:
       MODULE_NAME
     );
     if (!Array.isArray(clusters)) clusters = [];
+    console.log(`[${MODULE_NAME}] analyzeComplaints: got ${clusters.length} clusters`);
   } catch (err) {
     logError(MODULE_NAME, err, { step: 'complaintClusters' });
     clusters = [];

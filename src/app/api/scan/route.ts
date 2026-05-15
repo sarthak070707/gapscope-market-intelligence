@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { db } from '@/lib/db';
+import { db, checkDatabaseConnection } from '@/lib/db';
 import { webSearch, readPage, generateStructuredResponse } from '@/lib/zai';
-import { retryWithBackoff, withTimeout, logError, classifyError, TimeoutError, type ModuleError } from '@/lib/error-handler';
+import { retryWithBackoff, withTimeout, logError, classifyError, withErrorHandler, type ModuleError } from '@/lib/error-handler';
 import type { ScannedProduct } from '@/types';
 
 const MODULE_NAME = 'Product Hunt Scanner';
@@ -11,15 +11,15 @@ const MAX_RETRIES = 2;
 const MAX_CONCURRENT_READS = 3;
 const INTER_CALL_DELAY_MS = 2000; // 2s pause between LLM calls to avoid rate limits
 
-export async function POST(request: NextRequest) {
+export const POST = withErrorHandler(MODULE_NAME, '/api/scan', async (request: NextRequest) => {
+  let body: Record<string, unknown> | null = null;
   try {
-    const body = await request.json();
+    body = await request.json();
     const { category, period = 'monthly' } = body;
 
     console.log(`[${MODULE_NAME}] Request received:`, {
       method: request.method,
       url: request.url,
-      body: { ...body },
       category: body.category,
       timePeriod: body.timePeriod,
       action: body.action,
@@ -50,16 +50,44 @@ export async function POST(request: NextRequest) {
     const effectiveCategory = category === 'all' ? 'AI Tools' : category;
     console.log(`[${MODULE_NAME}] Using effective category: ${effectiveCategory} (original: ${category})`);
 
+    // Pre-flight: check database connection
+    console.log(`[${MODULE_NAME}] Checking database connection...`);
+    const dbHealth = await checkDatabaseConnection();
+    if (!dbHealth.ok) {
+      console.error(`[${MODULE_NAME}] Database health check FAILED:`, dbHealth.error);
+      return NextResponse.json(
+        {
+          error: 'Database is not available. Please try again.',
+          moduleError: {
+            module: MODULE_NAME,
+            category: 'database',
+            message: 'Database connection failed',
+            detail: `Pre-flight database health check failed: ${dbHealth.error}`,
+            possibleReason: 'The database may be temporarily unavailable or misconfigured. Check that the SQLite database file exists and is accessible.',
+            retryable: true,
+            timestamp: new Date().toISOString(),
+            endpoint: '/api/scan',
+            requestCategory: category,
+          }
+        },
+        { status: 503 }
+      );
+    }
+    console.log(`[${MODULE_NAME}] Database OK (${dbHealth.latencyMs}ms)`);
+
     // Create a scan job to track progress
+    console.log(`[${MODULE_NAME}] Creating scan job...`);
     const scanJob = await db.scanJob.create({
       data: {
         status: 'running',
         category,
       },
     });
+    console.log(`[${MODULE_NAME}] Scan job created: ${scanJob.id}`);
 
     try {
       // Wrap entire scan operation with timeout protection
+      console.log(`[${MODULE_NAME}] Starting scan execution (timeout: ${SCAN_TIMEOUT_MS}ms)...`);
       const result = await withTimeout(
         () => executeScan(effectiveCategory, scanJob.id, category),
         SCAN_TIMEOUT_MS,
@@ -92,6 +120,12 @@ export async function POST(request: NextRequest) {
         {
           error: moduleError.message,
           moduleError,
+          debug: {
+            receivedCategory: body?.category,
+            receivedTimePeriod: body?.timePeriod,
+            originalError: innerError instanceof Error ? innerError.message : String(innerError),
+            errorCategory: moduleError.category,
+          }
         },
         { status: 500 }
       );
@@ -99,7 +133,7 @@ export async function POST(request: NextRequest) {
   } catch (error) {
     logError(MODULE_NAME, error, { endpoint: '/api/scan' });
     const moduleError = classifyError(error, MODULE_NAME, '/api/scan', {
-      category: body?.category,
+      category: body?.category as string | undefined,
       payload: `category=${body?.category}, timePeriod=${body?.timePeriod || 'N/A'}`,
       backendMessage: error instanceof Error ? error.message : String(error),
     });
@@ -111,21 +145,23 @@ export async function POST(request: NextRequest) {
           receivedCategory: body?.category,
           receivedTimePeriod: body?.timePeriod,
           originalError: error instanceof Error ? error.message : String(error),
+          errorCategory: moduleError.category,
         }
       },
       { status: 500 }
     );
   }
-}
+});
 
 async function executeScan(category: string, scanJobId: string, originalCategory: string): Promise<NextResponse> {
   // Step 1: Search for Product Hunt launches in the category (with retry)
-  // `category` is the effectiveCategory (resolved from 'all' -> 'AI Tools' if needed)
-  // `originalCategory` is the category as requested by the frontend
   console.log(`[${MODULE_NAME}] Step 1: Starting parallel web searches for category: ${category}`);
   const searchQuery1 = `site:producthunt.com ${category} launched 2025`;
   const searchQuery2 = `product hunt ${category} tools 2025`;
   const searchStart = Date.now();
+
+  console.log(`[${MODULE_NAME}] Step 1a: Searching: "${searchQuery1}"`);
+  console.log(`[${MODULE_NAME}] Step 1b: Searching: "${searchQuery2}"`);
 
   const [searchResult1, searchResult2] = await Promise.all([
     retryWithBackoff(() => webSearch(searchQuery1, 10), { maxRetries: MAX_RETRIES }, MODULE_NAME).catch((err) => {
@@ -167,6 +203,7 @@ async function executeScan(category: string, scanJobId: string, originalCategory
 
   async function readSinglePage(url: string): Promise<{ url: string; content: string } | null> {
     try {
+      console.log(`[${MODULE_NAME}] Reading page: ${url}`);
       const pageData = await retryWithBackoff(
         () => readPage(url),
         { maxRetries: MAX_RETRIES },
@@ -181,8 +218,10 @@ async function executeScan(category: string, scanJobId: string, originalCategory
         .replace(/\s+/g, ' ')
         .trim();
       if (text) {
+        console.log(`[${MODULE_NAME}] Page read OK: ${url} (${text.length} chars)`);
         return { url, content: text.slice(0, 3000) };
       }
+      console.warn(`[${MODULE_NAME}] Page read returned empty text: ${url}`);
       return null;
     } catch (err) {
       // Skip pages that fail to read, but log the error
@@ -245,7 +284,8 @@ async function executeScan(category: string, scanJobId: string, originalCategory
     );
   }
 
-  // Delay before LLM call to avoid rate limits (webSearch may have triggered API limits)
+  // Delay before LLM call to avoid rate limits
+  console.log(`[${MODULE_NAME}] Waiting ${INTER_CALL_DELAY_MS}ms before LLM call to avoid rate limits...`);
   await new Promise((r) => setTimeout(r, INTER_CALL_DELAY_MS));
 
   // Step 3: Use LLM to parse raw content into structured product data (with retry + timeout)
@@ -385,5 +425,6 @@ If you cannot find any products, return an empty array.`,
     },
   });
 
+  console.log(`[${MODULE_NAME}] Scan complete: ${savedProducts.length} products saved`);
   return NextResponse.json(savedProducts);
 }

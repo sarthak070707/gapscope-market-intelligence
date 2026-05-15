@@ -1,14 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { db } from '@/lib/db';
+import { db, checkDatabaseConnection } from '@/lib/db';
 import { webSearch, generateStructuredResponse } from '@/lib/zai';
-import { retryWithBackoff, withTimeout, logError, classifyError } from '@/lib/error-handler';
+import { retryWithBackoff, withTimeout, logError, classifyError, withErrorHandler } from '@/lib/error-handler';
 import { safeJsonParse } from '@/lib/json';
 import type { TrendData, CompetitorComparison, SubNiche, UnderservedUserGroup } from '@/types';
 
 const LLM_TIMEOUT_MS = 90_000;
 const WEBSEARCH_TIMEOUT_MS = 30_000;
 const MAX_RETRIES = 2;
-const INTER_CALL_DELAY_MS = 2000; // 2s pause between LLM calls to avoid rate limits
+const INTER_CALL_DELAY_MS = 2000;
+const MODULE_NAME = 'Trend Detection';
 
 /**
  * GET /api/trends
@@ -39,12 +40,16 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json(parsed);
   } catch (error) {
-    logError('Trend Detection', error, { endpoint: '/api/trends', method: 'GET' });
-    const moduleError = classifyError(error, 'Trend Detection', '/api/trends');
+    logError(MODULE_NAME, error, { endpoint: '/api/trends', method: 'GET' });
+    const moduleError = classifyError(error, MODULE_NAME, '/api/trends');
     return NextResponse.json(
       {
         error: moduleError.message,
         moduleError,
+        debug: {
+          originalError: error instanceof Error ? error.message : String(error),
+          errorCategory: moduleError.category,
+        }
       },
       { status: 500 }
     );
@@ -58,9 +63,7 @@ export async function GET(request: NextRequest) {
  * - { action: 'compare', productIds, category }: Compare specific products
  * Also supports just { category } as shorthand for detect
  */
-const MODULE_NAME = 'Trend Detection';
-
-export async function POST(request: NextRequest) {
+export const POST = withErrorHandler(MODULE_NAME, '/api/trends', async (request: NextRequest) => {
   let body: Record<string, unknown> | null = null;
   try {
     body = await request.json();
@@ -99,6 +102,31 @@ export async function POST(request: NextRequest) {
     const effectiveCategory = category === 'all' ? 'AI Tools' : category;
     console.log(`[${MODULE_NAME}] Using effective category: ${effectiveCategory} (original: ${category})`);
 
+    // Pre-flight: check database connection
+    console.log(`[${MODULE_NAME}] Checking database connection...`);
+    const dbHealth = await checkDatabaseConnection();
+    if (!dbHealth.ok) {
+      console.error(`[${MODULE_NAME}] Database health check FAILED:`, dbHealth.error);
+      return NextResponse.json(
+        {
+          error: 'Database is not available. Please try again.',
+          moduleError: {
+            module: MODULE_NAME,
+            category: 'database',
+            message: 'Database connection failed',
+            detail: `Pre-flight database health check failed: ${dbHealth.error}`,
+            possibleReason: 'The database may be temporarily unavailable or misconfigured.',
+            retryable: true,
+            timestamp: new Date().toISOString(),
+            endpoint: '/api/trends',
+            requestCategory: effectiveCategory,
+          }
+        },
+        { status: 503 }
+      );
+    }
+    console.log(`[${MODULE_NAME}] Database OK (${dbHealth.latencyMs}ms)`);
+
     // Default action is 'detect' if not specified
     const effectiveAction = action || 'detect';
 
@@ -128,44 +156,49 @@ export async function POST(request: NextRequest) {
           receivedAction: body?.action,
           receivedTimePeriod: body?.timePeriod,
           originalError: error instanceof Error ? error.message : String(error),
+          errorCategory: moduleError.category,
         }
       },
       { status: 500 }
     );
   }
-}
+});
 
 /**
  * Detect trending categories on Product Hunt using web search + LLM
  */
 async function handleDetectTrends(effectiveCategory: string, originalCategory: string) {
+  console.log(`[${MODULE_NAME}] handleDetectTrends: starting for "${effectiveCategory}"...`);
+  
   // Search for trending products and categories on Product Hunt (with timeout + retry)
   const searchQuery1 = `site:producthunt.com trending ${effectiveCategory} 2025`;
   const searchQuery2 = `product hunt ${effectiveCategory} trends growth 2025`;
+
+  console.log(`[${MODULE_NAME}] Searching: "${searchQuery1}" and "${searchQuery2}"`);
 
   const [searchResult1, searchResult2] = await Promise.all([
     retryWithBackoff(
       () => withTimeout(
         () => webSearch(searchQuery1, 10),
         WEBSEARCH_TIMEOUT_MS,
-        'Trend Detection'
+        MODULE_NAME
       ),
       { maxRetries: MAX_RETRIES },
-      'Trend Detection'
+      MODULE_NAME
     ).catch((err) => {
-      logError('Trend Detection', err, { step: 'webSearch', query: searchQuery1 });
+      logError(MODULE_NAME, err, { step: 'webSearch', query: searchQuery1 });
       return [];
     }),
     retryWithBackoff(
       () => withTimeout(
         () => webSearch(searchQuery2, 10),
         WEBSEARCH_TIMEOUT_MS,
-        'Trend Detection'
+        MODULE_NAME
       ),
       { maxRetries: MAX_RETRIES },
-      'Trend Detection'
+      MODULE_NAME
     ).catch((err) => {
-      logError('Trend Detection', err, { step: 'webSearch', query: searchQuery2 });
+      logError(MODULE_NAME, err, { step: 'webSearch', query: searchQuery2 });
       return [];
     }),
   ]);
@@ -174,6 +207,7 @@ async function handleDetectTrends(effectiveCategory: string, originalCategory: s
     ...(Array.isArray(searchResult1) ? searchResult1 : []),
     ...(Array.isArray(searchResult2) ? searchResult2 : []),
   ];
+  console.log(`[${MODULE_NAME}] Web search returned ${allResults.length} results`);
 
   const searchContext = allResults
     .map(
@@ -187,7 +221,7 @@ async function handleDetectTrends(effectiveCategory: string, originalCategory: s
       {
         error: 'No search results found for trend detection. Try a different category.',
         moduleError: {
-          module: 'Trend Detection',
+          module: MODULE_NAME,
           category: 'api',
           message: 'Web search returned no results for trend detection',
           detail: `Searched for "${effectiveCategory}" trends on Product Hunt using 2 queries but got no usable results. The trend detection module requires web search results to identify trends.`,
@@ -203,6 +237,7 @@ async function handleDetectTrends(effectiveCategory: string, originalCategory: s
   }
 
   // Delay before LLM call to avoid rate limits
+  console.log(`[${MODULE_NAME}] Waiting ${INTER_CALL_DELAY_MS}ms before LLM call...`);
   await new Promise((r) => setTimeout(r, INTER_CALL_DELAY_MS));
 
   // Also fetch existing product data from DB for context
@@ -216,6 +251,7 @@ async function handleDetectTrends(effectiveCategory: string, originalCategory: s
     .join('\n');
 
   // Use LLM to detect trends from search results (with timeout + retry)
+  console.log(`[${MODULE_NAME}] Calling LLM for trend detection (${searchContext.length} chars search, ${existingProducts.length} products)...`);
   const trends = await retryWithBackoff(
     () => withTimeout(
       () => generateStructuredResponse<TrendData[]>(
@@ -229,50 +265,44 @@ For each trend, provide:
 - growthRate: Estimated growth rate as a percentage
 - direction: "growing", "declining", or "stable"
 - dataPoints: Array of { label: string, value: number } representing trend data points over time (3-6 points)
-- period: Time period this trend covers (e.g., "3 months", "6 months")
+- period: Time period this trend covers
 
 SUB-NICHE DETECTION (be SPECIFIC, not broad):
 - subNiches: Array of 2-3 sub-niches with:
-  - name: Specific sub-niche name (e.g., "AI debugging assistants for junior developers" not just "AI tools")
+  - name: Specific sub-niche name
   - description: What this sub-niche encompasses
   - parentCategory: Broader category
   - opportunityScore: 0-100 score
 
 UNDERSERVED USERS:
 - underservedUsers: Array of 1-2 underserved user groups with:
-  - userGroup: Name (e.g., "junior developers", "elderly users", "rural users")
+  - userGroup: Name
   - description: Why they're underserved
   - evidence: Specific evidence from the data
   - opportunityScore: 0-100 score
-
-Focus on:
-1. Categories with increasing product launches
-2. Emerging sub-categories or feature trends
-3. Shifts in pricing models
-4. Growing user demand patterns
-5. Technology adoption trends
 
 Identify 2-5 significant trends.`,
         `Search results:\n${searchContext}\n\nExisting products in DB:\n${productContext || 'None'}`,
         `Return a JSON array of objects with fields: category (string), name (string), description (string), growthRate (number), direction (string: "growing"|"declining"|"stable"), dataPoints (array of {label: string, value: number}), period (string), subNiches (array of {name: string, description: string, parentCategory: string, opportunityScore: number}), underservedUsers (array of {userGroup: string, description: string, evidence: string, opportunityScore: number})`
       ),
       LLM_TIMEOUT_MS,
-      'Trend Detection'
+      MODULE_NAME
     ),
     { maxRetries: MAX_RETRIES },
-    'Trend Detection'
+    MODULE_NAME
   );
 
   const safeTrends = Array.isArray(trends) ? trends : [];
+  console.log(`[${MODULE_NAME}] LLM returned ${safeTrends.length} trends`);
 
   // If LLM returned 0 trends from valid search results, that's an AI extraction failure
   if (safeTrends.length === 0 && searchContext.trim().length > 0) {
-    console.error('[Trend Detection] AI extraction failed: 0 trends from valid search context');
+    console.error(`[${MODULE_NAME}] AI extraction failed: 0 trends from valid search context`);
     return NextResponse.json(
       {
         error: 'AI could not extract trends from the search results. The model may have timed out.',
         moduleError: {
-          module: 'Trend Detection',
+          module: MODULE_NAME,
           category: 'ai_response',
           message: 'AI returned 0 trends from valid search data',
           detail: `Web search found results for "${effectiveCategory}" but the AI model could not identify any trends from them. Search context was ${searchContext.length} chars. This typically happens when the model times out or returns a truncated response.`,
@@ -288,6 +318,7 @@ Identify 2-5 significant trends.`,
   }
 
   // Save detected trends to the database
+  console.log(`[${MODULE_NAME}] Saving ${safeTrends.length} trends to database...`);
   const savedTrends: TrendData[] = [];
   for (const trend of safeTrends) {
     try {
@@ -309,10 +340,11 @@ Identify 2-5 significant trends.`,
         id: created.id,
       });
     } catch (err) {
-      logError('Trend Detection', err, { step: 'saveTrend', trendName: trend.name });
+      logError(MODULE_NAME, err, { step: 'saveTrend', trendName: trend.name });
     }
   }
 
+  console.log(`[${MODULE_NAME}] Trend detection complete: ${savedTrends.length} trends saved`);
   return NextResponse.json(savedTrends);
 }
 
@@ -322,6 +354,8 @@ Identify 2-5 significant trends.`,
 async function handleCompareProducts(body: Record<string, unknown>, effectiveCategory: string) {
   const productIds = body.productIds as string[] | undefined;
   const originalCategory = String(body.category || 'all');
+
+  console.log(`[${MODULE_NAME}] handleCompareProducts: starting for "${effectiveCategory}"...`);
 
   let products;
   if (productIds && Array.isArray(productIds) && productIds.length >= 2) {
@@ -350,7 +384,7 @@ async function handleCompareProducts(body: Record<string, unknown>, effectiveCat
       {
         error: 'Could not find enough products for comparison. Run a scan first.',
         moduleError: {
-          module: 'Trend Detection',
+          module: MODULE_NAME,
           category: 'database',
           message: 'Not enough products in database for comparison',
           detail: `Found ${products.length} products for comparison (need at least 2). Searched with category="${originalCategory}". The comparison feature requires at least 2 scanned products.`,
@@ -383,6 +417,7 @@ Gaps: ${p.gaps.map((g) => `${g.gapType}: ${g.title}`).join('; ') || 'None'}`;
     .join('\n\n---\n\n');
 
   // Use LLM to compare products (with timeout + retry)
+  console.log(`[${MODULE_NAME}] Calling LLM for product comparison (${products.length} products)...`);
   const comparison = await retryWithBackoff(
     () => withTimeout(
       () => generateStructuredResponse<CompetitorComparison>(
@@ -395,17 +430,9 @@ For each product, identify:
 - Weaknesses (areas where it falls short, 2-3 items)
 
 Also identify UNDERSERVED USER GROUPS:
-- underservedUsers: Array of 2-3 user groups that these products collectively fail to serve well:
-  - userGroup: Name of the group
-  - description: Why they're underserved by current products
-  - evidence: Specific evidence from the comparison
-  - opportunityScore: 0-100
+- underservedUsers: Array of 2-3 user groups that these products collectively fail to serve well
 
-Then provide an overall comparison summary highlighting:
-- Which products excel in which areas
-- Key differentiators
-- Market positioning insights
-
+Then provide an overall comparison summary.
 Be specific and evidence-based in your analysis.`,
         `Compare these products:\n\n${comparisonContext}`,
         `Return a JSON object with:
@@ -414,11 +441,12 @@ Be specific and evidence-based in your analysis.`,
 - summary (string: overall comparison summary)`
       ),
       LLM_TIMEOUT_MS,
-      'Trend Detection'
+      MODULE_NAME
     ),
     { maxRetries: MAX_RETRIES },
-    'Trend Detection'
+    MODULE_NAME
   );
 
+  console.log(`[${MODULE_NAME}] Product comparison complete`);
   return NextResponse.json(comparison);
 }

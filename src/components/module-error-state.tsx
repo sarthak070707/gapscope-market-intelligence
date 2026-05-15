@@ -49,6 +49,20 @@ const CATEGORY_CONFIG: Record<ErrorCategory, CategoryConfig> = {
     iconColor: 'text-red-500 dark:text-red-400',
     bgTint: 'bg-red-50/50 dark:bg-red-950/10',
   },
+  rate_limit: {
+    label: 'Rate Limited',
+    badgeClass:
+      'bg-rose-100 text-rose-700 border-rose-200 dark:bg-rose-950/40 dark:text-rose-400 dark:border-rose-900/60',
+    iconColor: 'text-rose-500 dark:text-rose-400',
+    bgTint: 'bg-rose-50/50 dark:bg-rose-950/10',
+  },
+  auth: {
+    label: 'Auth Error',
+    badgeClass:
+      'bg-red-100 text-red-800 border-red-300 dark:bg-red-950/50 dark:text-red-300 dark:border-red-800/60',
+    iconColor: 'text-red-600 dark:text-red-300',
+    bgTint: 'bg-red-50/50 dark:bg-red-950/10',
+  },
   timeout: {
     label: 'Timeout',
     badgeClass:

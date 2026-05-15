@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { db } from '@/lib/db';
+import { db, checkDatabaseConnection } from '@/lib/db';
 import { generateStructuredResponse } from '@/lib/zai';
-import { retryWithBackoff, withTimeout, logError, classifyError, type ModuleError } from '@/lib/error-handler';
+import { retryWithBackoff, withTimeout, logError, classifyError, withErrorHandler, type ModuleError } from '@/lib/error-handler';
 import { safeJsonParse } from '@/lib/json';
 import type { OpportunitySuggestion } from '@/types';
 
@@ -60,6 +60,10 @@ export async function GET(request: NextRequest) {
       {
         error: moduleError.message,
         moduleError,
+        debug: {
+          originalError: error instanceof Error ? error.message : String(error),
+          errorCategory: moduleError.category,
+        }
       },
       { status: 500 }
     );
@@ -70,15 +74,15 @@ export async function GET(request: NextRequest) {
  * POST /api/opportunities
  * Generate new opportunities using LLM based on existing gaps and complaints in the DB
  */
-export async function POST(request: NextRequest) {
+export const POST_HANDLER = withErrorHandler(MODULE_NAME, '/api/opportunities', async (request: NextRequest) => {
+  let body: Record<string, unknown> | null = null;
   try {
-    const body = await request.json();
+    body = await request.json();
     const { category, focusArea, timePeriod = '30d' } = body;
 
     console.log(`[${MODULE_NAME}] Request received:`, {
       method: request.method,
       url: request.url,
-      body: { ...body },
       category: body.category,
       timePeriod: body.timePeriod,
       action: body.action,
@@ -109,9 +113,35 @@ export async function POST(request: NextRequest) {
     const effectiveCategory = category === 'all' ? 'AI Tools' : category;
     console.log(`[${MODULE_NAME}] Using effective category: ${effectiveCategory} (original: ${category})`);
 
+    // Pre-flight: check database connection
+    console.log(`[${MODULE_NAME}] Checking database connection...`);
+    const dbHealth = await checkDatabaseConnection();
+    if (!dbHealth.ok) {
+      console.error(`[${MODULE_NAME}] Database health check FAILED:`, dbHealth.error);
+      return NextResponse.json(
+        {
+          error: 'Database is not available. Please try again.',
+          moduleError: {
+            module: MODULE_NAME,
+            category: 'database',
+            message: 'Database connection failed',
+            detail: `Pre-flight database health check failed: ${dbHealth.error}`,
+            possibleReason: 'The database may be temporarily unavailable or misconfigured.',
+            retryable: true,
+            timestamp: new Date().toISOString(),
+            endpoint: '/api/opportunities',
+            requestCategory: category,
+          }
+        },
+        { status: 503 }
+      );
+    }
+    console.log(`[${MODULE_NAME}] Database OK (${dbHealth.latencyMs}ms)`);
+
     // Fetch gaps and complaints from the database for this category
     const categoryFilter = category === 'all' ? {} : { category };
 
+    console.log(`[${MODULE_NAME}] Fetching products with gaps and complaints...`);
     const products = await db.product.findMany({
       where: categoryFilter,
       include: {
@@ -122,6 +152,7 @@ export async function POST(request: NextRequest) {
 
     const allGaps = products.flatMap((p) => p.gaps);
     const allComplaints = products.flatMap((p) => p.complaints);
+    console.log(`[${MODULE_NAME}] Found ${products.length} products, ${allGaps.length} gaps, ${allComplaints.length} complaints`);
 
     if (allGaps.length === 0 && allComplaints.length === 0) {
       return NextResponse.json(
@@ -174,6 +205,8 @@ export async function POST(request: NextRequest) {
       : '';
 
     // Generate opportunities using LLM with timeout + retry protection
+    console.log(`[${MODULE_NAME}] Calling LLM to generate opportunities (${allGaps.length} gaps, ${allComplaints.length} complaints, ${trends.length} trends)...`);
+    const llmStart = Date.now();
     const opportunities = await retryWithBackoff(
       () => withTimeout(
         () => generateStructuredResponse<OpportunitySuggestion[]>(
@@ -187,13 +220,15 @@ CRITICAL RULES:
 4. Rate the quality score based on: market size potential, evidence strength, competitive advantage, and feasibility
 5. Assign saturation levels based on the number of existing products and feature overlap
 6. NEVER show mysterious AI numbers - always explain WHY scores are what they are
+7. Return ONLY 2-3 opportunities to stay within response limits. Fewer, higher-quality items are better than many incomplete ones.
+8. Keep descriptions concise (under 200 chars each).
 
 For each opportunity provide:
 - title, description, category ("${effectiveCategory}"), saturation ("low"|"medium"|"high"), saturationScore (0-100)
 - gapEvidence (string[]), complaintRefs (string[]), trendSignals (string[]), qualityScore (0-10)
 - evidenceDetail: { similarProducts, repeatedComplaints, launchFrequency, commentSnippets[], pricingOverlap }
 - opportunityScore: { complaintFrequency, competitionDensity, pricingDissatisfaction, launchGrowth, underservedAudience (each 0-20), total (sum), explanation }
-- whyThisMatters: Business reasoning (NOT generic AI text) explaining why this opportunity exists
+- whyThisMatters: Business reasoning
 - subNiche: { name (specific), description, parentCategory, opportunityScore }
 - affectedProducts: [{ name, pricing, strengths[], weaknesses[] }]
 - underservedUsers: [{ userGroup, description, evidence, opportunityScore }]
@@ -205,7 +240,7 @@ For each opportunity provide:
 - sourceTransparency: { sourcePlatforms[], totalComments, complaintFrequency, reviewSources[], dataFreshness, confidenceLevel }
 - whyExistingProductsFail: { rootCause, userImpact, missedByCompetitors }
 - marketQuadrant: { competitionScore, opportunityScore, quadrant, label }${focusAreaPrompt}`,
-          `Based on the following REAL data, generate 3-7 product opportunities (time period: ${timePeriod}):
+          `Based on the following REAL data, generate 2-3 product opportunities (time period: ${timePeriod}):
 
 MARKET GAPS:
 ${gapsContext || 'No gaps data available'}
@@ -223,6 +258,7 @@ ${trendsContext || 'No trend data available'}`,
       { maxRetries: MAX_RETRIES },
       MODULE_NAME
     );
+    console.log(`[${MODULE_NAME}] LLM returned ${Array.isArray(opportunities) ? opportunities.length : 0} opportunities in ${Date.now() - llmStart}ms`);
 
     const safeOpportunities = Array.isArray(opportunities) ? opportunities : [];
 
@@ -249,6 +285,7 @@ ${trendsContext || 'No trend data available'}`,
     }
 
     // Save generated opportunities to the database
+    console.log(`[${MODULE_NAME}] Saving ${safeOpportunities.length} opportunities to database...`);
     const savedOpportunities: OpportunitySuggestion[] = [];
     for (const opp of safeOpportunities) {
       try {
@@ -256,7 +293,7 @@ ${trendsContext || 'No trend data available'}`,
           data: {
             title: opp.title || 'Untitled Opportunity',
             description: opp.description || '',
-            category: opp.category || category,
+            category: opp.category || (category as string),
             saturation: opp.saturation || 'medium',
             saturationScore: opp.saturationScore || 50,
             gapEvidence: JSON.stringify(opp.gapEvidence || []),
@@ -292,11 +329,12 @@ ${trendsContext || 'No trend data available'}`,
       }
     }
 
+    console.log(`[${MODULE_NAME}] Saved ${savedOpportunities.length} opportunities`);
     return NextResponse.json(savedOpportunities);
   } catch (error) {
     logError(MODULE_NAME, error, { endpoint: '/api/opportunities', method: 'POST' });
     const moduleError = classifyError(error, MODULE_NAME, '/api/opportunities', {
-      category: body?.category,
+      category: body?.category as string | undefined,
       payload: `category=${body?.category}, timePeriod=${body?.timePeriod || 'N/A'}`,
       backendMessage: error instanceof Error ? error.message : String(error),
     });
@@ -308,12 +346,16 @@ ${trendsContext || 'No trend data available'}`,
           receivedCategory: body?.category,
           receivedTimePeriod: body?.timePeriod,
           originalError: error instanceof Error ? error.message : String(error),
+          errorCategory: moduleError.category,
         }
       },
       { status: 500 }
     );
   }
-}
+});
+
+// Export POST using the global error handler
+export const POST = POST_HANDLER;
 
 /**
  * PATCH /api/opportunities
@@ -376,6 +418,10 @@ export async function PATCH(request: NextRequest) {
       {
         error: moduleError.message,
         moduleError,
+        debug: {
+          originalError: error instanceof Error ? error.message : String(error),
+          errorCategory: moduleError.category,
+        }
       },
       { status: 500 }
     );
@@ -416,6 +462,10 @@ export async function DELETE(request: NextRequest) {
       {
         error: moduleError.message,
         moduleError,
+        debug: {
+          originalError: error instanceof Error ? error.message : String(error),
+          errorCategory: moduleError.category,
+        }
       },
       { status: 500 }
     );
