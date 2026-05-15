@@ -32,3 +32,30 @@ Stage Summary:
 - All 12 categories have sufficient seed data
 - Data source badges show where each product's data came from (Live, Cached, Database, AI Knowledge, Sample)
 - Frontend loads existing products on category change
+---
+Task ID: 2
+Agent: main
+Task: Fix blank preview - root cause was forceRefresh=true bypassing DB fallback
+
+Work Log:
+- Analyzed the full codebase to understand why preview was blank
+- Root cause: scanner-panel.tsx always sent `forceRefresh: true` in POST requests
+- When forceRefresh=true, the backend skips Layer 1 (DB check) and Layer 2 (cache check), going straight to Layer 3 (web search), which hits 429 rate limit
+- The 429 error caused scans to fail, leaving scanResults empty = blank preview
+- Fix 1: Changed default scan to send `forceRefresh: false` — backend now uses multi-layer fallback (DB → Cache → Web Search → LLM Knowledge)
+- Fix 2: Split scan button into two: "Scan" (uses DB cache) and "Refresh" (forceRefresh=true, bypasses cache)
+- Fix 3: Updated mutation to accept `{ forceRefresh?: boolean }` parameter
+- Fix 4: Added Layer 5 "Emergency DB Fallback" in scan route — even when forceRefresh=true and all API layers fail, returns DB data instead of blank
+- Fix 5: Added fallback in onError handler — if scan fails and scanResults is empty, loads existing products from DB
+- Fix 6: Enhanced success toast to show data source (live search, cached, AI knowledge, database, sample)
+- Fix 7: Enhanced scan results description to show data source label
+- Verified: POST with forceRefresh=false returns immediately with DB products (25 AI Tools, 4 Design, etc.)
+- Verified: GET /api/scan?category=xxx works for all categories
+- All 12 categories have 3+ products in DB, so DB fallback works for every category
+
+Stage Summary:
+- Root cause identified and fixed: forceRefresh=true was bypassing DB fallback
+- Scanner now returns DB data immediately (no API calls needed)
+- Added emergency DB fallback so preview is NEVER blank
+- Split Scan/Refresh buttons for better UX
+- Lint passes cleanly

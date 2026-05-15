@@ -1117,7 +1117,51 @@ Generate 8-12 products for the "${category}" category.`,
 
     // ─────────────────────────────────────────────────────────────────
     // ALL FALLBACKS FAILED — enter cooldown and throw error
+    // BUT: Before giving up entirely, try one last DB fallback.
+    // Even if forceRefresh=true, it's better to return stale data
+    // than to show a blank preview.
     // ─────────────────────────────────────────────────────────────────
+
+    // Layer 5: Emergency DB fallback (even during forceRefresh)
+    try {
+      const emergencyProducts = await db.product.findMany({
+        where: {
+          category: { contains: category },
+        },
+        orderBy: { upvotes: 'desc' },
+        take: 30,
+      });
+
+      if (emergencyProducts.length > 0) {
+        console.log(`[${MODULE_NAME}] Layer 5 EMERGENCY DB FALLBACK: Found ${emergencyProducts.length} products for "${category}" — returning stale data instead of blank`);
+        const dbResults = emergencyProducts.map(dbProductToScannedProduct);
+
+        await db.scanJob.update({
+          where: { id: scanJobId },
+          data: {
+            status: 'completed',
+            stage: 'COMPLETED',
+            resultCount: dbResults.length,
+            productIds: JSON.stringify(dbResults.map(p => p.id).filter(Boolean)),
+          },
+        });
+
+        activeScan.status = 'completed';
+        activeScan.stage = 'COMPLETED';
+        activeScan.products = dbResults;
+
+        // Still enter cooldown if rate-limited, so the frontend shows the cooldown banner
+        if (rateLimitHit) {
+          const cooldownEntry = enterCooldown(category, period, 'SCAN_WEB_SEARCH', firstRateLimitMessage);
+          console.warn(`[${MODULE_NAME}] Rate-limited but returning ${dbResults.length} DB products. Cooldown entered for ${cooldownEntry.durationMs / 1000}s.`);
+        }
+
+        return; // ← Return DB data instead of failing
+      }
+    } catch (dbErr) {
+      logStageError(MODULE_NAME, 'EMERGENCY_DB_FALLBACK', dbErr);
+    }
+
     if (rateLimitHit) {
       const cooldownEntry = enterCooldown(category, period, 'SCAN_WEB_SEARCH', firstRateLimitMessage);
       const retryAfterSeconds = Math.ceil((cooldownEntry.cooldownUntil - Date.now()) / 1000);

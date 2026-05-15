@@ -214,7 +214,7 @@ export function ScannerPanel() {
   }, [effectiveCategory, scanResults.length, isScanning, isPolling, setScanResults])
 
   const scanMutation = useMutation({
-    mutationFn: async () => {
+    mutationFn: async ({ forceRefresh = false }: { forceRefresh?: boolean } = {}) => {
       setScanError(null)
       scanErrorSetRef.current = false
       setIsScanning(true)
@@ -244,10 +244,14 @@ export function ScannerPanel() {
       }
 
       // Step 1: Start the scan job (returns immediately with jobId)
+      // NOTE: By default (forceRefresh=false), the backend uses its multi-layer
+      // fallback: DB → Cache → Web Search → LLM Knowledge. This avoids hitting
+      // the rate-limited search API when DB data is available.
+      // The "Refresh" button sends forceRefresh=true to bypass cached data.
       const res = await fetch('/api/scan', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ category: selectedCategory, period, forceRefresh: true }),
+        body: JSON.stringify({ category: selectedCategory, period, forceRefresh }),
       })
 
       if (!res.ok) {
@@ -306,7 +310,18 @@ export function ScannerPanel() {
       setIsScanning(false)
       setScanResults(data)
       clearCooldown() // Clear cooldown on success
-      toast.success(`Scan complete! Found ${data.length} products.`)
+
+      // Show data source in toast
+      const sources = new Set(data.map(p => p.dataSource).filter(Boolean))
+      const sourceLabel = sources.size > 0
+        ? sources.has('web_search') ? 'from live search'
+          : sources.has('cached') ? 'from cache'
+          : sources.has('ai_knowledge') ? 'from AI knowledge'
+          : sources.has('database') ? 'from database'
+          : sources.has('seed') ? 'sample data'
+          : ''
+        : ''
+      toast.success(`Scan complete! Found ${data.length} products${sourceLabel ? ` ${sourceLabel}` : ''}.`)
     },
     onError: (err) => {
       setIsScanning(false)
@@ -322,7 +337,20 @@ export function ScannerPanel() {
 
         setScanError(classifiedError)
       }
-      toast.error('Scan failed. Please try again.')
+
+      // Even on error, try to load existing products so preview isn't blank
+      if (scanResults.length === 0) {
+        fetch(`/api/scan?category=${encodeURIComponent(effectiveCategory)}`)
+          .then(res => res.ok ? res.json() : null)
+          .then(data => {
+            if (data?.products?.length > 0) {
+              setScanResults(data.products)
+            }
+          })
+          .catch(() => {/* silently fail */})
+      }
+
+      toast.error('Scan failed. Showing cached data if available.')
     },
   })
 
@@ -448,7 +476,7 @@ export function ScannerPanel() {
                   className="w-full sm:w-52"
                   onKeyDown={(e) => {
                     if (e.key === 'Enter' && searchInput.trim() && !isCooldownActive) {
-                      scanMutation.mutate()
+                      scanMutation.mutate({ forceRefresh: false })
                     }
                   }}
                 />
@@ -472,19 +500,34 @@ export function ScannerPanel() {
                 )}
               </div>
 
-              <Button
-                onClick={() => scanMutation.mutate()}
-                disabled={isLoading || isCooldownActive}
-                className="w-full sm:w-auto bg-orange-600 hover:bg-orange-700 text-white disabled:opacity-50"
-              >
-                {isLoading ? (
-                  <><Loader2 className="h-4 w-4 animate-spin" />Scanning...</>
-                ) : isCooldownActive ? (
-                  <><Timer className="h-4 w-4" />Cooldown ({formatCooldownTime(remainingSeconds)})</>
-                ) : (
-                  <><Search className="h-4 w-4" />Scan Product Hunt</>
-                )}
-              </Button>
+              <div className="flex gap-2 w-full sm:w-auto">
+                <Button
+                  onClick={() => scanMutation.mutate({ forceRefresh: false })}
+                  disabled={isLoading || isCooldownActive}
+                  className="flex-1 sm:flex-none bg-orange-600 hover:bg-orange-700 text-white disabled:opacity-50"
+                >
+                  {isLoading ? (
+                    <><Loader2 className="h-4 w-4 animate-spin" />Scanning...</>
+                  ) : isCooldownActive ? (
+                    <><Timer className="h-4 w-4" />Cooldown ({formatCooldownTime(remainingSeconds)})</>
+                  ) : (
+                    <><Search className="h-4 w-4" />Scan</>
+                  )}
+                </Button>
+                <Button
+                  onClick={() => scanMutation.mutate({ forceRefresh: true })}
+                  disabled={isLoading || isCooldownActive}
+                  variant="outline"
+                  className="flex-1 sm:flex-none border-orange-300 text-orange-700 hover:bg-orange-50 dark:border-orange-800 dark:text-orange-400 dark:hover:bg-orange-950/30 disabled:opacity-50"
+                  title="Force refresh from Product Hunt (bypasses cached data)"
+                >
+                  {isLoading ? (
+                    <><Loader2 className="h-4 w-4 animate-spin" /></>
+                  ) : (
+                    <><RefreshCw className="h-4 w-4" />Refresh</>
+                  )}
+                </Button>
+              </div>
             </div>
           </CardContent>
         </Card>
@@ -601,7 +644,7 @@ export function ScannerPanel() {
       {scanError && !isLoading && (
         <ModuleErrorState
           error={scanError}
-          onRetry={() => scanMutation.mutate()}
+          onRetry={() => scanMutation.mutate({ forceRefresh: false })}
           isRetrying={isLoading}
           isRateLimitCooldown={isCooldownActive && scanError.category === 'rate_limit'}
           cooldownRemainingSeconds={isCooldownActive && scanError.category === 'rate_limit' ? remainingSeconds : undefined}
@@ -621,7 +664,14 @@ export function ScannerPanel() {
                 <CardTitle>Scan Results</CardTitle>
                 <CardDescription>
                   {scanResults.length > 0
-                    ? `${scanResults.length} products found`
+                    ? `${scanResults.length} products found ${(() => {
+                        const sources = new Set(scanResults.map(p => p.dataSource).filter(Boolean))
+                        if (sources.has('web_search')) return '(live search)'
+                        if (sources.has('cached')) return '(cached)'
+                        if (sources.has('ai_knowledge')) return '(AI knowledge)'
+                        if (sources.has('database') || sources.has('seed')) return '(database)'
+                        return ''
+                      })()}`
                     : isLoadingExisting
                     ? 'Loading existing products...'
                     : 'Run a scan to see results'}
