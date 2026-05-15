@@ -167,8 +167,10 @@ model ScanJob {
   id          String   @id @default(cuid())
   status      String   @default("pending") // pending, running, completed, failed
   category    String
+  stage       String   @default("") // Current processing stage (e.g., "WEB_SEARCH", "LLM_EXTRACT")
   resultCount Int      @default(0)
   errors      String   @default("[]") // JSON string of errors
+  productIds  String   @default("[]") // JSON string of saved product IDs
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 }

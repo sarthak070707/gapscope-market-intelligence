@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useRef } from 'react'
+import { useState, useRef, useCallback, useEffect } from 'react'
 import { useMutation } from '@tanstack/react-query'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Search, Loader2, ExternalLink, ChevronUp, ChevronDown, Clock } from 'lucide-react'
@@ -32,6 +32,100 @@ import { ModuleErrorState } from '@/components/module-error-state'
 import { classifyError, type ModuleError } from '@/lib/error-handler'
 import { handleFetchError } from '@/lib/fetch-error'
 
+// ─── Stage labels for progress display ──────────────────────────────
+const STAGE_LABELS: Record<string, string> = {
+  INITIALIZING: 'Initializing scan...',
+  WEB_SEARCH: 'Searching Product Hunt...',
+  READ_PAGES: 'Reading Product Hunt pages...',
+  LLM_EXTRACT: 'AI extracting product data...',
+  SAVE_PRODUCTS: 'Saving products to database...',
+  COMPLETED: 'Scan complete!',
+}
+
+// ─── Polling hook for job-based scan results ────────────────────────
+
+function useScanPolling() {
+  const [isPolling, setIsPolling] = useState(false)
+  const [pollingStage, setPollingStage] = useState('')
+  const pollingRef = useRef<NodeJS.Timeout | null>(null)
+  const setScanResults = useAppStore((s) => s.setScanResults)
+
+  const stopPolling = useCallback(() => {
+    if (pollingRef.current) {
+      clearTimeout(pollingRef.current)
+      pollingRef.current = null
+    }
+    setIsPolling(false)
+  }, [])
+
+  const startPolling = useCallback((jobId: string): Promise<ScannedProduct[] | ModuleError> => {
+    return new Promise((resolve) => {
+      setIsPolling(true)
+      setPollingStage('INITIALIZING')
+
+      const poll = async () => {
+        try {
+          const res = await fetch(`/api/scan?jobId=${jobId}`)
+          if (!res.ok) {
+            const moduleError = await handleFetchError(res, {
+              moduleName: 'Product Hunt Scanner',
+              endpoint: '/api/scan',
+            })
+            stopPolling()
+            resolve(moduleError)
+            return
+          }
+
+          const data = await res.json()
+
+          // Update stage display
+          if (data.stage) {
+            setPollingStage(data.stage)
+          }
+
+          if (data.status === 'completed' && data.products) {
+            stopPolling()
+            resolve(data.products as ScannedProduct[])
+            return
+          }
+
+          if (data.status === 'failed') {
+            stopPolling()
+            const moduleError = data.error as ModuleError || classifyError(
+              new Error(data.error?.message || 'Scan failed'),
+              'Product Hunt Scanner',
+              '/api/scan'
+            )
+            resolve(moduleError)
+            return
+          }
+
+          // Still running — poll again in 3 seconds
+          pollingRef.current = setTimeout(poll, 3000)
+        } catch (err) {
+          stopPolling()
+          const moduleError = classifyError(err, 'Product Hunt Scanner', '/api/scan')
+          resolve(moduleError)
+        }
+      }
+
+      // Start polling after a brief delay to let the job initialize
+      pollingRef.current = setTimeout(poll, 2000)
+    })
+  }, [stopPolling, setScanResults])
+
+  // Clean up on unmount
+  useEffect(() => {
+    return () => {
+      if (pollingRef.current) {
+        clearTimeout(pollingRef.current)
+      }
+    }
+  }, [])
+
+  return { isPolling, pollingStage, startPolling, stopPolling }
+}
+
 export function ScannerPanel() {
   const selectedCategory = useAppStore((s) => s.selectedCategory)
   const setSelectedCategory = useAppStore((s) => s.setSelectedCategory)
@@ -42,46 +136,70 @@ export function ScannerPanel() {
   const [showSuggestions, setShowSuggestions] = useState(false)
 
   const [scanError, setScanError] = useState<ModuleError | null>(null)
+  const [isScanning, setIsScanning] = useState(false)
 
   const scanResults = useAppStore((s) => s.scanResults)
   const setScanResults = useAppStore((s) => s.setScanResults)
 
-  // Use a ref to track if scanError was already set in the mutationFn.
-  // CRITICAL: useRef is synchronous and not subject to stale closure issues
-  // that caused the double-classification bug ([BAD_GATEWAY] [BAD_GATEWAY] HTTP 502).
-  const scanErrorSetRef = useRef(false)
+  const { isPolling, pollingStage, startPolling, stopPolling } = useScanPolling()
 
   const scanMutation = useMutation({
     mutationFn: async () => {
       setScanError(null)
-      scanErrorSetRef.current = false
+      setIsScanning(true)
+
+      // Step 1: Start the scan job (returns immediately with jobId)
       const res = await fetch('/api/scan', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ category: selectedCategory, period }),
       })
+
       if (!res.ok) {
+        // The POST itself failed — this is a real error (not a gateway timeout)
         const moduleError = await handleFetchError(res, {
           moduleName: 'Product Hunt Scanner',
           endpoint: '/api/scan',
           category: selectedCategory,
           payload: `category=${selectedCategory}, period=${period}`,
-        });
+        })
         setScanError(moduleError)
-        scanErrorSetRef.current = true  // Synchronous — no stale closure
         throw new Error(moduleError.message)
       }
-      return res.json() as Promise<ScannedProduct[]>
+
+      const jobData = await res.json()
+
+      // If the response already contains products (backward compat), return them directly
+      if (Array.isArray(jobData)) {
+        return jobData as ScannedProduct[]
+      }
+
+      // Step 2: Poll for results using the job ID
+      if (jobData.jobId) {
+        const result = await startPolling(jobData.jobId)
+
+        // Check if the result is an error
+        if ('category' in result && 'message' in result && !('name' in result)) {
+          // This is a ModuleError, not a ScannedProduct[]
+          setScanError(result as ModuleError)
+          throw new Error((result as ModuleError).message)
+        }
+
+        return result as ScannedProduct[]
+      }
+
+      // Fallback — shouldn't happen
+      throw new Error('Unexpected response format from scan endpoint')
     },
     onSuccess: (data) => {
+      setIsScanning(false)
       setScanResults(data)
       toast.success(`Scan complete! Found ${data.length} products.`)
     },
     onError: (err) => {
-      // Only re-classify if the mutationFn didn't already set scanError.
-      // Using ref (synchronous) instead of state (async) to avoid stale closure bug
-      // that caused double-classification: [BAD_GATEWAY] [BAD_GATEWAY] HTTP 502
-      if (!scanErrorSetRef.current) {
+      setIsScanning(false)
+      // Only set error if not already set in mutationFn
+      if (!scanError) {
         setScanError(classifyError(err, 'Product Hunt Scanner', '/api/scan', {
           category: selectedCategory,
           payload: `category=${selectedCategory}, period=${period}`,
@@ -90,6 +208,10 @@ export function ScannerPanel() {
       toast.error('Scan failed. Please try again.')
     },
   })
+
+  // Combined loading state
+  const isLoading = scanMutation.isPending || isPolling
+  const currentStage = isPolling ? pollingStage : (scanMutation.isPending ? 'STARTING' : '')
 
   const handleSort = (field: typeof sortField) => {
     if (sortField === field) {
@@ -128,12 +250,10 @@ export function ScannerPanel() {
     }
   }
 
-  // PRIORITY 9: Handle search suggestion click
   const handleSuggestionClick = (suggestion: string) => {
     setSearchInput(suggestion)
     setShowSuggestions(false)
-    // Try to match suggestion to a category
-    const matchedCategory = CATEGORIES.find(cat => 
+    const matchedCategory = CATEGORIES.find(cat =>
       suggestion.toLowerCase().includes(cat.toLowerCase()) ||
       cat.toLowerCase().includes(suggestion.toLowerCase().split(' ')[0])
     )
@@ -141,6 +261,14 @@ export function ScannerPanel() {
       setSelectedCategory(matchedCategory)
     }
   }
+
+  // Stage progress bar for polling
+  const stageProgress = (() => {
+    const stages = ['INITIALIZING', 'WEB_SEARCH', 'READ_PAGES', 'LLM_EXTRACT', 'SAVE_PRODUCTS', 'COMPLETED']
+    const idx = stages.indexOf(currentStage)
+    if (idx < 0) return 0
+    return Math.round(((idx + 1) / stages.length) * 100)
+  })()
 
   return (
     <div className="space-y-6">
@@ -191,7 +319,7 @@ export function ScannerPanel() {
                 </Select>
               </div>
 
-              {/* PRIORITY 9: Search with suggestions */}
+              {/* Quick Search */}
               <div className="space-y-2 w-full sm:w-auto relative">
                 <label className="text-sm font-medium">Quick Search</label>
                 <Input
@@ -229,10 +357,10 @@ export function ScannerPanel() {
 
               <Button
                 onClick={() => scanMutation.mutate()}
-                disabled={scanMutation.isPending}
+                disabled={isLoading}
                 className="w-full sm:w-auto bg-orange-600 hover:bg-orange-700 text-white"
               >
-                {scanMutation.isPending ? (
+                {isLoading ? (
                   <><Loader2 className="h-4 w-4 animate-spin" />Scanning...</>
                 ) : (
                   <><Search className="h-4 w-4" />Scan Product Hunt</>
@@ -243,12 +371,50 @@ export function ScannerPanel() {
         </Card>
       </motion.div>
 
+      {/* Progress indicator with stage tracking */}
+      {isLoading && currentStage && (
+        <motion.div
+          initial={{ opacity: 0, y: 8 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.3 }}
+        >
+          <Card className="border-orange-200 dark:border-orange-900/60">
+            <CardContent className="p-4 sm:p-6">
+              <div className="flex items-center gap-3 mb-3">
+                <Loader2 className="h-5 w-5 animate-spin text-orange-600 dark:text-orange-400" />
+                <div>
+                  <p className="text-sm font-medium text-foreground">
+                    {STAGE_LABELS[currentStage] || `Processing: ${currentStage}...`}
+                  </p>
+                  <p className="text-xs text-muted-foreground mt-0.5">
+                    This may take 60-120 seconds. The scan runs in the background — no gateway timeout!
+                  </p>
+                </div>
+              </div>
+              {/* Progress bar */}
+              <div className="w-full bg-muted rounded-full h-2 overflow-hidden">
+                <motion.div
+                  className="bg-orange-500 h-full rounded-full"
+                  initial={{ width: 0 }}
+                  animate={{ width: `${stageProgress}%` }}
+                  transition={{ duration: 0.5, ease: 'easeOut' }}
+                />
+              </div>
+              <div className="flex justify-between mt-1.5">
+                <span className="text-[10px] text-muted-foreground">Stage: {currentStage}</span>
+                <span className="text-[10px] text-muted-foreground">{stageProgress}%</span>
+              </div>
+            </CardContent>
+          </Card>
+        </motion.div>
+      )}
+
       {/* Error State */}
-      {scanError && !scanMutation.isPending && (
+      {scanError && !isLoading && (
         <ModuleErrorState
           error={scanError}
           onRetry={() => scanMutation.mutate()}
-          isRetrying={scanMutation.isPending}
+          isRetrying={isLoading}
         />
       )}
 
@@ -277,7 +443,7 @@ export function ScannerPanel() {
             </div>
           </CardHeader>
           <CardContent>
-            {scanMutation.isPending && (
+            {isLoading && (
               <div className="space-y-3">
                 {Array.from({ length: 5 }).map((_, i) => (
                   <div key={i} className="flex items-center gap-4">
@@ -291,11 +457,10 @@ export function ScannerPanel() {
               </div>
             )}
 
-            {!scanMutation.isPending && scanResults.length === 0 && (
+            {!isLoading && scanResults.length === 0 && (
               <div className="flex flex-col items-center justify-center py-12 text-muted-foreground">
                 <Search className="h-12 w-12 mb-4 opacity-30" />
                 <p className="text-sm">No scan results yet. Configure and run a scan above.</p>
-                {/* PRIORITY 9: Show search suggestions in empty state */}
                 <div className="mt-4 flex flex-wrap gap-2 justify-center max-w-lg">
                   {SEARCH_SUGGESTIONS.slice(0, 5).map((suggestion) => (
                     <button
@@ -311,7 +476,7 @@ export function ScannerPanel() {
             )}
 
             <AnimatePresence>
-              {!scanMutation.isPending && scanResults.length > 0 && (
+              {!isLoading && scanResults.length > 0 && (
                 <motion.div
                   initial={{ opacity: 0 }}
                   animate={{ opacity: 1 }}
