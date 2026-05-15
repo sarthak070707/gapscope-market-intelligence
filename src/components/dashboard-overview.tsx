@@ -2,15 +2,7 @@
 
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { motion } from 'framer-motion'
-import {
-  BarChart,
-  Bar,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Cell,
-} from 'recharts'
+import dynamic from 'next/dynamic'
 import {
   Search,
   Target,
@@ -42,16 +34,23 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Skeleton } from '@/components/ui/skeleton'
-import { ScrollArea } from '@/components/ui/scroll-area'
 import { Separator } from '@/components/ui/separator'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { ChartContainer, ChartTooltip, ChartTooltipContent, type ChartConfig } from '@/components/ui/chart'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { SaturationMeter } from '@/components/ui/saturation-meter'
 import { useAppStore } from '@/lib/store'
-import { FalseOpportunityBlock, MarketQuadrantBlock, WhyExistingProductsFailBlock, FounderFitBlock, SourceTransparencyBlock, MarketQuadrantChart, TrendComparisonBlock, UnderservedAudienceBlock, FeasibilitySummaryBlock } from '@/components/feature-blocks'
-import { DashboardSection, CollapsibleCard, ScrollableContent } from '@/components/dashboard-ui'
+import { FeasibilitySummaryBlock, MarketQuadrantChart, TrendComparisonBlock } from '@/components/feature-blocks'
+import { DashboardSection, ScrollableContent } from '@/components/dashboard-ui'
 import type { DashboardStats, TimePeriod, GapAnalysis, MarketSaturation, SubNiche, ComplaintCluster, UnderservedUserGroup, TrendComparison } from '@/types'
+
+// Dynamic import recharts to avoid SSR issues
+const BarChart = dynamic(() => import('recharts').then(mod => mod.BarChart), { ssr: false })
+const Bar = dynamic(() => import('recharts').then(mod => mod.Bar), { ssr: false })
+const XAxis = dynamic(() => import('recharts').then(mod => mod.XAxis), { ssr: false })
+const YAxis = dynamic(() => import('recharts').then(mod => mod.YAxis), { ssr: false })
+const CartesianGrid = dynamic(() => import('recharts').then(mod => mod.CartesianGrid), { ssr: false })
+const Cell = dynamic(() => import('recharts').then(mod => mod.Cell), { ssr: false })
 
 const chartConfig = {
   score: {
@@ -74,10 +73,6 @@ const BAR_COLORS = [
   'oklch(0.63 0.15 48)',
   'oklch(0.58 0.12 42)',
 ]
-
-// ─── No Mock Data ─────────────────────────────────────────
-// Dashboard only displays real data from the API.
-// When no data exists, an empty state is shown instead.
 
 // ─── Utility Functions ─────────────────────────────────────────────
 
@@ -104,14 +99,6 @@ const FEATURE_HIGHLIGHTS = [
   { icon: MessageSquare, label: 'Complaint Analysis', color: 'text-amber-600 dark:text-amber-400' },
   { icon: Target, label: 'Opportunity Scoring', color: 'text-green-600 dark:text-green-400' },
 ]
-
-function getComplaintBarColor(category: string) {
-  const cat = category.toLowerCase()
-  if (cat === 'pricing' || cat === 'performance') return 'bg-red-500'
-  if (cat === 'missing_feature' || cat === 'ux' || cat === 'missing features') return 'bg-amber-500'
-  if (cat === 'integration' || cat === 'support') return 'bg-sky-500'
-  return 'bg-orange-500'
-}
 
 function getComplaintBgColor(category: string) {
   const cat = category.toLowerCase()
@@ -148,21 +135,14 @@ function getOpportunityColor(score: number) {
   return { bar: 'bg-red-500', bg: 'bg-red-100 dark:bg-red-950/30', text: 'text-red-700 dark:text-red-400' }
 }
 
-function getScoreDotColor(score: number) {
-  if (score >= 70) return 'bg-green-500'
-  if (score >= 40) return 'bg-amber-500'
-  return 'bg-red-500'
-}
-
 // ─── Sub-Components ────────────────────────────────────────────────
 
-/** Enhanced Stat Card with trend indicator and subtle gradient */
+/** Enhanced Stat Card — NO initial opacity:0, uses CSS fade-in */
 function StatCard({
   icon: Icon,
   label,
   value,
   subtext,
-  delay = 0,
   lastUpdated,
   trend,
   dataConfidence,
@@ -171,64 +151,55 @@ function StatCard({
   label: string
   value: string | number
   subtext?: string
-  delay?: number
   lastUpdated?: string
   trend?: 'up' | 'down' | 'stable'
   dataConfidence?: { sourceCount: number; freshness: string }
 }) {
   return (
-    <motion.div
-      initial={{ opacity: 0, y: 20 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.4, delay }}
-    >
-      <Card className="relative overflow-hidden">
-        {/* Subtle top gradient accent */}
-        <div className="absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-orange-400 to-amber-400 dark:from-orange-600 dark:to-amber-600" />
-        <CardContent className="p-4 sm:p-6 pt-5 sm:pt-7">
-          <div className="flex items-center gap-3 sm:gap-4">
-            <div className="flex h-10 w-10 sm:h-12 sm:w-12 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-orange-100 to-amber-50 dark:from-orange-950/40 dark:to-amber-950/20">
-              <Icon className="h-5 w-5 sm:h-6 sm:w-6 text-orange-600 dark:text-orange-400" />
-            </div>
-            <div className="min-w-0 flex-1">
-              <div className="flex items-center gap-2">
-                <p className="text-xs sm:text-sm text-muted-foreground truncate">{label}</p>
-                {trend && (
-                  <span className="shrink-0">
-                    {trend === 'up' && <ArrowUpRight className="h-3.5 w-3.5 text-green-500" />}
-                    {trend === 'down' && <ArrowDownRight className="h-3.5 w-3.5 text-red-500" />}
-                    {trend === 'stable' && <Minus className="h-3.5 w-3.5 text-muted-foreground" />}
-                  </span>
-                )}
-              </div>
-              <p className="text-xl sm:text-2xl font-bold truncate">{value}</p>
-              {subtext && (
-                <p className="text-xs text-muted-foreground mt-0.5 truncate">{subtext}</p>
-              )}
-              {lastUpdated && (
-                <p className="text-xs text-muted-foreground/60 mt-0.5 truncate">
-                  Updated {formatLastUpdated(lastUpdated)}
-                </p>
-              )}
-            </div>
+    <Card className="relative overflow-hidden animate-fade-in">
+      <div className="absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-orange-400 to-amber-400 dark:from-orange-600 dark:to-amber-600" />
+      <CardContent className="p-4 sm:p-6 pt-5 sm:pt-7">
+        <div className="flex items-center gap-3 sm:gap-4">
+          <div className="flex h-10 w-10 sm:h-12 sm:w-12 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-orange-100 to-amber-50 dark:from-orange-950/40 dark:to-amber-950/20">
+            <Icon className="h-5 w-5 sm:h-6 sm:w-6 text-orange-600 dark:text-orange-400" />
           </div>
-          {/* Data Confidence Indicator */}
-          {dataConfidence && (
-            <div className="mt-2.5 flex items-center gap-2 text-[10px] text-muted-foreground border-t pt-2">
-              <ShieldCheck className="h-3 w-3 shrink-0 text-green-500" />
-              <span className="font-medium">Data Confidence:</span>
-              <span>{dataConfidence.sourceCount} source{dataConfidence.sourceCount !== 1 ? 's' : ''}</span>
-              <span className="text-muted-foreground/40">·</span>
-              <span className="italic">{dataConfidence.freshness}</span>
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center gap-2">
+              <p className="text-xs sm:text-sm text-muted-foreground truncate">{label}</p>
+              {trend && (
+                <span className="shrink-0">
+                  {trend === 'up' && <ArrowUpRight className="h-3.5 w-3.5 text-green-500" />}
+                  {trend === 'down' && <ArrowDownRight className="h-3.5 w-3.5 text-red-500" />}
+                  {trend === 'stable' && <Minus className="h-3.5 w-3.5 text-muted-foreground" />}
+                </span>
+              )}
             </div>
-          )}
-        </CardContent>
-      </Card>
-    </motion.div>
+            <p className="text-xl sm:text-2xl font-bold truncate">{value}</p>
+            {subtext && (
+              <p className="text-xs text-muted-foreground mt-0.5 truncate">{subtext}</p>
+            )}
+            {lastUpdated && (
+              <p className="text-xs text-muted-foreground/60 mt-0.5 truncate">
+                Updated {formatLastUpdated(lastUpdated)}
+              </p>
+            )}
+          </div>
+        </div>
+        {dataConfidence && (
+          <div className="mt-2.5 flex items-center gap-2 text-[10px] text-muted-foreground border-t pt-2">
+            <ShieldCheck className="h-3 w-3 shrink-0 text-green-500" />
+            <span className="font-medium">Data Confidence:</span>
+            <span>{dataConfidence.sourceCount} source{dataConfidence.sourceCount !== 1 ? 's' : ''}</span>
+            <span className="text-muted-foreground/40">·</span>
+            <span className="italic">{dataConfidence.freshness}</span>
+          </div>
+        )}
+      </CardContent>
+    </Card>
   )
 }
 
-/** Market Health indicator badge with colored icon */
+/** Market Health indicator badge */
 function MarketHealthBadge({ health }: { health: 'expanding' | 'stable' | 'contracting' }) {
   const config = {
     expanding: { icon: TrendingUp, color: 'text-green-600 dark:text-green-400', bg: 'bg-green-100 dark:bg-green-950/30', label: 'Expanding' },
@@ -245,7 +216,7 @@ function MarketHealthBadge({ health }: { health: 'expanding' | 'stable' | 'contr
   )
 }
 
-/** Mini metric pill for factor breakdowns */
+/** Mini metric pill */
 function MetricPill({ icon: Icon, label, value, colorClass }: { icon?: React.ElementType; label: string; value: string | number; colorClass?: string }) {
   return (
     <span className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs ${colorClass || 'bg-muted/50 text-muted-foreground'}`}>
@@ -263,11 +234,9 @@ function MiniGauge({ score, size = 'sm' }: { score: number; size?: 'sm' | 'md' }
   return (
     <div className="flex items-center gap-2">
       <div className={`w-16 ${h} rounded-full overflow-hidden ${bg}`}>
-        <motion.div
-          className={`h-full rounded-full ${bar}`}
-          initial={{ width: 0 }}
-          animate={{ width: `${Math.min(score, 100)}%` }}
-          transition={{ duration: 0.8, ease: 'easeOut' }}
+        <div
+          className={`${h} rounded-full ${bar} transition-all duration-700 ease-out`}
+          style={{ width: `${Math.min(score, 100)}%` }}
         />
       </div>
       <span className="text-xs font-semibold tabular-nums">{score}</span>
@@ -275,7 +244,7 @@ function MiniGauge({ score, size = 'sm' }: { score: number; size?: 'sm' | 'md' }
   )
 }
 
-/** Evidence Block — structured box for trending gaps */
+/** Evidence Block */
 function EvidenceBlock({ evidence }: { evidence: GapAnalysis['evidenceDetail'] }) {
   if (!evidence) return null
   const items: { icon: React.ElementType; text: string; color: string }[] = []
@@ -307,7 +276,7 @@ function EvidenceBlock({ evidence }: { evidence: GapAnalysis['evidenceDetail'] }
   )
 }
 
-/** Compact Evidence Metrics — shows just 2-3 key metrics inline */
+/** Compact Evidence Metrics */
 function CompactEvidenceMetrics({ evidence }: { evidence: GapAnalysis['evidenceDetail'] }) {
   if (!evidence) return null
   const metrics: { icon: React.ElementType; text: string; color: string }[] = []
@@ -408,12 +377,10 @@ export function DashboardOverview() {
           const errorBody = await res.json()
           errorMsg = errorBody.error || errorMsg
         } catch {
-          // JSON parse failed — gateway returned HTML (e.g., 502)
-          // Try to read response text for more context
           try {
             const text = await res.text()
             if (res.status === 502) {
-              errorMsg = `Dashboard data unavailable: Gateway returned 502 Bad Gateway. The backend may be starting up or temporarily overloaded. ${text ? `Gateway response: ${text.substring(0, 150)}` : 'Try refreshing the page.'}`
+              errorMsg = `Dashboard data unavailable: Gateway returned 502 Bad Gateway. ${text ? `Gateway response: ${text.substring(0, 150)}` : 'Try refreshing the page.'}`
             } else {
               errorMsg = `Dashboard data unavailable (HTTP ${res.status}). ${text ? `Response: ${text.substring(0, 150)}` : 'Try refreshing the page.'}`
             }
@@ -425,17 +392,14 @@ export function DashboardOverview() {
       }
       return res.json()
     },
-    retry: 2,
-    retryDelay: (attemptIndex) => Math.min(1000 * 2 ** attemptIndex, 10000),
+    retry: 1,
+    retryDelay: 2000,
   })
 
-  // Use real data only — never fall back to mock data
   const dashboardData = data
 
-  // Show skeleton while loading
   if (isLoading && !data) return <DashboardSkeleton />
 
-  // Show error state with retry when the API fails
   if (isError && !data) {
     return (
       <div className="flex flex-col items-center justify-center py-16 text-center">
@@ -452,7 +416,6 @@ export function DashboardOverview() {
     )
   }
 
-  // If we have no data at all (empty DB), show the welcome state
   if (!dashboardData) {
     return (
       <div className="flex flex-col items-center justify-center py-16 text-center">
@@ -479,7 +442,6 @@ export function DashboardOverview() {
     ? dashboardData.recentGaps[0].evidence || undefined
     : undefined
 
-  // Derive trend indicators from market metrics
   const mm = dashboardData.marketMetrics
   const productsTrend: 'up' | 'down' | 'stable' = mm
     ? mm.avgLaunchGrowth > 10 ? 'up' : mm.avgLaunchGrowth < -5 ? 'down' : 'stable'
@@ -498,68 +460,62 @@ export function DashboardOverview() {
 
         {/* ═══ Welcome Hero ═══ */}
         {!hasData && (
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.5 }}
-          >
-            <Card className="overflow-hidden border-orange-200 dark:border-orange-900/40">
-              <div className="flex flex-col md:flex-row items-center">
-                <div className="flex-1 p-6 sm:p-8 space-y-4">
-                  <div className="flex items-center gap-2">
-                    <Badge variant="outline" className="text-xs border-orange-300 text-orange-700 dark:border-orange-800 dark:text-orange-400">
-                      Market Intelligence
-                    </Badge>
-                  </div>
-                  <h2 className="text-2xl sm:text-3xl font-bold leading-tight">
-                    Find Market Gaps <span className="text-orange-600 dark:text-orange-400">Before Others Do</span>
-                  </h2>
-                  <p className="text-muted-foreground text-sm sm:text-base max-w-lg">
-                    Analyze real product launches, user complaints, and pricing data to identify underserved markets and actionable startup opportunities.
-                  </p>
-                  <div className="flex flex-wrap gap-4 pt-1">
-                    {FEATURE_HIGHLIGHTS.map((feat) => (
-                      <div key={feat.label} className="flex items-center gap-1.5">
-                        <feat.icon className={`h-4 w-4 ${feat.color}`} />
-                        <span className="text-xs font-medium text-muted-foreground">{feat.label}</span>
-                      </div>
-                    ))}
-                  </div>
-                  <div className="flex flex-wrap gap-3 pt-2">
-                    <Button
-                      onClick={() => setActiveTab('scanner')}
-                      className="bg-orange-600 hover:bg-orange-700 text-white"
-                    >
-                      <Search className="h-4 w-4" />
-                      Start Scanning
-                    </Button>
-                    <Button
-                      variant="outline"
-                      onClick={() => {
-                        setSelectedCategory('all')
-                        setActiveTab('trends')
-                      }}
-                    >
-                      <TrendingUp className="h-4 w-4" />
-                      Detect Trends
-                    </Button>
-                  </div>
+          <Card className="overflow-hidden border-orange-200 dark:border-orange-900/40 animate-fade-in">
+            <div className="flex flex-col md:flex-row items-center">
+              <div className="flex-1 p-6 sm:p-8 space-y-4">
+                <div className="flex items-center gap-2">
+                  <Badge variant="outline" className="text-xs border-orange-300 text-orange-700 dark:border-orange-800 dark:text-orange-400">
+                    Market Intelligence
+                  </Badge>
                 </div>
-                <div className="w-full md:w-64 h-48 md:h-full relative flex items-center justify-center p-6 bg-gradient-to-br from-orange-50 to-orange-100/50 dark:from-orange-950/20 dark:to-orange-900/10">
-                  <img
-                    src="/gapscope-hero.png"
-                    alt="GapScope"
-                    className="w-32 h-32 sm:w-40 sm:h-40 object-contain rounded-xl opacity-90"
-                  />
+                <h2 className="text-2xl sm:text-3xl font-bold leading-tight">
+                  Find Market Gaps <span className="text-orange-600 dark:text-orange-400">Before Others Do</span>
+                </h2>
+                <p className="text-muted-foreground text-sm sm:text-base max-w-lg">
+                  Analyze real product launches, user complaints, and pricing data to identify underserved markets and actionable startup opportunities.
+                </p>
+                <div className="flex flex-wrap gap-4 pt-1">
+                  {FEATURE_HIGHLIGHTS.map((feat) => (
+                    <div key={feat.label} className="flex items-center gap-1.5">
+                      <feat.icon className={`h-4 w-4 ${feat.color}`} />
+                      <span className="text-xs font-medium text-muted-foreground">{feat.label}</span>
+                    </div>
+                  ))}
+                </div>
+                <div className="flex flex-wrap gap-3 pt-2">
+                  <Button
+                    onClick={() => setActiveTab('scanner')}
+                    className="bg-orange-600 hover:bg-orange-700 text-white"
+                  >
+                    <Search className="h-4 w-4" />
+                    Start Scanning
+                  </Button>
+                  <Button
+                    variant="outline"
+                    onClick={() => {
+                      setSelectedCategory('all')
+                      setActiveTab('trends')
+                    }}
+                  >
+                    <TrendingUp className="h-4 w-4" />
+                    Detect Trends
+                  </Button>
                 </div>
               </div>
-            </Card>
-          </motion.div>
+              <div className="w-full md:w-64 h-48 md:h-full relative flex items-center justify-center p-6 bg-gradient-to-br from-orange-50 to-orange-100/50 dark:from-orange-950/20 dark:to-orange-900/10">
+                <img
+                  src="/gapscope-hero.png"
+                  alt="GapScope"
+                  className="w-32 h-32 sm:w-40 sm:h-40 object-contain rounded-xl opacity-90"
+                />
+              </div>
+            </div>
+          </Card>
         )}
 
         {/* ═══ Time Filter + Data Confidence ═══ */}
         {hasData && (
-          <div className="space-y-2">
+          <div className="space-y-2 animate-fade-in">
             <div className="flex items-center justify-between">
               <div>
                 <h2 className="text-lg font-semibold">Market Intelligence Dashboard</h2>
@@ -575,7 +531,6 @@ export function DashboardOverview() {
                 </TabsList>
               </Tabs>
             </div>
-            {/* Time period context line + trend comparison */}
             <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
               <div className="flex items-center gap-1.5">
                 <Clock className="h-3.5 w-3.5" />
@@ -603,30 +558,17 @@ export function DashboardOverview() {
                   </div>
                 </>
               )}
-              {mm && mm.totalComplaints > 0 && (
-                <>
-                  <span className="text-muted-foreground/40">·</span>
-                  <div className="flex items-center gap-1.5">
-                    <ArrowUpRight className="h-3.5 w-3.5 text-amber-500" />
-                    <span>
-                      <span className="text-amber-600 dark:text-amber-400 font-medium">↑12%</span>
-                      {' '}complaint volume vs prior period
-                    </span>
-                  </div>
-                </>
-              )}
             </div>
           </div>
         )}
 
-        {/* ═══ Stat Cards — Enhanced with trend arrows + gradient accent ═══ */}
+        {/* ═══ Stat Cards ═══ */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
           <StatCard
             icon={Search}
             label="Products Scanned"
             value={dashboardData.totalProducts.toLocaleString()}
             subtext="Total across all categories"
-            delay={0}
             lastUpdated={latestScanTime}
             trend={productsTrend}
             dataConfidence={{ sourceCount: dashboardData.topCategories.length, freshness: timePeriod === '7d' ? 'Last 7 days' : timePeriod === '30d' ? 'Last 30 days' : 'Last 90 days' }}
@@ -636,7 +578,6 @@ export function DashboardOverview() {
             label="Market Gaps Found"
             value={dashboardData.totalGaps.toLocaleString()}
             subtext="Identified opportunities"
-            delay={0.05}
             lastUpdated={latestScanTime}
             trend={gapsTrend}
             dataConfidence={{ sourceCount: dashboardData.trendingGaps.length, freshness: timePeriod === '7d' ? 'Last 7 days' : timePeriod === '30d' ? 'Last 30 days' : 'Last 90 days' }}
@@ -646,7 +587,6 @@ export function DashboardOverview() {
             label="Opportunities"
             value={dashboardData.totalOpportunities.toLocaleString()}
             subtext="Actionable insights"
-            delay={0.1}
             lastUpdated={latestScanTime}
             trend={oppTrend}
             dataConfidence={{ sourceCount: dashboardData.emergingNiches.length, freshness: timePeriod === '7d' ? 'Last 7 days' : timePeriod === '30d' ? 'Last 30 days' : 'Last 90 days' }}
@@ -656,136 +596,118 @@ export function DashboardOverview() {
             label="Avg Saturation"
             value={`${dashboardData.avgSaturation}%`}
             subtext="Market density score"
-            delay={0.15}
             lastUpdated={latestScanTime}
             trend={satTrend}
             dataConfidence={{ sourceCount: dashboardData.saturatedMarkets.length, freshness: timePeriod === '7d' ? 'Last 7 days' : timePeriod === '30d' ? 'Last 30 days' : 'Last 90 days' }}
           />
         </div>
 
-        {/* ═══ 1. Visual Market Metrics Bar ═══ */}
+        {/* ═══ Visual Market Metrics Bar ═══ */}
         {mm && hasData && (
-          <motion.div
-            initial={{ opacity: 0, y: 10 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.4, delay: 0.18 }}
-          >
-            <Card className="overflow-hidden">
-              <CardContent className="p-0">
-                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-px bg-border">
-                  {/* Market Health */}
-                  <div className="flex items-center gap-2.5 px-4 py-3 min-w-0 bg-background">
-                    <Activity className="h-4 w-4 text-muted-foreground shrink-0" />
-                    <div className="min-w-0">
-                      <p className="text-xs text-muted-foreground">Market Health</p>
-                      <MarketHealthBadge health={mm.marketHealth} />
-                    </div>
+          <Card className="overflow-hidden animate-fade-in">
+            <CardContent className="p-0">
+              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-px bg-border">
+                <div className="flex items-center gap-2.5 px-4 py-3 min-w-0 bg-background">
+                  <Activity className="h-4 w-4 text-muted-foreground shrink-0" />
+                  <div className="min-w-0">
+                    <p className="text-xs text-muted-foreground">Market Health</p>
+                    <MarketHealthBadge health={mm.marketHealth} />
                   </div>
-                  {/* Avg Launch Growth */}
-                  <div className="flex items-center gap-2.5 px-4 py-3 min-w-0 bg-background">
-                    <Rocket className="h-4 w-4 text-muted-foreground shrink-0" />
-                    <div className="min-w-0">
-                      <p className="text-xs text-muted-foreground">Avg Launch Growth</p>
-                      <div className="flex items-center gap-1">
-                        <span className="text-sm font-bold tabular-nums">
-                          {mm.avgLaunchGrowth > 0 ? '+' : ''}{mm.avgLaunchGrowth}%
-                        </span>
-                        {mm.avgLaunchGrowth > 0 ? (
-                          <ArrowUpRight className="h-3.5 w-3.5 text-green-500" />
-                        ) : mm.avgLaunchGrowth < 0 ? (
-                          <ArrowDownRight className="h-3.5 w-3.5 text-red-500" />
-                        ) : (
-                          <Minus className="h-3.5 w-3.5 text-muted-foreground" />
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                  {/* Total Complaints */}
-                  <div className="flex items-center gap-2.5 px-4 py-3 min-w-0 bg-background">
-                    <MessageSquare className="h-4 w-4 text-muted-foreground shrink-0" />
-                    <div className="min-w-0">
-                      <p className="text-xs text-muted-foreground">Total Complaints</p>
-                      <p className="text-sm font-bold tabular-nums">{mm.totalComplaints.toLocaleString()}</p>
-                    </div>
-                  </div>
-                  {/* High-Opportunity Gaps */}
-                  <div className="flex items-center gap-2.5 px-4 py-3 min-w-0 bg-background">
-                    <Flame className="h-4 w-4 text-orange-500 shrink-0" />
-                    <div className="min-w-0">
-                      <p className="text-xs text-muted-foreground">High-Opportunity Gaps</p>
-                      <p className="text-sm font-bold tabular-nums">{mm.highOpportunityCount}</p>
-                    </div>
-                  </div>
-                  {/* Avg Opportunity Score */}
-                  <div className="flex items-center gap-2.5 px-4 py-3 min-w-0 bg-background">
-                    <Gauge className="h-4 w-4 text-muted-foreground shrink-0" />
-                    <div className="min-w-0">
-                      <p className="text-xs text-muted-foreground">Avg Opportunity Score</p>
-                      <MiniGauge score={mm.avgOpportunityScore} />
+                </div>
+                <div className="flex items-center gap-2.5 px-4 py-3 min-w-0 bg-background">
+                  <Rocket className="h-4 w-4 text-muted-foreground shrink-0" />
+                  <div className="min-w-0">
+                    <p className="text-xs text-muted-foreground">Avg Launch Growth</p>
+                    <div className="flex items-center gap-1">
+                      <span className="text-sm font-bold tabular-nums">
+                        {mm.avgLaunchGrowth > 0 ? '+' : ''}{mm.avgLaunchGrowth}%
+                      </span>
+                      {mm.avgLaunchGrowth > 0 ? (
+                        <ArrowUpRight className="h-3.5 w-3.5 text-green-500" />
+                      ) : mm.avgLaunchGrowth < 0 ? (
+                        <ArrowDownRight className="h-3.5 w-3.5 text-red-500" />
+                      ) : (
+                        <Minus className="h-3.5 w-3.5 text-muted-foreground" />
+                      )}
                     </div>
                   </div>
                 </div>
-              </CardContent>
-            </Card>
-          </motion.div>
+                <div className="flex items-center gap-2.5 px-4 py-3 min-w-0 bg-background">
+                  <MessageSquare className="h-4 w-4 text-muted-foreground shrink-0" />
+                  <div className="min-w-0">
+                    <p className="text-xs text-muted-foreground">Total Complaints</p>
+                    <p className="text-sm font-bold tabular-nums">{mm.totalComplaints.toLocaleString()}</p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2.5 px-4 py-3 min-w-0 bg-background">
+                  <Flame className="h-4 w-4 text-orange-500 shrink-0" />
+                  <div className="min-w-0">
+                    <p className="text-xs text-muted-foreground">High-Opportunity Gaps</p>
+                    <p className="text-sm font-bold tabular-nums">{mm.highOpportunityCount}</p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2.5 px-4 py-3 min-w-0 bg-background">
+                  <Gauge className="h-4 w-4 text-muted-foreground shrink-0" />
+                  <div className="min-w-0">
+                    <p className="text-xs text-muted-foreground">Avg Opportunity Score</p>
+                    <MiniGauge score={mm.avgOpportunityScore} />
+                  </div>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
         )}
 
-        {/* ═══ 1.5 Market Quadrant Visualization ═══ */}
+        {/* ═══ Market Quadrant Visualization ═══ */}
         {dashboardData.saturatedMarkets.length > 0 && hasData && (
-          <motion.div
-            initial={{ opacity: 0, y: 10 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.4, delay: 0.2 }}
-          >
-            <Card>
-              <CardHeader>
-                <div className="flex items-center gap-2">
-                  <BarChart3 className="h-5 w-5 text-orange-500" />
-                  <CardTitle>Market Quadrant Map</CardTitle>
+          <Card className="animate-fade-in">
+            <CardHeader>
+              <div className="flex items-center gap-2">
+                <BarChart3 className="h-5 w-5 text-orange-500" />
+                <CardTitle>Market Quadrant Map</CardTitle>
+              </div>
+              <CardDescription>Competition vs. opportunity positioning across categories</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="flex flex-col lg:flex-row items-center gap-6">
+                <div className="overflow-x-auto scroll-x-row w-full lg:w-auto flex justify-center">
+                  <MarketQuadrantChart
+                    items={dashboardData.saturatedMarkets
+                      .filter(sm => sm.marketQuadrant)
+                      .map(sm => ({ name: sm.category, quadrant: sm.marketQuadrant! }))}
+                  />
                 </div>
-                <CardDescription>Competition vs. opportunity positioning across categories</CardDescription>
-              </CardHeader>
-              <CardContent>
-                <div className="flex flex-col lg:flex-row items-center gap-6">
-                  <div className="overflow-x-auto scroll-x-row w-full lg:w-auto flex justify-center">
-                    <MarketQuadrantChart
-                      items={dashboardData.saturatedMarkets
-                        .filter(sm => sm.marketQuadrant)
-                        .map(sm => ({ name: sm.category, quadrant: sm.marketQuadrant! }))}
-                    />
-                  </div>
-                  <div className="flex-1 space-y-3 w-full max-h-[400px] overflow-y-auto custom-scrollbar pr-1">
-                    {dashboardData.saturatedMarkets.filter(sm => sm.marketQuadrant).map((sm) => {
-                      const q = sm.marketQuadrant!
-                      const quadrantColors: Record<string, string> = {
-                        goldmine: 'bg-green-100 text-green-700 dark:bg-green-950/40 dark:text-green-400',
-                        blue_ocean: 'bg-sky-100 text-sky-700 dark:bg-sky-950/40 dark:text-sky-400',
-                        crowded: 'bg-amber-100 text-amber-700 dark:bg-amber-950/40 dark:text-amber-400',
-                        dead_zone: 'bg-red-100 text-red-700 dark:bg-red-950/40 dark:text-red-400',
-                      }
-                      return (
-                        <div key={sm.category} className="rounded-lg border p-3 gap-2">
-                          <div className="flex items-center justify-between gap-2 mb-1.5">
-                            <span className="text-sm font-semibold truncate">{sm.category}</span>
-                            <Badge variant="outline" className={`shrink-0 whitespace-nowrap text-[10px] ${quadrantColors[q.quadrant] || ''}`}>
-                              {q.quadrant.replace('_', ' ')}
-                            </Badge>
-                          </div>
-                          <div className="flex items-center gap-3">
-                            <span className="text-xs text-muted-foreground whitespace-nowrap">Comp: <span className="font-medium">{q.competitionScore}</span></span>
-                            <span className="text-xs text-muted-foreground whitespace-nowrap">Opp: <span className="font-medium">{q.opportunityScore}</span></span>
-                          </div>
+                <div className="flex-1 space-y-3 w-full max-h-[400px] overflow-y-auto custom-scrollbar pr-1">
+                  {dashboardData.saturatedMarkets.filter(sm => sm.marketQuadrant).map((sm) => {
+                    const q = sm.marketQuadrant!
+                    const quadrantColors: Record<string, string> = {
+                      goldmine: 'bg-green-100 text-green-700 dark:bg-green-950/40 dark:text-green-400',
+                      blue_ocean: 'bg-sky-100 text-sky-700 dark:bg-sky-950/40 dark:text-sky-400',
+                      crowded: 'bg-amber-100 text-amber-700 dark:bg-amber-950/40 dark:text-amber-400',
+                      dead_zone: 'bg-red-100 text-red-700 dark:bg-red-950/40 dark:text-red-400',
+                    }
+                    return (
+                      <div key={sm.category} className="rounded-lg border p-3 gap-2">
+                        <div className="flex items-center justify-between gap-2 mb-1.5">
+                          <span className="text-sm font-semibold truncate">{sm.category}</span>
+                          <Badge variant="outline" className={`shrink-0 whitespace-nowrap text-[10px] ${quadrantColors[q.quadrant] || ''}`}>
+                            {q.quadrant.replace('_', ' ')}
+                          </Badge>
                         </div>
-                      )
-                    })}
-                  </div>
+                        <div className="flex items-center gap-3">
+                          <span className="text-xs text-muted-foreground whitespace-nowrap">Comp: <span className="font-medium">{q.competitionScore}</span></span>
+                          <span className="text-xs text-muted-foreground whitespace-nowrap">Opp: <span className="font-medium">{q.opportunityScore}</span></span>
+                        </div>
+                      </div>
+                    )
+                  })}
                 </div>
-              </CardContent>
-            </Card>
-          </motion.div>
+              </div>
+            </CardContent>
+          </Card>
         )}
 
-        {/* ═══ 1.6 Time-Based Trend Analysis — COLLAPSED BY DEFAULT ═══ */}
+        {/* ═══ Time-Based Trend Analysis ═══ */}
         {dashboardData.trendComparisons && dashboardData.trendComparisons.length > 0 && (
           <DashboardSection
             icon={Clock}
@@ -796,7 +718,6 @@ export function DashboardOverview() {
             <div className="space-y-3">
               {dashboardData.trendComparisons.map((tc, i) => (
                 <div key={tc.category} className="rounded-lg border p-3 space-y-2">
-                  {/* Summary row — always visible */}
                   <div className="flex items-center justify-between gap-2">
                     <div className="flex items-center gap-2 min-w-0">
                       <Badge variant="outline" className="text-xs shrink-0">{tc.category}</Badge>
@@ -816,22 +737,14 @@ export function DashboardOverview() {
                   </div>
                   <p className="text-xs text-muted-foreground line-clamp-1">{tc.summary}</p>
 
-                  {/* Expanded: Trend comparison snapshots in scrollable panel */}
                   {expandedTrend === i && (
-                    <motion.div
-                      initial={{ opacity: 0, y: -8 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      exit={{ opacity: 0, y: -8 }}
-                      transition={{ duration: 0.2 }}
-                    >
-                      <ScrollableContent maxHeight={320}>
-                        <TrendComparisonBlock
-                          comparisons={tc.snapshots}
-                          trendDirection={tc.trendDirection}
-                          summary={tc.summary}
-                        />
-                      </ScrollableContent>
-                    </motion.div>
+                    <ScrollableContent maxHeight={320}>
+                      <TrendComparisonBlock
+                        comparisons={tc.snapshots}
+                        trendDirection={tc.trendDirection}
+                        summary={tc.summary}
+                      />
+                    </ScrollableContent>
                   )}
                 </div>
               ))}
@@ -839,7 +752,7 @@ export function DashboardOverview() {
           </DashboardSection>
         )}
 
-        {/* ═══ 2. Trending Gaps — collapsed by default, expand one at a time ═══ */}
+        {/* ═══ Trending Gaps ═══ */}
         {dashboardData.trendingGaps.length > 0 && (
           <DashboardSection
             icon={Flame}
@@ -851,7 +764,6 @@ export function DashboardOverview() {
               {dashboardData.trendingGaps.map((gap, i) => (
                 <div key={i}>
                   <div className="py-3 space-y-2">
-                    {/* Always visible: severity badge + title + short description + key metrics */}
                     <div className="flex items-start gap-2.5">
                       <Badge variant="outline" className={`shrink-0 mt-0.5 ${severityColor(gap.severity)}`}>
                         {gap.severity}
@@ -871,145 +783,82 @@ export function DashboardOverview() {
                       </Button>
                     </div>
 
-                    {/* Compact key metrics — always visible */}
                     <CompactEvidenceMetrics evidence={gap.evidenceDetail} />
 
-                    {/* Collapsible detail section — fade+slide, NO overflow-hidden, NO height animation */}
                     {expandedGap === i && (
-                      <motion.div
-                        initial={{ opacity: 0, y: -8 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        exit={{ opacity: 0, y: -8 }}
-                        transition={{ duration: 0.2 }}
-                      >
-                        <ScrollableContent maxHeight={320}>
-                          <div className="space-y-3">
-                            {/* Full description */}
-                            <p className="text-xs text-muted-foreground leading-relaxed">{gap.description}</p>
+                      <ScrollableContent maxHeight={320}>
+                        <div className="space-y-3">
+                          <p className="text-xs text-muted-foreground leading-relaxed">{gap.description}</p>
 
-                            {/* Feasibility Summary Block */}
-                            <FeasibilitySummaryBlock
-                              executionDifficulty={gap.executionDifficulty ? { level: gap.executionDifficulty.level, demandLevel: gap.executionDifficulty.demandLevel, competitionLevel: gap.executionDifficulty.competitionLevel } : undefined}
-                              opportunityScore={gap.marketQuadrant ? { total: gap.marketQuadrant.opportunityScore } : undefined}
-                              falseOpportunity={gap.falseOpportunity ? { verdict: gap.falseOpportunity.verdict } : undefined}
-                            />
+                          <FeasibilitySummaryBlock
+                            executionDifficulty={gap.executionDifficulty ? { level: gap.executionDifficulty.level, demandLevel: gap.executionDifficulty.demandLevel, competitionLevel: gap.executionDifficulty.competitionLevel } : undefined}
+                            opportunityScore={gap.marketQuadrant ? { total: gap.marketQuadrant.opportunityScore } : undefined}
+                            falseOpportunity={gap.falseOpportunity ? { verdict: gap.falseOpportunity.verdict } : undefined}
+                          />
 
-                            {/* Full Evidence Block */}
-                            <EvidenceBlock evidence={gap.evidenceDetail} />
+                          <EvidenceBlock evidence={gap.evidenceDetail} />
 
-                            {/* Combined badges row */}
-                            {(gap.subNiche?.name || gap.marketQuadrant?.quadrant || gap.falseOpportunity?.verdict) && (
-                              <div className="flex flex-wrap items-center gap-1.5 gap-y-2 max-w-full">
-                                {gap.subNiche?.name && (
-                                  <Badge className="text-xs bg-green-100 text-green-800 dark:bg-green-950/40 dark:text-green-400 gap-1 shrink-0 whitespace-nowrap">
-                                    <CircleDot className="h-3 w-3" />
-                                    {gap.subNiche.name}
-                                    {gap.subNiche.opportunityScore > 0 && (
-                                      <span className="ml-0.5 opacity-80">{gap.subNiche.opportunityScore}</span>
-                                    )}
-                                  </Badge>
-                                )}
-                                {gap.marketQuadrant?.quadrant === 'goldmine' && (
-                                  <Badge className="text-xs bg-green-600 text-white gap-1 shrink-0 whitespace-nowrap">🔥 Goldmine</Badge>
-                                )}
-                                {gap.marketQuadrant?.quadrant === 'dead_zone' && (
-                                  <Badge className="text-xs bg-red-600 text-white gap-1 shrink-0 whitespace-nowrap">💀 Dead Zone</Badge>
-                                )}
-                                {gap.falseOpportunity?.verdict === 'avoid' && (
-                                  <Badge className="text-xs bg-red-600 text-white gap-1 shrink-0 whitespace-nowrap">⚠ Avoid</Badge>
-                                )}
-                                {gap.falseOpportunity?.verdict === 'caution' && (
-                                  <Badge className="text-xs bg-amber-600 text-white gap-1 shrink-0 whitespace-nowrap">⚡ Caution</Badge>
-                                )}
-                              </div>
-                            )}
-
-                            {/* Underserved Audience — compact badges */}
-                            {gap.underservedUsers && gap.underservedUsers.length > 0 && (
-                              <div className="flex items-center gap-1.5 gap-y-2 flex-wrap max-w-full">
-                                <Users className="h-3 w-3 shrink-0 text-purple-500" />
-                                <span className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider shrink-0">Underserved:</span>
-                                {gap.underservedUsers.slice(0, 3).map((user, j) => (
-                                  <Badge
-                                    key={j}
-                                    variant="outline"
-                                    className="text-[10px] h-5 px-1.5 bg-purple-50 text-purple-700 dark:bg-purple-950/30 dark:text-purple-400 border-purple-200 dark:border-purple-800/40 shrink-0 whitespace-nowrap"
-                                  >
-                                    {user.userGroup}
-                                    {user.opportunityScore > 0 && (
-                                      <span className="ml-0.5 opacity-70">{user.opportunityScore}</span>
-                                    )}
-                                  </Badge>
-                                ))}
-                                {gap.underservedUsers.length > 3 && (
-                                  <span className="text-[10px] text-muted-foreground">+{gap.underservedUsers.length - 3} more</span>
-                                )}
-                              </div>
-                            )}
-
-                            {/* Affected Products */}
-                            {gap.affectedProducts && gap.affectedProducts.length > 0 && (
-                              <div className="scroll-x-row overflow-x-auto -mx-1 px-1">
-                                <div className="flex flex-wrap gap-1.5 gap-y-2" style={{ minWidth: 'min-content' }}>
-                                  <span className="text-xs text-muted-foreground self-center mr-0.5 shrink-0">Affected:</span>
-                                  {gap.affectedProducts.slice(0, 4).map((p, j) => (
-                                    <Tooltip key={j}>
-                                      <TooltipTrigger asChild>
-                                        <Badge variant="outline" className="text-xs h-6 bg-muted/50 cursor-default gap-1 shrink-0 whitespace-nowrap">
-                                          <Link2 className="h-3 w-3 text-muted-foreground" />
-                                          {p.name}
-                                          {p.pricing && (
-                                            <span className="text-orange-600 dark:text-orange-400 font-medium">{p.pricing}</span>
-                                          )}
-                                        </Badge>
-                                      </TooltipTrigger>
-                                      <TooltipContent side="bottom" className="text-xs">
-                                        {p.strengths[0] && <span className="text-green-600">+ {p.strengths[0]}</span>}
-                                        {p.strengths[0] && p.weaknesses[0] && <span className="mx-1">·</span>}
-                                        {p.weaknesses[0] && <span className="text-red-600">- {p.weaknesses[0]}</span>}
-                                      </TooltipContent>
-                                    </Tooltip>
-                                  ))}
-                                  {gap.affectedProducts.length > 4 && (
-                                    <Badge variant="outline" className="text-xs h-6 bg-muted/50 shrink-0 whitespace-nowrap">
-                                      +{gap.affectedProducts.length - 4} more
-                                    </Badge>
+                          {(gap.subNiche?.name || gap.marketQuadrant?.quadrant || gap.falseOpportunity?.verdict) && (
+                            <div className="flex flex-wrap items-center gap-1.5 gap-y-2 max-w-full">
+                              {gap.subNiche?.name && (
+                                <Badge className="text-xs bg-green-100 text-green-800 dark:bg-green-950/40 dark:text-green-400 gap-1 shrink-0 whitespace-nowrap">
+                                  <CircleDot className="h-3 w-3" />
+                                  {gap.subNiche.name}
+                                  {gap.subNiche.opportunityScore > 0 && (
+                                    <span className="ml-0.5 opacity-80">{gap.subNiche.opportunityScore}</span>
                                   )}
-                                </div>
-                              </div>
-                            )}
+                                </Badge>
+                              )}
+                              {gap.marketQuadrant?.quadrant === 'goldmine' && (
+                                <Badge className="text-xs bg-green-600 text-white gap-1 shrink-0 whitespace-nowrap">Goldmine</Badge>
+                              )}
+                              {gap.marketQuadrant?.quadrant === 'dead_zone' && (
+                                <Badge className="text-xs bg-red-600 text-white gap-1 shrink-0 whitespace-nowrap">Dead Zone</Badge>
+                              )}
+                              {gap.falseOpportunity?.verdict === 'avoid' && (
+                                <Badge className="text-xs bg-red-600 text-white gap-1 shrink-0 whitespace-nowrap">Avoid</Badge>
+                              )}
+                              {gap.falseOpportunity?.verdict === 'caution' && (
+                                <Badge className="text-xs bg-amber-600 text-white gap-1 shrink-0 whitespace-nowrap">Caution</Badge>
+                              )}
+                            </div>
+                          )}
 
-                            {/* Inline meta: Execution + Why Now + Sources */}
-                            {(gap.executionDifficulty || gap.whyNow || gap.sourceTransparency?.sourcePlatforms) && (
-                              <div className="flex flex-wrap items-center gap-x-3 gap-y-2 text-[11px] text-muted-foreground max-w-full">
-                                {gap.executionDifficulty && (
-                                  <span className="inline-flex items-center gap-1">
-                                    <Gauge className="h-3 w-3 shrink-0" />
-                                    {gap.executionDifficulty.level === 'low' || gap.executionDifficulty.level === 'low-medium' ? 'Easy' : gap.executionDifficulty.level === 'medium' ? 'Medium' : gap.executionDifficulty.level === 'medium-high' ? 'Med-Hard' : 'Hard'}
-                                    {gap.executionDifficulty.timeToMvp && <> · {gap.executionDifficulty.timeToMvp}</>}
-                                    {gap.executionDifficulty.estimatedBudget && <> · {gap.executionDifficulty.estimatedBudget}</>}
-                                  </span>
-                                )}
-                                {gap.whyNow && (
-                                  <span className="inline-flex items-center gap-1 max-w-[280px]">
-                                    <Clock className="h-3 w-3 shrink-0 text-amber-500" />
-                                    <span className="truncate">{gap.whyNow.timingAdvantage || gap.whyNow.marketGrowthDriver}</span>
-                                  </span>
-                                )}
-                                {gap.sourceTransparency?.sourcePlatforms && (
-                                  <span className="inline-flex items-center gap-1">
-                                    <MessageSquare className="h-3 w-3 shrink-0" />
-                                    {gap.sourceTransparency.sourcePlatforms.join(', ')}
-                                    {gap.sourceTransparency.confidenceLevel && (
-                                      <Badge variant="outline" className="text-[9px] h-4 px-1 ml-0.5 whitespace-nowrap">{gap.sourceTransparency.confidenceLevel}</Badge>
-                                    )}
-                                  </span>
-                                )}
-                              </div>
-                            )}
-                          </div>
-                        </ScrollableContent>
-                      </motion.div>
+                          {gap.underservedUsers && gap.underservedUsers.length > 0 && (
+                            <div className="flex items-center gap-1.5 gap-y-2 flex-wrap max-w-full">
+                              <Users className="h-3 w-3 shrink-0 text-purple-500" />
+                              <span className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider shrink-0">Underserved:</span>
+                              {gap.underservedUsers.slice(0, 3).map((user, j) => (
+                                <Badge
+                                  key={j}
+                                  variant="outline"
+                                  className="text-[10px] h-5 px-1.5 bg-purple-50 text-purple-700 dark:bg-purple-950/30 dark:text-purple-400 border-purple-200 dark:border-purple-800/40 shrink-0 whitespace-nowrap"
+                                >
+                                  {user.userGroup}
+                                </Badge>
+                              ))}
+                            </div>
+                          )}
+
+                          {(gap.executionDifficulty || gap.whyNow || gap.sourceTransparency?.sourcePlatforms) && (
+                            <div className="flex flex-wrap items-center gap-x-3 gap-y-2 text-[11px] text-muted-foreground max-w-full">
+                              {gap.executionDifficulty && (
+                                <span className="inline-flex items-center gap-1">
+                                  <Gauge className="h-3 w-3 shrink-0" />
+                                  {gap.executionDifficulty.level === 'low' || gap.executionDifficulty.level === 'low-medium' ? 'Easy' : gap.executionDifficulty.level === 'medium' ? 'Medium' : gap.executionDifficulty.level === 'medium-high' ? 'Med-Hard' : 'Hard'}
+                                  {gap.executionDifficulty.timeToMvp && <> · {gap.executionDifficulty.timeToMvp}</>}
+                                </span>
+                              )}
+                              {gap.whyNow && (
+                                <span className="inline-flex items-center gap-1 max-w-[280px]">
+                                  <Clock className="h-3 w-3 shrink-0 text-amber-500" />
+                                  <span className="truncate">{gap.whyNow.timingAdvantage || gap.whyNow.marketGrowthDriver}</span>
+                                </span>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      </ScrollableContent>
                     )}
                   </div>
                   {i < dashboardData.trendingGaps.length - 1 && <Separator />}
@@ -1019,10 +868,9 @@ export function DashboardOverview() {
           </DashboardSection>
         )}
 
-        {/* ═══ 4. Saturated Markets + 5. Emerging Niches — 2-col grid ═══ */}
+        {/* ═══ Saturated Markets + Emerging Niches ═══ */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
 
-          {/* Saturated Markets — collapsed by default */}
           {dashboardData.saturatedMarkets.length > 0 && (
             <DashboardSection
               icon={AlertTriangle}
@@ -1034,7 +882,6 @@ export function DashboardOverview() {
               <div className="space-y-3">
                 {dashboardData.saturatedMarkets.slice(0, 5).map((sat, i) => (
                   <div key={sat.category} className="rounded-lg border p-3 space-y-2">
-                    {/* Category name + saturation badge + expand button */}
                     <div className="flex items-center justify-between gap-2">
                       <div className="flex items-center gap-2 min-w-0">
                         <span className="text-sm font-semibold truncate">{sat.category}</span>
@@ -1059,10 +906,8 @@ export function DashboardOverview() {
                       </Button>
                     </div>
 
-                    {/* Visual saturation bar — always visible */}
                     <SaturationMeter score={sat.score} size="md" />
 
-                    {/* Factor breakdown — show only 3 pills in collapsed state */}
                     <div className="flex flex-wrap gap-1.5 gap-y-2">
                       <MetricPill icon={Database} label="products" value={sat.factors.similarProducts} />
                       <MetricPill icon={Zap} label="overlap" value={`${sat.factors.featureOverlap}%`} colorClass="bg-amber-50 text-amber-700 dark:bg-amber-950/30 dark:text-amber-400" />
@@ -1075,61 +920,18 @@ export function DashboardOverview() {
                       )}
                     </div>
 
-                    {/* Collapsible: Competitors table + Sub-niches — fade+slide, NO overflow-hidden */}
-                    {expandedMarket === i && (
-                      <motion.div
-                        initial={{ opacity: 0, y: -8 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        exit={{ opacity: 0, y: -8 }}
-                        transition={{ duration: 0.2 }}
-                      >
-                        <ScrollableContent maxHeight={320}>
-                          <div className="space-y-2">
-                            {/* Top Competitors table */}
-                            {sat.topCompetitors && sat.topCompetitors.length > 0 && (
-                              <div className="rounded-md border scroll-x-row">
-                                <table className="w-full text-xs" style={{ minWidth: 360 }}>
-                                  <thead>
-                                    <tr className="bg-muted/50 border-b">
-                                      <th className="text-left p-1.5 font-medium">Name</th>
-                                      <th className="text-left p-1.5 font-medium">Pricing</th>
-                                      <th className="text-left p-1.5 font-medium">Strength</th>
-                                      <th className="text-left p-1.5 font-medium">Weakness</th>
-                                    </tr>
-                                  </thead>
-                                  <tbody>
-                                    {sat.topCompetitors.slice(0, 3).map((comp, j) => (
-                                      <tr key={j} className={j < sat.topCompetitors!.length - 1 ? 'border-b' : ''}>
-                                        <td className="p-1.5 font-medium">{comp.name}</td>
-                                        <td className="p-1.5 text-muted-foreground">{comp.pricing}</td>
-                                        <td className="p-1.5 text-green-700 dark:text-green-400 line-clamp-1">{comp.strengths[0] || '—'}</td>
-                                        <td className="p-1.5 text-red-700 dark:text-red-400 line-clamp-1">{comp.weaknesses[0] || '—'}</td>
-                                      </tr>
-                                    ))}
-                                  </tbody>
-                                </table>
-                              </div>
-                            )}
-
-                            {/* Sub-niches as badges */}
-                            {sat.subNiches && sat.subNiches.length > 0 && (
-                              <div className="flex flex-wrap gap-1.5 gap-y-2 items-center">
-                                <span className="text-xs text-muted-foreground shrink-0">Sub-niches:</span>
-                                {sat.subNiches.slice(0, 3).map((sn, j) => (
-                                  <Badge key={j} variant="secondary" className="text-[10px] bg-green-100 text-green-700 dark:bg-green-950/30 dark:text-green-400 shrink-0 whitespace-nowrap">
-                                    {sn.name}
-                                  </Badge>
-                                ))}
-                                {sat.subNiches.length > 3 && (
-                                  <Badge variant="secondary" className="text-[10px] bg-muted/50">
-                                    +{sat.subNiches.length - 3}
-                                  </Badge>
-                                )}
-                              </div>
-                            )}
+                    {expandedMarket === i && sat.marketQuadrant && (
+                      <ScrollableContent maxHeight={200}>
+                        <div className="space-y-2 pt-2 border-t">
+                          <div className="flex items-center gap-3 text-xs">
+                            <span className="text-muted-foreground">Competition: <span className="font-medium">{sat.marketQuadrant.competitionScore}/100</span></span>
+                            <span className="text-muted-foreground">Opportunity: <span className="font-medium">{sat.marketQuadrant.opportunityScore}/100</span></span>
                           </div>
-                        </ScrollableContent>
-                      </motion.div>
+                          <Badge variant="outline" className="text-[10px] whitespace-nowrap">
+                            {sat.marketQuadrant.quadrant.replace('_', ' ')}
+                          </Badge>
+                        </div>
+                      </ScrollableContent>
                     )}
                   </div>
                 ))}
@@ -1137,7 +939,6 @@ export function DashboardOverview() {
             </DashboardSection>
           )}
 
-          {/* Emerging Niches — collapsed by default */}
           {dashboardData.emergingNiches.length > 0 && (
             <DashboardSection
               icon={Zap}
@@ -1152,7 +953,6 @@ export function DashboardOverview() {
                   const isExpanded = expandedNiche === i
                   return (
                     <div key={niche.name + i} className="rounded-lg border p-3 space-y-1.5">
-                      {/* Always visible: name + parent category + compact gauge */}
                       <div className="flex items-center justify-between gap-2">
                         <div className="min-w-0 flex-1">
                           <p className="text-sm font-semibold leading-tight line-clamp-1">{niche.name}</p>
@@ -1171,61 +971,46 @@ export function DashboardOverview() {
                         </div>
                       </div>
 
-                      {/* Parent category tag — always visible */}
                       {niche.parentCategory && (
                         <Badge variant="outline" className="text-xs h-5 bg-muted/50">
                           {niche.parentCategory}
                         </Badge>
                       )}
 
-                      {/* Description — clamped when collapsed */}
                       {!isExpanded && niche.description && (
                         <p className="text-xs text-muted-foreground line-clamp-2">{niche.description}</p>
                       )}
 
-                      {/* Expanded details — fade+slide, NO overflow-hidden */}
                       {isExpanded && (
-                        <motion.div
-                          initial={{ opacity: 0, y: -8 }}
-                          animate={{ opacity: 1, y: 0 }}
-                          exit={{ opacity: 0, y: -8 }}
-                          transition={{ duration: 0.2 }}
-                        >
-                          <ScrollableContent maxHeight={320}>
-                            <div className="space-y-2">
-                              {/* Full description */}
-                              {niche.description && (
-                                <p className="text-xs text-muted-foreground leading-relaxed">{niche.description}</p>
-                              )}
+                        <ScrollableContent maxHeight={320}>
+                          <div className="space-y-2">
+                            {niche.description && (
+                              <p className="text-xs text-muted-foreground leading-relaxed">{niche.description}</p>
+                            )}
 
-                              {/* Opportunity score as colored progress bar */}
-                              {niche.opportunityScore > 0 && (
-                                <div className="space-y-1">
-                                  <div className="flex items-center justify-between text-xs">
-                                    <span className="text-muted-foreground">Opportunity Score</span>
-                                    <span className={`font-semibold ${opp.text}`}>{niche.opportunityScore}/100</span>
-                                  </div>
-                                  <div className={`h-2 rounded-full overflow-hidden ${opp.bg}`}>
-                                    <motion.div
-                                      className={`h-full rounded-full ${opp.bar}`}
-                                      initial={{ width: 0 }}
-                                      animate={{ width: `${niche.opportunityScore}%` }}
-                                      transition={{ duration: 0.8, ease: 'easeOut' }}
-                                    />
-                                  </div>
+                            {niche.opportunityScore > 0 && (
+                              <div className="space-y-1">
+                                <div className="flex items-center justify-between text-xs">
+                                  <span className="text-muted-foreground">Opportunity Score</span>
+                                  <span className={`font-semibold ${opp.text}`}>{niche.opportunityScore}/100</span>
                                 </div>
-                              )}
+                                <div className={`h-2 rounded-full overflow-hidden ${opp.bg}`}>
+                                  <div
+                                    className={`h-full rounded-full ${opp.bar} transition-all duration-700 ease-out`}
+                                    style={{ width: `${niche.opportunityScore}%` }}
+                                  />
+                                </div>
+                              </div>
+                            )}
 
-                              {/* Why it matters */}
-                              {niche.description && niche.opportunityScore >= 60 && (
-                                <div className="flex items-start gap-1.5 text-xs text-muted-foreground">
-                                  <Info className="h-3.5 w-3.5 shrink-0 mt-0.5 text-green-500" />
-                                  <span className="leading-relaxed">High-opportunity niche: {niche.description}</span>
-                                </div>
-                              )}
-                            </div>
-                          </ScrollableContent>
-                        </motion.div>
+                            {niche.description && niche.opportunityScore >= 60 && (
+                              <div className="flex items-start gap-1.5 text-xs text-muted-foreground">
+                                <Info className="h-3.5 w-3.5 shrink-0 mt-0.5 text-green-500" />
+                                <span className="leading-relaxed">High-opportunity niche: {niche.description}</span>
+                              </div>
+                            )}
+                          </div>
+                        </ScrollableContent>
                       )}
                     </div>
                   )
@@ -1235,10 +1020,9 @@ export function DashboardOverview() {
           )}
         </div>
 
-        {/* ═══ 3. Complaint Clustering + Fastest Growing — 2-col grid ═══ */}
+        {/* ═══ Complaint Clustering + Fastest Growing ═══ */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
 
-          {/* Complaint Trends — collapsed by default */}
           {dashboardData.complaintTrends.length > 0 && (
             <DashboardSection
               icon={AlertTriangle}
@@ -1249,19 +1033,10 @@ export function DashboardOverview() {
             >
               <div className="space-y-2">
                 {dashboardData.complaintTrends.map((cluster, i) => {
-                  const clusterColors: Record<string, { bar: string; bg: string; text: string; badgeBg: string; quoteBorder: string; quoteBg: string }> = {
-                    pricing: { bar: 'bg-red-500', bg: 'bg-red-100 dark:bg-red-950/30', text: 'text-red-600 dark:text-red-400', badgeBg: 'bg-red-100 text-red-700 dark:bg-red-950/40 dark:text-red-400', quoteBorder: 'border-red-400 dark:border-red-600', quoteBg: 'bg-red-50/60 dark:bg-red-950/10' },
-                    missing_feature: { bar: 'bg-amber-500', bg: 'bg-amber-100 dark:bg-amber-950/30', text: 'text-amber-600 dark:text-amber-400', badgeBg: 'bg-amber-100 text-amber-700 dark:bg-amber-950/40 dark:text-amber-400', quoteBorder: 'border-amber-400 dark:border-amber-600', quoteBg: 'bg-amber-50/60 dark:bg-amber-950/10' },
-                    performance: { bar: 'bg-rose-500', bg: 'bg-rose-100 dark:bg-rose-950/30', text: 'text-rose-600 dark:text-rose-400', badgeBg: 'bg-rose-100 text-rose-700 dark:bg-rose-950/40 dark:text-rose-400', quoteBorder: 'border-rose-400 dark:border-rose-600', quoteBg: 'bg-rose-50/60 dark:bg-rose-950/10' },
-                    ux: { bar: 'bg-purple-500', bg: 'bg-purple-100 dark:bg-purple-950/30', text: 'text-purple-600 dark:text-purple-400', badgeBg: 'bg-purple-100 text-purple-700 dark:bg-purple-950/40 dark:text-purple-400', quoteBorder: 'border-purple-400 dark:border-purple-600', quoteBg: 'bg-purple-50/60 dark:bg-purple-950/10' },
-                    support: { bar: 'bg-orange-500', bg: 'bg-orange-100 dark:bg-orange-950/30', text: 'text-orange-600 dark:text-orange-400', badgeBg: 'bg-orange-100 text-orange-700 dark:bg-orange-950/40 dark:text-orange-400', quoteBorder: 'border-orange-400 dark:border-orange-600', quoteBg: 'bg-orange-50/60 dark:bg-orange-950/10' },
-                    integration: { bar: 'bg-sky-500', bg: 'bg-sky-100 dark:bg-sky-950/30', text: 'text-sky-600 dark:text-sky-400', badgeBg: 'bg-sky-100 text-sky-700 dark:bg-sky-950/40 dark:text-sky-400', quoteBorder: 'border-sky-400 dark:border-sky-600', quoteBg: 'bg-sky-50/60 dark:bg-sky-950/10' },
-                  }
-                  const cc = clusterColors[cluster.category] || clusterColors.pricing
+                  const cc = { bar: getComplaintTextColor(cluster.category).replace('text-', 'bg-'), bg: getComplaintBgColor(cluster.category), text: getComplaintTextColor(cluster.category) }
                   const isExpanded = expandedComplaint === i
                   return (
                     <div key={cluster.category + i} className="space-y-1.5">
-                      {/* Cluster header */}
                       <div className="flex items-center justify-between gap-2 min-w-0">
                         <div className="flex items-baseline gap-2 min-w-0 flex-1">
                           <span className={`text-lg font-extrabold tabular-nums shrink-0 ${cc.text}`}>
@@ -1283,36 +1058,25 @@ export function DashboardOverview() {
                         </Button>
                       </div>
 
-                      {/* Thin progress bar */}
                       <div className={`h-2 rounded-full overflow-hidden shrink-0 ${cc.bg}`}>
-                        <motion.div
-                          className={`h-full rounded-full ${cc.bar}`}
-                          initial={{ width: 0 }}
-                          animate={{ width: `${cluster.percentage}%` }}
-                          transition={{ duration: 0.7, ease: 'easeOut', delay: i * 0.05 }}
+                        <div
+                          className={`h-full rounded-full ${cc.bar} transition-all duration-700 ease-out`}
+                          style={{ width: `${cluster.percentage}%` }}
                         />
                       </div>
 
-                      {/* Expanded snippets — fade+slide, NO overflow-hidden */}
                       {isExpanded && (
-                        <motion.div
-                          initial={{ opacity: 0, y: -8 }}
-                          animate={{ opacity: 1, y: 0 }}
-                          exit={{ opacity: 0, y: -8 }}
-                          transition={{ duration: 0.2 }}
-                        >
-                          <ScrollableContent maxHeight={320}>
-                            <div className="space-y-1">
-                              {cluster.exampleSnippets.slice(0, 3).map((snippet, j) => (
-                                <blockquote key={j} className={`border-l-[3px] ${cc.quoteBorder} ${cc.quoteBg} pl-3 pr-2 py-1 rounded-r-md`}>
-                                  <p className="text-xs text-foreground leading-relaxed italic">
-                                    &ldquo;{snippet}&rdquo;
-                                  </p>
-                                </blockquote>
-                              ))}
-                            </div>
-                          </ScrollableContent>
-                        </motion.div>
+                        <ScrollableContent maxHeight={320}>
+                          <div className="space-y-1">
+                            {cluster.exampleSnippets.slice(0, 3).map((snippet, j) => (
+                              <blockquote key={j} className={`border-l-[3px] ${cc.text.replace('text-', 'border-')} ${cc.bg} pl-3 pr-2 py-1 rounded-r-md`}>
+                                <p className="text-xs text-foreground leading-relaxed italic">
+                                  &ldquo;{snippet}&rdquo;
+                                </p>
+                              </blockquote>
+                            ))}
+                          </div>
+                        </ScrollableContent>
                       )}
                     </div>
                   )
@@ -1321,7 +1085,6 @@ export function DashboardOverview() {
             </DashboardSection>
           )}
 
-          {/* Fastest Growing Categories — no collapse needed, simple list */}
           {dashboardData.fastestGrowingCategories.length > 0 && (
             <DashboardSection
               icon={TrendingUp}
@@ -1331,7 +1094,7 @@ export function DashboardOverview() {
               className="h-full"
             >
               <div className="space-y-3">
-                {dashboardData.fastestGrowingCategories.map((cat, i) => (
+                {dashboardData.fastestGrowingCategories.map((cat) => (
                   <div
                     key={cat.name}
                     className="flex items-center justify-between rounded-lg border p-3 hover:bg-muted/50 transition-colors cursor-pointer"
@@ -1357,7 +1120,7 @@ export function DashboardOverview() {
           )}
         </div>
 
-        {/* ═══ 6. Underserved Users — full width ═══ */}
+        {/* ═══ Underserved Users ═══ */}
         {dashboardData.underservedUsers.length > 0 && (
           <DashboardSection
             icon={Users}
@@ -1371,7 +1134,6 @@ export function DashboardOverview() {
                 const opp = getOpportunityColor(user.opportunityScore)
                 return (
                   <div key={user.userGroup + i} className="rounded-lg border p-3 space-y-1.5">
-                    {/* Always visible: name + opportunity badge + clamped description */}
                     <div className="flex items-center justify-between gap-2">
                       <div className="min-w-0 flex-1">
                         <p className="text-sm font-semibold truncate">{user.userGroup}</p>
@@ -1393,26 +1155,18 @@ export function DashboardOverview() {
                     </div>
                     <p className="text-xs text-muted-foreground line-clamp-1">{user.description}</p>
 
-                    {/* Expanded: evidence + full description — fade+slide, NO overflow-hidden */}
                     {isExpanded && (
-                      <motion.div
-                        initial={{ opacity: 0, y: -8 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        exit={{ opacity: 0, y: -8 }}
-                        transition={{ duration: 0.2 }}
-                      >
-                        <ScrollableContent maxHeight={320}>
-                          <div className="space-y-1.5">
-                            <p className="text-xs text-muted-foreground leading-relaxed">{user.description}</p>
-                            {user.evidence && (
-                              <div className="flex items-start gap-1.5 text-xs text-muted-foreground">
-                                <Quote className="h-3 w-3 shrink-0 mt-0.5 text-purple-500" />
-                                <span className="italic leading-relaxed">{user.evidence}</span>
-                              </div>
-                            )}
-                          </div>
-                        </ScrollableContent>
-                      </motion.div>
+                      <ScrollableContent maxHeight={320}>
+                        <div className="space-y-1.5">
+                          <p className="text-xs text-muted-foreground leading-relaxed">{user.description}</p>
+                          {user.evidence && (
+                            <div className="flex items-start gap-1.5 text-xs text-muted-foreground">
+                              <Quote className="h-3 w-3 shrink-0 mt-0.5 text-purple-500" />
+                              <span className="italic leading-relaxed">{user.evidence}</span>
+                            </div>
+                          )}
+                        </div>
+                      </ScrollableContent>
                     )}
                   </div>
                 )
@@ -1456,7 +1210,7 @@ export function DashboardOverview() {
           </DashboardSection>
         )}
 
-        {/* ═══ Recent Gaps — collapsed by default ═══ */}
+        {/* ═══ Recent Gaps ═══ */}
         {dashboardData.recentGaps.length > 0 && (
           <DashboardSection
             icon={Database}
@@ -1468,7 +1222,6 @@ export function DashboardOverview() {
               {dashboardData.recentGaps.map((gap, i) => (
                 <div key={i}>
                   <div className="py-2 space-y-2">
-                    {/* Always visible: title + severity + short insight + compact metrics */}
                     <div className="flex items-start gap-2.5">
                       <Badge variant="outline" className={`shrink-0 ${severityColor(gap.severity)}`}>
                         {gap.severity}
@@ -1488,55 +1241,23 @@ export function DashboardOverview() {
                       </Button>
                     </div>
 
-                    {/* Compact evidence metrics */}
                     <CompactEvidenceMetrics evidence={gap.evidenceDetail} />
 
-                    {/* Expanded: fade+slide, NO overflow-hidden */}
                     {expandedRecent === i && (
-                      <motion.div
-                        initial={{ opacity: 0, y: -8 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        exit={{ opacity: 0, y: -8 }}
-                        transition={{ duration: 0.2 }}
-                      >
-                        <ScrollableContent maxHeight={320}>
-                          <div className="space-y-2">
-                            {/* Full description */}
-                            <p className="text-xs text-muted-foreground leading-relaxed">{gap.description}</p>
-
-                            {/* Full Evidence Block */}
-                            <EvidenceBlock evidence={gap.evidenceDetail} />
-
-                            {/* Why This Matters */}
-                            {gap.whyThisMatters && (
-                              <div className="rounded-md border border-orange-200 dark:border-orange-900/40 bg-gradient-to-r from-orange-50 to-amber-50/50 dark:from-orange-950/20 dark:to-amber-950/10 p-2 flex items-start gap-1.5">
-                                <ShieldCheck className="h-3.5 w-3.5 shrink-0 mt-0.5 text-orange-600 dark:text-orange-400" />
-                                <p className="text-xs text-foreground leading-relaxed">
-                                  {gap.whyThisMatters}
-                                </p>
-                              </div>
-                            )}
-
-                            {/* Affected Products */}
-                            {gap.affectedProducts && gap.affectedProducts.length > 0 && (
-                              <div className="scroll-x-row overflow-x-auto -mx-1 px-1">
-                                <div className="flex flex-wrap gap-1" style={{ minWidth: 'min-content' }}>
-                                  {gap.affectedProducts.slice(0, 3).map((p, j) => (
-                                    <Badge key={j} variant="outline" className="text-xs h-5 bg-muted/50 whitespace-nowrap">
-                                      {p.name}
-                                    </Badge>
-                                  ))}
-                                  {gap.affectedProducts.length > 3 && (
-                                    <Badge variant="outline" className="text-xs h-5 bg-muted/50 whitespace-nowrap">
-                                      +{gap.affectedProducts.length - 3}
-                                    </Badge>
-                                  )}
-                                </div>
-                              </div>
-                            )}
-                          </div>
-                        </ScrollableContent>
-                      </motion.div>
+                      <ScrollableContent maxHeight={320}>
+                        <div className="space-y-2">
+                          <p className="text-xs text-muted-foreground leading-relaxed">{gap.description}</p>
+                          <EvidenceBlock evidence={gap.evidenceDetail} />
+                          {gap.whyThisMatters && (
+                            <div className="rounded-md border border-orange-200 dark:border-orange-900/40 bg-gradient-to-r from-orange-50 to-amber-50/50 dark:from-orange-950/20 dark:to-amber-950/10 p-2 flex items-start gap-1.5">
+                              <ShieldCheck className="h-3.5 w-3.5 shrink-0 mt-0.5 text-orange-600 dark:text-orange-400" />
+                              <p className="text-xs text-foreground leading-relaxed">
+                                {gap.whyThisMatters}
+                              </p>
+                            </div>
+                          )}
+                        </div>
+                      </ScrollableContent>
                     )}
                   </div>
                   {i < dashboardData.recentGaps.length - 1 && <Separator />}

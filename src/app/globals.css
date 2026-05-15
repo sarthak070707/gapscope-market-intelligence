@@ -234,11 +234,61 @@
   opacity: 0;
 }
 
-/* Ensure Framer Motion elements are visible before hydration.
-   Framer Motion sets inline opacity:0 on SSR, which causes blank pages
-   if JS fails to hydrate. This rule overrides that until JS takes over. */
-:not(.framer-motion-animated) {
-  &[style*="opacity: 0"] {
-    opacity: 1 !important;
-  }
+/* CSS fade-in animation — used instead of Framer Motion initial={{ opacity: 0 }}
+   to ensure page is always visible even if JS hydration fails */
+@keyframes fade-in {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.animate-fade-in {
+  animation: fade-in 0.4s ease-out both;
+}
+
+/* Stagger animation delays for cards in a grid */
+.animate-fade-in:nth-child(1) { animation-delay: 0ms; }
+.animate-fade-in:nth-child(2) { animation-delay: 50ms; }
+.animate-fade-in:nth-child(3) { animation-delay: 100ms; }
+.animate-fade-in:nth-child(4) { animation-delay: 150ms; }
+
+/* Safety net: if Framer Motion sets opacity:0 on main content sections,
+   ensure they become visible. Only targets major layout elements. */
+main [style*="opacity: 0"],
+main [style*="opacity:0"] {
+  animation: fade-in-override 0s ease 0.3s forwards;
+}
+@keyframes fade-in-override {
+  to { opacity: 1; }
+}
+
+/* SSR loading spinner animation */
+@keyframes ssr-spin {
+  to { transform: rotate(360deg); }
+}
+
+/* ─── Hydration-safe loading skeleton ──────────────────────────────
+   #ssr-loading is visible by default (shown in SSR HTML).
+   #app-root is hidden by default, shown after React hydrates.
+   When the app mounts, it adds 'app-ready' to <html>,
+   which hides the skeleton and shows the real app. */
+#app-root.app-hidden {
+  position: absolute;
+  left: -9999px;
+  opacity: 0;
+  pointer-events: none;
+}
+
+html.app-ready #ssr-loading {
+  display: none !important;
+}
+
+html.app-ready #app-root.app-hidden {
+  position: static;
+  left: auto;
+  opacity: 1;
+  pointer-events: auto;
+}
+
+html.app-ready #app-root {
+  animation: fade-in 0.3s ease-out both;
 }

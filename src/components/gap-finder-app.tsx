@@ -1,7 +1,7 @@
 'use client'
 
+import { useLayoutEffect } from 'react'
 import { useTheme } from 'next-themes'
-import { motion, AnimatePresence } from 'framer-motion'
 import {
   Crosshair,
   Sun,
@@ -71,28 +71,27 @@ function TabButton({
 }
 
 function TabContent({ activeTab }: { activeTab: TabId }) {
+  // No AnimatePresence/motion — just render the active tab directly
+  // This avoids opacity:0 on SSR that causes blank preview
   return (
-    <AnimatePresence mode="wait">
-      <motion.div
-        key={activeTab}
-        initial={{ opacity: 0, y: 10 }}
-        animate={{ opacity: 1, y: 0 }}
-        exit={{ opacity: 0, y: -10 }}
-        transition={{ duration: 0.2 }}
-      >
-        {activeTab === 'dashboard' && <DashboardOverview />}
-        {activeTab === 'scanner' && <ScannerPanel />}
-        {activeTab === 'analysis' && <GapAnalysisPanel />}
-        {activeTab === 'opportunities' && <OpportunitiesPanel />}
-        {activeTab === 'trends' && <TrendsComparePanel />}
-      </motion.div>
-    </AnimatePresence>
+    <div className="animate-fade-in">
+      {activeTab === 'dashboard' && <DashboardOverview />}
+      {activeTab === 'scanner' && <ScannerPanel />}
+      {activeTab === 'analysis' && <GapAnalysisPanel />}
+      {activeTab === 'opportunities' && <OpportunitiesPanel />}
+      {activeTab === 'trends' && <TrendsComparePanel />}
+    </div>
   )
 }
 
 export function GapScopeApp() {
   const activeTab = useAppStore((s) => s.activeTab)
   const setActiveTab = useAppStore((s) => s.setActiveTab)
+
+  // Signal to CSS that the app has hydrated — hides the SSR loading skeleton
+  useLayoutEffect(() => {
+    document.documentElement.classList.add('app-ready')
+  }, [])
 
   return (
     <div className="min-h-screen flex flex-col bg-background">
