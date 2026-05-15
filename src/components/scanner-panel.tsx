@@ -30,6 +30,7 @@ import { useAppStore, getEffectiveCategory } from '@/lib/store'
 import { CATEGORIES, SEARCH_SUGGESTIONS, type Category, type ScannedProduct } from '@/types'
 import { ModuleErrorState } from '@/components/module-error-state'
 import { classifyError, type ModuleError } from '@/lib/error-handler'
+import { handleFetchError } from '@/lib/fetch-error'
 
 export function ScannerPanel() {
   const selectedCategory = useAppStore((s) => s.selectedCategory)
@@ -60,48 +61,12 @@ export function ScannerPanel() {
         body: JSON.stringify({ category: selectedCategory, period }),
       })
       if (!res.ok) {
-        let moduleError: ModuleError
-        try {
-          const errorBody = await res.json()
-          // If the backend returned a structured moduleError, use it directly
-          // to avoid double-classification (the error message already has [CATEGORY] prefix)
-          if (errorBody.moduleError && typeof errorBody.moduleError === 'object') {
-            moduleError = errorBody.moduleError as ModuleError
-            moduleError.statusCode = res.status
-            // Enrich with frontend request context if missing
-            if (!moduleError.requestCategory) moduleError.requestCategory = selectedCategory
-            if (!moduleError.requestPayload) moduleError.requestPayload = `category=${selectedCategory}, period=${period}`
-            if (!moduleError.backendMessage && errorBody.error) moduleError.backendMessage = errorBody.error
-          } else {
-            // Backend returned a plain error - classify it
-            moduleError = classifyError(new Error(errorBody.error || `HTTP ${res.status}`), 'Product Hunt Scanner', '/api/scan', {
-              category: selectedCategory,
-              payload: `category=${selectedCategory}, period=${period}`,
-              backendMessage: errorBody.error,
-            })
-            moduleError.statusCode = res.status
-            if (!moduleError.requestCategory) moduleError.requestCategory = selectedCategory
-            if (!moduleError.requestPayload) moduleError.requestPayload = `category=${selectedCategory}, period=${period}`
-            if (!moduleError.backendMessage && errorBody.error) moduleError.backendMessage = errorBody.error
-          }
-        } catch {
-          // JSON parse failed (gateway returned HTML or non-JSON error)
-          // Provide better context for common gateway errors
-          const statusMsg = res.status === 502
-            ? 'Gateway returned 502 Bad Gateway. The backend server may be too slow or temporarily unavailable. The scan takes time — try again in a moment.'
-            : res.status === 504
-              ? 'Gateway timeout (504). The scan took too long and the gateway closed the connection. Try again — the second attempt is usually faster.'
-              : res.status === 503
-                ? 'Service unavailable (503). The server is temporarily overloaded. Wait a moment and try again.'
-                : `HTTP ${res.status}`
-          moduleError = classifyError(new Error(statusMsg), 'Product Hunt Scanner', '/api/scan', {
-            category: selectedCategory,
-            payload: `category=${selectedCategory}, period=${period}`,
-          })
-          moduleError.statusCode = res.status
-          if (!moduleError.requestCategory) moduleError.requestCategory = selectedCategory
-          if (!moduleError.requestPayload) moduleError.requestPayload = `category=${selectedCategory}, period=${period}`
-        }
+        const moduleError = await handleFetchError(res, {
+          moduleName: 'Product Hunt Scanner',
+          endpoint: '/api/scan',
+          category: selectedCategory,
+          payload: `category=${selectedCategory}, period=${period}`,
+        });
         setScanError(moduleError)
         scanErrorSetRef.current = true  // Synchronous — no stale closure
         throw new Error(moduleError.message)

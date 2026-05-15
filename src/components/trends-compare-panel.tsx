@@ -69,6 +69,7 @@ import { WhyNowBlock } from '@/components/feature-blocks'
 import { TrendComparisonBlock } from '@/components/feature-blocks'
 import { ModuleErrorState } from '@/components/module-error-state'
 import { classifyError, type ModuleError } from '@/lib/error-handler'
+import { handleFetchError } from '@/lib/fetch-error'
 
 function SparklineChart({ data, color = 'oklch(0.7 0.15 50)' }: { data: { label: string; value: number }[]; color?: string }) {
   return (
@@ -546,32 +547,12 @@ export function TrendsComparePanel() {
         body: JSON.stringify({ action: 'detect', category: selectedCategory, timePeriod }),
       })
       if (!res.ok) {
-        let moduleError: ModuleError
-        try {
-          const errorBody = await res.json()
-          if (errorBody.moduleError && typeof errorBody.moduleError === 'object') {
-            moduleError = errorBody.moduleError as ModuleError
-            moduleError.statusCode = res.status
-            if (!moduleError.requestCategory) moduleError.requestCategory = selectedCategory
-            if (!moduleError.requestPayload) moduleError.requestPayload = `action=detect, category=${selectedCategory}, timePeriod=${timePeriod}`
-            if (!moduleError.backendMessage && errorBody.error) moduleError.backendMessage = errorBody.error
-          } else {
-            moduleError = classifyError(new Error(errorBody.error || `HTTP ${res.status}`), 'Trend Detection', '/api/trends', {
-              category: selectedCategory,
-              payload: `action=detect, category=${selectedCategory}, timePeriod=${timePeriod}`,
-              backendMessage: errorBody.error,
-            })
-            moduleError.statusCode = res.status
-            if (!moduleError.requestCategory) moduleError.requestCategory = selectedCategory
-            if (!moduleError.requestPayload) moduleError.requestPayload = `action=detect, category=${selectedCategory}, timePeriod=${timePeriod}`
-          }
-        } catch {
-          moduleError = classifyError(new Error(`HTTP ${res.status}`), 'Trend Detection', '/api/trends', {
-            category: selectedCategory,
-            payload: `action=detect, category=${selectedCategory}, timePeriod=${timePeriod}`,
-          })
-          moduleError.statusCode = res.status
-        }
+        const moduleError = await handleFetchError(res, {
+          moduleName: 'Trend Detection',
+          endpoint: '/api/trends',
+          category: selectedCategory,
+          payload: `action=detect, category=${selectedCategory}, timePeriod=${timePeriod}`,
+        });
         setTrendError(moduleError)
         trendErrorSetByMutation.current = true
         throw new Error(moduleError.message)
@@ -627,32 +608,12 @@ export function TrendsComparePanel() {
         body: JSON.stringify({ action: 'compare', productIds: selectedProducts, category: selectedCategory }),
       })
       if (!res.ok) {
-        let moduleError: ModuleError
-        try {
-          const errorBody = await res.json()
-          if (errorBody.moduleError && typeof errorBody.moduleError === 'object') {
-            moduleError = errorBody.moduleError as ModuleError
-            moduleError.statusCode = res.status
-            if (!moduleError.requestCategory) moduleError.requestCategory = selectedCategory
-            if (!moduleError.requestPayload) moduleError.requestPayload = `action=compare, products=${selectedProducts.join(',')}, category=${selectedCategory}`
-            if (!moduleError.backendMessage && errorBody.error) moduleError.backendMessage = errorBody.error
-          } else {
-            moduleError = classifyError(new Error(errorBody.error || `HTTP ${res.status}`), 'Product Comparison', '/api/trends', {
-              category: selectedCategory,
-              payload: `action=compare, products=${selectedProducts.join(',')}, category=${selectedCategory}`,
-              backendMessage: errorBody.error,
-            })
-            moduleError.statusCode = res.status
-            if (!moduleError.requestCategory) moduleError.requestCategory = selectedCategory
-            if (!moduleError.requestPayload) moduleError.requestPayload = `action=compare, products=${selectedProducts.join(',')}, category=${selectedCategory}`
-          }
-        } catch {
-          moduleError = classifyError(new Error(`HTTP ${res.status}`), 'Product Comparison', '/api/trends', {
-            category: selectedCategory,
-            payload: `action=compare, products=${selectedProducts.join(',')}, category=${selectedCategory}`,
-          })
-          moduleError.statusCode = res.status
-        }
+        const moduleError = await handleFetchError(res, {
+          moduleName: 'Product Comparison',
+          endpoint: '/api/trends',
+          category: selectedCategory,
+          payload: `action=compare, products=${selectedProducts.join(',')}, category=${selectedCategory}`,
+        });
         setCompareError(moduleError)
         compareErrorSetByMutation.current = true
         throw new Error(moduleError.message)

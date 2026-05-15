@@ -441,9 +441,16 @@ Identify 3-8 meaningful gaps. Base your analysis ONLY on the product data provid
   }
 
   // Validate and normalize the LLM response
-  const safeGaps = Array.isArray(gaps) ? gaps : [];
-  if (!gaps || !Array.isArray(gaps)) {
-    logStageError(MODULE_NAME, 'GAPS_PARSE', new Error(`LLM returned non-array for gaps: ${typeof gaps}`), { type: typeof gaps });
+  // LLM sometimes returns a single object instead of an array
+  let safeGaps: GapAnalysis[];
+  if (Array.isArray(gaps)) {
+    safeGaps = gaps;
+  } else if (gaps && typeof gaps === 'object') {
+    console.warn(`[${MODULE_NAME}] LLM returned a single gap object instead of array — wrapping in array`);
+    safeGaps = [gaps as unknown as GapAnalysis];
+  } else {
+    logStageError(MODULE_NAME, 'GAPS_PARSE', new Error(`LLM returned non-object for gaps: ${typeof gaps}`), { type: typeof gaps });
+    safeGaps = [];
   }
   stageLog('GAPS_PARSE', 'INFO', `Parsed ${safeGaps.length} gaps from LLM response`, { effectiveCategory });
 
@@ -680,6 +687,11 @@ For each competitor, provide:
         { maxRetries: MAX_RETRIES },
         MODULE_NAME
       );
+      // Normalize: LLM sometimes returns a single object instead of an array
+      if (topCompetitors && typeof topCompetitors === 'object' && !Array.isArray(topCompetitors)) {
+        console.warn(`[${MODULE_NAME}] LLM returned single competitor object instead of array — wrapping`);
+        topCompetitors = [topCompetitors as unknown as ProductReference];
+      }
       if (!Array.isArray(topCompetitors)) topCompetitors = [];
       stageLog('SATURATION_LLM_COMPETITORS', 'END', `Got ${topCompetitors.length} top competitors`);
     } catch (err) {
@@ -727,6 +739,11 @@ For each sub-niche:
         { maxRetries: MAX_RETRIES },
         MODULE_NAME
       );
+      // Normalize: LLM sometimes returns a single object instead of an array
+      if (subNiches && typeof subNiches === 'object' && !Array.isArray(subNiches)) {
+        console.warn(`[${MODULE_NAME}] LLM returned single sub-niche object instead of array — wrapping`);
+        subNiches = [subNiches as unknown as SubNiche];
+      }
       if (!Array.isArray(subNiches)) subNiches = [];
       stageLog('SATURATION_LLM_SUBNICHES', 'END', `Got ${subNiches.length} sub-niches`);
     } catch (err) {
@@ -831,9 +848,16 @@ Extract 3-10 distinct complaints.`,
     return { complaints: [], clusters: [] };
   }
 
-  const safeComplaints = Array.isArray(complaints) ? complaints : [];
-  if (!complaints || !Array.isArray(complaints)) {
-    logStageError(MODULE_NAME, 'COMPLAINTS_PARSE', new Error(`LLM returned non-array for complaints: ${typeof complaints}`), { type: typeof complaints });
+  // Normalize: LLM sometimes returns a single object instead of an array
+  let safeComplaints: ComplaintAnalysis[];
+  if (Array.isArray(complaints)) {
+    safeComplaints = complaints;
+  } else if (complaints && typeof complaints === 'object') {
+    console.warn(`[${MODULE_NAME}] LLM returned a single complaint object instead of array — wrapping in array`);
+    safeComplaints = [complaints as unknown as ComplaintAnalysis];
+  } else {
+    logStageError(MODULE_NAME, 'COMPLAINTS_PARSE', new Error(`LLM returned non-object for complaints: ${typeof complaints}`), { type: typeof complaints });
+    safeComplaints = [];
   }
   stageLog('COMPLAINTS_PARSE', 'INFO', `Extracted ${safeComplaints.length} complaints`);
 

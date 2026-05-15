@@ -61,6 +61,9 @@ export async function webSearch(query: string, num: number = 10) {
     if (msg.includes('401') || msg.includes('unauthorized') || msg.includes('api key')) {
       throw new Error(`Web search authentication failed (401): ${msg}. Check API key configuration.`);
     }
+    if (msg.includes('502') || msg.includes('bad gateway')) {
+      throw new Error(`Web search service returned Bad Gateway (502): ${msg}. The search API backend may be temporarily unavailable or overloaded.`);
+    }
     throw new Error(`Web search failed: ${msg}`);
   }
 }
@@ -80,6 +83,9 @@ export async function readPage(url: string) {
     console.error(`[ZAI] readPage FAILED for ${url.substring(0, 80)}: ${msg}`);
     if (msg.includes('429') || msg.toLowerCase().includes('rate limit')) {
       throw new Error(`Rate limit exceeded during page reading (429): ${msg}`);
+    }
+    if (msg.includes('502') || msg.includes('bad gateway')) {
+      throw new Error(`Page reading service returned Bad Gateway (502) for ${url}: ${msg}. The page reader backend may be temporarily unavailable.`);
     }
     throw new Error(`Page reading failed for ${url}: ${msg}`);
   }
@@ -121,6 +127,9 @@ export async function chatCompletion(messages: { role: string; content: string }
     }
     if (msg.includes('503') || msg.includes('service unavailable')) {
       throw new Error(`AI service unavailable (503): ${msg}`);
+    }
+    if (msg.includes('502') || msg.includes('bad gateway')) {
+      throw new Error(`AI service returned Bad Gateway (502): ${msg}. The AI backend may be temporarily unavailable or overloaded.`);
     }
     throw new Error(`AI chat completion failed: ${msg}`);
   }

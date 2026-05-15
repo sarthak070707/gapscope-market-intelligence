@@ -351,7 +351,18 @@ If you cannot find any products, return an empty array.`,
   console.log(`[${MODULE_NAME}] Step 3 complete: LLM returned ${Array.isArray(products) ? products.length : 0} products in ${Date.now() - llmStart}ms`);
   logStageEnd(MODULE_NAME, 'LLM_EXTRACT', `${Array.isArray(products) ? products.length : 0} products`, { durationMs: Date.now() - llmStart });
 
-  const safeProducts = Array.isArray(products) ? products : [];
+  // Normalize: LLM sometimes returns a single object instead of an array
+  // e.g., { name: "Dreamina", ... } instead of [{ name: "Dreamina", ... }]
+  let safeProducts: ScannedProduct[];
+  if (Array.isArray(products)) {
+    safeProducts = products;
+  } else if (products && typeof products === 'object') {
+    console.warn(`[${MODULE_NAME}] LLM returned a single object instead of array — wrapping in array`);
+    safeProducts = [products as unknown as ScannedProduct];
+  } else {
+    console.error(`[${MODULE_NAME}] LLM returned unexpected type: ${typeof products}`);
+    safeProducts = [];
+  }
 
   // If LLM extracted 0 products from non-empty content, that's an AI extraction failure
   if (safeProducts.length === 0 && rawContent.trim().length > 0) {

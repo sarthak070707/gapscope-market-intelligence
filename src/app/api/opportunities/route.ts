@@ -407,14 +407,20 @@ ${trendsContext || 'No trend data available'}`,
     }
     logStageEnd(MODULE_NAME, 'LLM_OPPORTUNITIES', `LLM returned ${Array.isArray(opportunities) ? opportunities.length : 0} opportunities in ${Date.now() - llmStart}ms`);
 
-    if (!opportunities || !Array.isArray(opportunities)) {
-      logStageError(MODULE_NAME, 'LLM_PARSE', new Error(`[OPPS_LLM_GENERATE] LLM returned non-array: ${typeof opportunities}`), { 
+    // Normalize: LLM sometimes returns a single object instead of an array
+    let safeOpportunities: OpportunitySuggestion[];
+    if (Array.isArray(opportunities)) {
+      safeOpportunities = opportunities;
+    } else if (opportunities && typeof opportunities === 'object') {
+      console.warn(`[${MODULE_NAME}] LLM returned a single opportunity object instead of array — wrapping in array`);
+      safeOpportunities = [opportunities as unknown as OpportunitySuggestion];
+    } else {
+      logStageError(MODULE_NAME, 'LLM_PARSE', new Error(`[OPPS_LLM_GENERATE] LLM returned non-object: ${typeof opportunities}`), {
         opportunityType: typeof opportunities,
         isNull: opportunities === null,
       });
+      safeOpportunities = [];
     }
-
-    const safeOpportunities = Array.isArray(opportunities) ? opportunities : [];
 
     // If LLM generated 0 opportunities despite having gaps and complaints, that's an AI failure
     if (safeOpportunities.length === 0 && (allGaps.length > 0 || allComplaints.length > 0)) {

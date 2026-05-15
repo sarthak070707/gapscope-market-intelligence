@@ -44,6 +44,7 @@ import { WhyNowBlock, ExecutionDifficultyBlock, FalseOpportunityBlock, FounderFi
 import { CATEGORIES, type Category, type GapType, type GapAnalysis, type MarketSaturation, type ComplaintCluster, type TimePeriod, type ComplaintCategory, type WhyNowAnalysis, type ExecutionDifficulty, type FalseOpportunityAnalysis, type FounderFitSuggestion, type SourceTransparency, type WhyExistingProductsFail, type MarketQuadrantPosition } from '@/types'
 import { ModuleErrorState } from '@/components/module-error-state'
 import { classifyError, type ModuleError } from '@/lib/error-handler'
+import { handleFetchError } from '@/lib/fetch-error'
 
 // ─── Gap Type Visual Config ────────────────────────────────────────────────
 const GAP_TYPE_CONFIG: Record<GapType, { label: string; icon: React.ElementType; color: string; darkColor: string }> = {
@@ -733,32 +734,12 @@ export function GapAnalysisPanel() {
         body: JSON.stringify({ category: selectedCategory, analysisType: 'full', timePeriod }),
       })
       if (!res.ok) {
-        let moduleError: ModuleError
-        try {
-          const errorBody = await res.json()
-          if (errorBody.moduleError && typeof errorBody.moduleError === 'object') {
-            moduleError = errorBody.moduleError as ModuleError
-            moduleError.statusCode = res.status
-            if (!moduleError.requestCategory) moduleError.requestCategory = selectedCategory
-            if (!moduleError.requestPayload) moduleError.requestPayload = `category=${selectedCategory}, analysisType=full, timePeriod=${timePeriod}`
-            if (!moduleError.backendMessage && errorBody.error) moduleError.backendMessage = errorBody.error
-          } else {
-            moduleError = classifyError(new Error(errorBody.error || `HTTP ${res.status}`), 'Gap Analysis', '/api/analyze', {
-              category: selectedCategory,
-              payload: `category=${selectedCategory}, analysisType=full, timePeriod=${timePeriod}`,
-              backendMessage: errorBody.error,
-            })
-            moduleError.statusCode = res.status
-            if (!moduleError.requestCategory) moduleError.requestCategory = selectedCategory
-            if (!moduleError.requestPayload) moduleError.requestPayload = `category=${selectedCategory}, analysisType=full, timePeriod=${timePeriod}`
-          }
-        } catch {
-          moduleError = classifyError(new Error(`HTTP ${res.status}`), 'Gap Analysis', '/api/analyze', {
-            category: selectedCategory,
-            payload: `category=${selectedCategory}, analysisType=full, timePeriod=${timePeriod}`,
-          })
-          moduleError.statusCode = res.status
-        }
+        const moduleError = await handleFetchError(res, {
+          moduleName: 'Gap Analysis',
+          endpoint: '/api/analyze',
+          category: selectedCategory,
+          payload: `category=${selectedCategory}, analysisType=full, timePeriod=${timePeriod}`,
+        });
         setAnalysisError(moduleError)
         errorSetByMutation.current = true
         throw new Error(moduleError.message)

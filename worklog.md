@@ -98,3 +98,30 @@ Stage Summary:
 - Rate limit protection improved with 5s backoff on 429 errors
 - Gateway error messages now explain what 502/503/504 means instead of bare "HTTP 502"
 - Caddy timeout extended to 180s (from default ~30s) to prevent premature 502s
+
+---
+Task ID: 4
+Agent: main
+Task: Fix LLM single-object-instead-of-array bug, add 502 error handling in SDK, create shared frontend fetch-error utility
+
+Work Log:
+- Diagnosed root cause of "LLM returned 0 products" bug: LLM sometimes returns single object `{...}` instead of array `[{...}]`, and `Array.isArray()` returns false → `safeProducts = []`
+- Fixed /api/scan/route.ts: Added normalization after generateStructuredResponse — if result is object (not array), wrap in array
+- Fixed /api/trends/route.ts: Same normalization for trends and comparison responses; added response shape validation for comparison
+- Fixed /api/analyze/route.ts: Same normalization for gaps, complaints, topCompetitors, and subNiches
+- Fixed /api/opportunities/route.ts: Same normalization for opportunities
+- Fixed /src/lib/zai.ts: Added 502 Bad Gateway error handling in webSearch, readPage, and chatCompletion with specific error messages
+- Created /src/lib/fetch-error.ts: Shared frontend utility `handleFetchError()` that tries JSON parse first, falls back to reading response text for context, builds specific gateway error messages
+- Updated scanner-panel.tsx: Uses handleFetchError instead of inline error handling — eliminates 25 lines of duplicate code and improves 502/504 error messages
+- Updated gap-analysis-panel.tsx: Same pattern
+- Updated opportunities-panel.tsx: Same pattern
+- Updated trends-compare-panel.tsx: Same pattern (both detect and compare mutations)
+- Updated dashboard-overview.tsx: Improved non-JSON error handling with response text reading
+- All lint checks pass cleanly
+
+Stage Summary:
+- "LLM returned 0 products/opportunities/trends" bug FIXED by normalizing single-object responses to arrays
+- All 4 API routes now handle LLM returning objects instead of arrays
+- 502 error handling added to ZAI SDK (webSearch, readPage, chatCompletion)
+- Shared `handleFetchError` utility eliminates duplicate error-handling code across 5 frontend components
+- Gateway errors (502/503/504) now show specific, actionable messages with response text context

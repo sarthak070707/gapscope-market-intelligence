@@ -83,6 +83,7 @@ import {
 import type { ComplaintCluster } from '@/types'
 import { ModuleErrorState } from '@/components/module-error-state'
 import { classifyError, type ModuleError } from '@/lib/error-handler'
+import { handleFetchError } from '@/lib/fetch-error'
 
 // ──────────────────────────────────────────────
 // Color helpers
@@ -807,37 +808,15 @@ export function OpportunitiesPanel() {
         body: JSON.stringify({ category: selectedCategory, focusArea: focusArea || undefined, timePeriod }),
       })
       if (!res.ok) {
-        let moduleError: ModuleError
-        try {
-          const errorBody = await res.json()
-          if (errorBody.moduleError && typeof errorBody.moduleError === 'object') {
-            moduleError = errorBody.moduleError as ModuleError
-            moduleError.statusCode = res.status
-            if (!moduleError.requestCategory) moduleError.requestCategory = selectedCategory
-            if (!moduleError.requestPayload) moduleError.requestPayload = `category=${selectedCategory}, focusArea=${focusArea || 'none'}, timePeriod=${timePeriod}`
-            if (!moduleError.backendMessage && errorBody.error) moduleError.backendMessage = errorBody.error
-          } else {
-            moduleError = classifyError(new Error(errorBody.error || `HTTP ${res.status}`), 'Opportunity Generator', '/api/opportunities', {
-              category: selectedCategory,
-              payload: `category=${selectedCategory}, focusArea=${focusArea || 'none'}, timePeriod=${timePeriod}`,
-              backendMessage: errorBody.error,
-            })
-            moduleError.statusCode = res.status
-            if (!moduleError.requestCategory) moduleError.requestCategory = selectedCategory
-            if (!moduleError.requestPayload) moduleError.requestPayload = `category=${selectedCategory}, focusArea=${focusArea || 'none'}, timePeriod=${timePeriod}`
-          }
-          // Start cooldown if 429 rate limit
-          if (res.status === 429 || moduleError.category === 'rate_limit') {
-            const seconds = errorBody.moduleError?.cooldownRemainingSeconds || 60
-            setCooldownSeconds(seconds)
-          }
-        } catch {
-          moduleError = classifyError(new Error(`HTTP ${res.status}`), 'Opportunity Generator', '/api/opportunities', {
-            category: selectedCategory,
-            payload: `category=${selectedCategory}, focusArea=${focusArea || 'none'}, timePeriod=${timePeriod}`,
-          })
-          moduleError.statusCode = res.status
-          if (res.status === 429) setCooldownSeconds(60)
+        const moduleError = await handleFetchError(res, {
+          moduleName: 'Opportunity Generator',
+          endpoint: '/api/opportunities',
+          category: selectedCategory,
+          payload: `category=${selectedCategory}, focusArea=${focusArea || 'none'}, timePeriod=${timePeriod}`,
+        });
+        // Start cooldown if 429 rate limit
+        if (res.status === 429 || moduleError.category === 'rate_limit') {
+          setCooldownSeconds(60)
         }
         setGenerationError(moduleError)
         errorSetByMutation.current = true

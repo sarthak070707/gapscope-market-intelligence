@@ -363,7 +363,17 @@ Identify 2-5 significant trends.`,
     MODULE_NAME
   );
 
-  const safeTrends = Array.isArray(trends) ? trends : [];
+  // Normalize: LLM sometimes returns a single object instead of an array
+  let safeTrends: TrendData[];
+  if (Array.isArray(trends)) {
+    safeTrends = trends;
+  } else if (trends && typeof trends === 'object') {
+    console.warn(`[${MODULE_NAME}] LLM returned a single trend object instead of array — wrapping in array`);
+    safeTrends = [trends as unknown as TrendData];
+  } else {
+    console.error(`[${MODULE_NAME}] LLM returned unexpected type for trends: ${typeof trends}`);
+    safeTrends = [];
+  }
   logStageEnd(MODULE_NAME, 'LLM_TRENDS', `LLM returned ${safeTrends.length} trends`);
   console.log(`[${MODULE_NAME}] LLM returned ${safeTrends.length} trends`);
 
@@ -532,6 +542,34 @@ Be specific and evidence-based in your analysis.`,
     { maxRetries: MAX_RETRIES },
     MODULE_NAME
   );
+
+  // Validate comparison response shape
+  if (!comparison || typeof comparison !== 'object') {
+    console.error(`[${MODULE_NAME}] LLM returned invalid comparison: ${typeof comparison}`);
+    return NextResponse.json(
+      {
+        error: 'AI returned an invalid comparison result. The model may have timed out.',
+        moduleError: {
+          module: MODULE_NAME,
+          category: 'ai_response',
+          message: 'AI returned non-object for product comparison',
+          detail: `LLM returned ${typeof comparison} instead of a comparison object. This usually means the model timed out or returned a truncated response.`,
+          possibleReason: 'The AI model may have timed out. Try again.',
+          retryable: true,
+          stage: 'TRENDS_COMPARE_LLM',
+          timestamp: new Date().toISOString(),
+          endpoint: '/api/trends',
+          requestCategory: effectiveCategory,
+        }
+      },
+      { status: 422 }
+    );
+  }
+  // Ensure products array exists in comparison
+  if (comparison && typeof comparison === 'object' && !Array.isArray((comparison as Record<string, unknown>).products)) {
+    console.warn(`[${MODULE_NAME}] Comparison missing products array — normalizing`);
+    (comparison as Record<string, unknown>).products = [];
+  }
 
   console.log(`[${MODULE_NAME}] Product comparison complete`);
   return NextResponse.json(comparison);

@@ -407,7 +407,20 @@ export function DashboardOverview() {
         try {
           const errorBody = await res.json()
           errorMsg = errorBody.error || errorMsg
-        } catch {}
+        } catch {
+          // JSON parse failed — gateway returned HTML (e.g., 502)
+          // Try to read response text for more context
+          try {
+            const text = await res.text()
+            if (res.status === 502) {
+              errorMsg = `Dashboard data unavailable: Gateway returned 502 Bad Gateway. The backend may be starting up or temporarily overloaded. ${text ? `Gateway response: ${text.substring(0, 150)}` : 'Try refreshing the page.'}`
+            } else {
+              errorMsg = `Dashboard data unavailable (HTTP ${res.status}). ${text ? `Response: ${text.substring(0, 150)}` : 'Try refreshing the page.'}`
+            }
+          } catch {
+            errorMsg = `Dashboard data unavailable (HTTP ${res.status}). Try refreshing the page.`
+          }
+        }
         throw new Error(errorMsg)
       }
       return res.json()
