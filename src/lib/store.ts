@@ -3,6 +3,12 @@
 import { create } from 'zustand'
 import type { Category, TimePeriod, ScannedProduct, GapAnalysis, MarketSaturation, OpportunitySuggestion, TrendData, CompetitorComparison, ComplaintCluster } from '@/types'
 
+export const DEFAULT_CATEGORY: Category = 'AI Tools'
+
+export function getEffectiveCategory(category: Category | 'all'): Category {
+  return category === 'all' ? DEFAULT_CATEGORY : category
+}
+
 export type TabId = 'dashboard' | 'scanner' | 'analysis' | 'opportunities' | 'trends'
 
 interface AppState {

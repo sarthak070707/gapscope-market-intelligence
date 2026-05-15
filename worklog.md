@@ -153,3 +153,215 @@ Stage Summary:
 - When no data exists: shows empty state with CTA to start scanning
 - When loading: shows skeleton placeholder
 - Proper retry functionality with refetch
+
+---
+
+Task ID: 2
+Agent: subagent
+Task: Fix store.ts and error-handler.ts — add DEFAULT_CATEGORY, getEffectiveCategory, enhance ModuleError and classifyError
+
+## File 1: `/home/z/my-project/src/lib/store.ts`
+
+### Changes Made
+1. Added `DEFAULT_CATEGORY: Category = 'AI Tools'` as a named export constant — provides a safe fallback category when `selectedCategory` is `'all'`
+2. Added `getEffectiveCategory(category: Category | 'all'): Category` helper function — resolves `'all'` to `'AI Tools'` so API calls always have a concrete category
+
+### Rationale
+- The store's `selectedCategory` defaults to `'all'`, which is not a valid API parameter
+- Frontend panels were using local category state instead of the shared Zustand store, leading to "Category: unknown" in error cards
+- `getEffectiveCategory` provides a single source of truth for resolving the `'all'` filter to a safe default
+
+## File 2: `/home/z/my-project/src/lib/error-handler.ts`
+
+### Changes to `ModuleError` interface
+1. Added `requestCategory?: string` — the product category that was sent in the request
+2. Added `requestPayload?: string` — a short summary of the request body (e.g., "category=AI Tools, timePeriod=30d")
+3. Added `backendMessage?: string` — the original error message from the backend
+4. Removed old `requestContext?: RequestContext` nested field in favor of three flat fields
+
+### Changes to `classifyError` function
+1. Fixed `ctx` construction: now spreads individual fields (`requestCategory`, `requestPayload`, `backendMessage`) instead of nesting a `requestContext` object
+2. Added `'throttl'` pattern to rate limit detection (matching "throttled"/"throttling")
+3. Added 7 new error patterns BEFORE the generic fallback:
+   - `empty`/`no result`/`no data`/`nothing found` → category `'api'`, message about no results
+   - `invalid`/`malformed` → category `'parsing'`
+   - `missing category`/`category is required` → category `'validation'`
+   - `abort`/`cancel` → category `'timeout'`
+   - `unauthorized`/`forbidden`/`auth` → category `'api'`, statusCode 401/403
+   - `bad request` → category `'validation'`, statusCode 400
+   - `service unavailable`/`overloaded` → category `'api'`, statusCode 503
+4. All returned ModuleError objects now spread `ctx` to include request debug info
+
+### Changes to `logError` function
+1. Added optional 4th parameter `requestContext?: RequestContext`
+2. When provided, spreads `requestCategory`, `requestPayload`, `backendMessage` into the log output
+
+### Changes to `isRateLimitError`
+1. Added `'throttl'` pattern matching
+
+## Verification
+- `bun run lint` passes with zero errors
+
+---
+
+Task ID: 3-b
+Agent: full-stack-developer subagent
+Task: Fix GapAnalysisPanel — replace local category state with Zustand store's selectedCategory, pass RequestContext to classifyError calls, ensure API sends correct category
+
+## File: `/home/z/my-project/src/components/gap-analysis-panel.tsx`
+
+### Changes Made
+
+1. **Replaced local category state with Zustand store's `selectedCategory`**:
+   - Import: Changed `import { useAppStore } from '@/lib/store'` → `import { useAppStore, getEffectiveCategory } from '@/lib/store'`
+   - Removed: `const [category, setCategory] = useState<Category | 'all'>('all')`
+   - Added: `const selectedCategory = useAppStore((s) => s.selectedCategory)` and `const setSelectedCategory = useAppStore((s) => s.setSelectedCategory)`
+
+2. **Updated all `category`/`setCategory` references to `selectedCategory`/`setSelectedCategory`**:
+   - Select component: `value={category}` → `value={selectedCategory}`, `onValueChange={(v) => setCategory(...)}` → `onValueChange={(v) => setSelectedCategory(...)}`
+   - API body: `JSON.stringify({ category, ... })` → `JSON.stringify({ category: selectedCategory, ... })`
+
+3. **Passed RequestContext to all `classifyError` calls**:
+   - Try block (parsing error body): Added 4th arg `{ category: selectedCategory, payload: 'category=${selectedCategory}, analysisType=full, timePeriod=${timePeriod}', backendMessage: errorBody.error }`
+   - Catch block (HTTP error without body): Added 4th arg `{ category: selectedCategory, payload: 'category=${selectedCategory}, analysisType=full, timePeriod=${timePeriod}' }`
+   - `onError` handler: Added 4th arg `{ category: selectedCategory, payload: 'category=${selectedCategory}, analysisType=full, timePeriod=${timePeriod}' }`
+
+### Rationale
+- Category selection is now shared across all panels via Zustand store, so changing category in one panel updates it everywhere
+- RequestContext in classifyError ensures error cards display the actual category and request payload for debugging
+- API call correctly sends the shared `selectedCategory` value
+
+## Verification
+- `bun run lint` passes with zero errors
+
+---
+
+Task ID: 3-a
+Agent: full-stack-developer subagent
+Task: Fix ScannerPanel — replace local category state with Zustand store's selectedCategory and pass RequestContext to classifyError
+
+## File: `/home/z/my-project/src/components/scanner-panel.tsx`
+
+### Changes Made
+
+1. **Replaced local category state with Zustand store's `selectedCategory`**:
+   - Added `getEffectiveCategory` to the import from `@/lib/store` (now `import { useAppStore, getEffectiveCategory } from '@/lib/store'`)
+   - Removed: `const [category, setCategory] = useState<Category | 'all'>('all')`
+   - Added: `const selectedCategory = useAppStore((s) => s.selectedCategory)` and `const setSelectedCategory = useAppStore((s) => s.setSelectedCategory)`
+   - Changed `value={category}` → `value={selectedCategory}` in the Select component
+   - Changed `onValueChange={(v) => setCategory(v as Category | 'all')}` → `onValueChange={(v) => setSelectedCategory(v as Category | 'all')}`
+   - Changed `setCategory(matchedCategory)` → `setSelectedCategory(matchedCategory)` in handleSuggestionClick
+   - Category selection is now shared with other panels via the global Zustand store
+
+2. **Passed request context to all `classifyError` calls**:
+   - In the `res.ok` error handling (with errorBody): added `{ category: selectedCategory, payload: \`category=${selectedCategory}, period=${period}\`, backendMessage: errorBody.error }`
+   - In the `res.ok` error handling (catch fallback for JSON parse failure): added `{ category: selectedCategory, payload: \`category=${selectedCategory}, period=${period}\` }`
+   - In the `onError` handler: added `{ category: selectedCategory, payload: \`category=${selectedCategory}, period=${period}\` }`
+
+3. **Ensured the API call sends the correct category**:
+   - Changed `body: JSON.stringify({ category, period })` → `body: JSON.stringify({ category: selectedCategory, period })`
+
+### Rationale
+- Local `useState` for category meant the selected category was isolated to the ScannerPanel and not shared with other panels. When the user selected "AI Tools" in Scanner and switched to Gap Analysis, the category reset to "All Categories" because other panels read from the Zustand store while ScannerPanel wrote to local state.
+- Using the Zustand store's `selectedCategory` ensures all panels stay in sync when the user changes category.
+- Adding request context to `classifyError` provides better debugging info in error cards (shows which category/payload caused the failure instead of showing "unknown").
+
+## Verification
+- `bun run lint` passes with zero errors
+
+---
+
+Task ID: 3-c
+Agent: bug-fix-agent
+Task: Fix OpportunitiesPanel — replace local category state with Zustand store, add request context to classifyError calls
+
+## File: `/home/z/my-project/src/components/opportunities-panel.tsx`
+
+### Changes Made
+
+1. **Replaced local category state with Zustand store's `selectedCategory`**:
+   - Added `getEffectiveCategory` to the import from `@/lib/store`
+   - Removed: `const [category, setCategory] = useState<Category | 'all'>('all')`
+   - Added: `const selectedCategory = useAppStore((s) => s.selectedCategory)` and `const setSelectedCategory = useAppStore((s) => s.setSelectedCategory)`
+   - Changed `value={category}` → `value={selectedCategory}` in the Select component
+   - Changed `onValueChange={(v) => setCategory(v as Category | 'all')}` → `onValueChange={(v) => setSelectedCategory(v as Category | 'all')}`
+   - Category selection is now shared with other panels via the global Zustand store
+
+2. **Passed request context to all `classifyError` calls**:
+   - In the `generateMutation.mutationFn` try block (parsing error body): added `{ category: selectedCategory, payload: 'category=${selectedCategory}, focusArea=${focusArea || "none"}, timePeriod=${timePeriod}', backendMessage: errorBody.error }`
+   - In the `generateMutation.mutationFn` catch block (JSON parse failure): added `{ category: selectedCategory, payload: 'category=${selectedCategory}, focusArea=${focusArea || "none"}, timePeriod=${timePeriod}' }`
+   - In the `onError` handler: added `{ category: selectedCategory, payload: 'category=${selectedCategory}, focusArea=${focusArea || "none"}, timePeriod=${timePeriod}' }`
+
+3. **Ensured the API call sends the correct category**:
+   - Changed `body: JSON.stringify({ category, ... })` → `body: JSON.stringify({ category: selectedCategory, ... })`
+
+### Rationale
+- Local `useState` for category meant the selected category was isolated to this panel and not shared with other panels (e.g., Scanner, Analysis)
+- Using the Zustand store's `selectedCategory` ensures all panels stay in sync when the user changes category
+- Adding request context to `classifyError` provides better debugging info in error cards (shows which category/payload caused the failure)
+
+## Verification
+- `bun run lint` passes with zero errors
+
+---
+
+Task ID: 3-d
+Agent: bug-fix-agent
+Task: Fix TrendsComparePanel — replace local category state with Zustand store, add request context to classifyError calls
+
+## File: `/home/z/my-project/src/components/trends-compare-panel.tsx`
+
+### Changes Made
+
+1. **Replaced local category state with Zustand store's `selectedCategory`**:
+   - Added `getEffectiveCategory` to the import from `@/lib/store`
+   - Removed: `const [category, setCategory] = useState<Category | 'all'>('all')`
+   - Added: `const selectedCategory = useAppStore((s) => s.selectedCategory)` and `const setSelectedCategory = useAppStore((s) => s.setSelectedCategory)`
+   - Changed `value={category}` → `value={selectedCategory}` in the Select component
+   - Changed `onValueChange={(v) => setCategory(v as Category | 'all')}` → `onValueChange={(v) => setSelectedCategory(v as Category | 'all')}`
+   - Category selection is now shared with other panels via the global Zustand store
+   - Local `category` variables inside `generateTrendComparisons` (categoryMap, trend.category) and `enrichTrendsWithContext` were NOT changed — those refer to trend data properties, not the component-level filter
+
+2. **Passed request context to all `classifyError` calls**:
+   - In `trendMutation` try block (parsing error body): added `{ category: selectedCategory, payload: \`action=detect, category=${selectedCategory}, timePeriod=${timePeriod}\`, backendMessage: errorBody.error }`
+   - In `trendMutation` catch block (JSON parse failure): added `{ category: selectedCategory, payload: \`action=detect, category=${selectedCategory}, timePeriod=${timePeriod}\` }`
+   - In `trendMutation.onError` handler: added `{ category: selectedCategory, payload: \`action=detect, category=${selectedCategory}, timePeriod=${timePeriod}\` }`
+   - In `compareMutation` try block (parsing error body): added `{ category: selectedCategory, payload: \`action=compare, products=${selectedProducts.join(',')}, category=${selectedCategory}\`, backendMessage: errorBody.error }`
+   - In `compareMutation` catch block (JSON parse failure): added `{ category: selectedCategory, payload: \`action=compare, products=${selectedProducts.join(',')}, category=${selectedCategory}\` }`
+   - In `compareMutation.onError` handler: added `{ category: selectedCategory, payload: \`action=compare, products=${selectedProducts.join(',')}, category=${selectedCategory}\` }`
+
+3. **Ensured the API calls send the correct category**:
+   - Changed `body: JSON.stringify({ action: 'detect', category, timePeriod })` → `body: JSON.stringify({ action: 'detect', category: selectedCategory, timePeriod })`
+   - Changed `body: JSON.stringify({ action: 'compare', productIds: selectedProducts, category })` → `body: JSON.stringify({ action: 'compare', productIds: selectedProducts, category: selectedCategory })`
+
+### Rationale
+- Local `useState` for category meant the selected category was isolated to this panel and not shared with other panels (e.g., Scanner, Analysis, Opportunities)
+- Using the Zustand store's `selectedCategory` ensures all panels stay in sync when the user changes category
+- Adding request context to `classifyError` provides better debugging info in error cards (shows which category/payload caused the failure)
+
+## Verification
+- `bun run lint` passes with zero errors
+
+---
+
+Task ID: 5-7
+Agent: Main
+Task: Fix /api/trends backend validation, improve ModuleErrorState debug info, enrich frontend errors with request context
+
+Work Log:
+- Added category === 'unknown' validation guard to /api/trends POST (matching /api/scan, /api/analyze, /api/opportunities)
+- Added MODULE_NAME constant, request logging, effectiveCategory resolution, debug info in error responses
+- Updated handleDetectTrends to accept (effectiveCategory, originalCategory) parameters
+- Updated handleCompareProducts to accept (body, effectiveCategory) parameters
+- Updated ModuleErrorState debug section to show: Error Type (was "Category"), Sent Category, Request Payload, Backend Message
+- Highlighted "unknown"/"undefined" sent categories in red in debug info
+- Added frontend error enrichment in all 4 panels: when backend moduleError lacks requestCategory/requestPayload/backendMessage, frontend fills them in
+- Renamed "Category:" label to "Error Type:" in debug section to avoid confusion with product category
+
+Stage Summary:
+- /api/trends now validates category === 'unknown' and returns proper validation error with moduleError
+- /api/trends now resolves 'all' → 'AI Tools' as effectiveCategory for LLM prompts
+- /api/trends now logs incoming request body for debugging
+- ModuleErrorState debug shows: Error Type, Sent Category, Request Payload, Backend Message, Endpoint, Status, Timestamp, Detail
+- All 4 frontend panels enrich backend errors with request context before displaying
+- Lint passes with zero errors

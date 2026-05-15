@@ -38,7 +38,7 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { useAppStore } from '@/lib/store'
+import { useAppStore, getEffectiveCategory } from '@/lib/store'
 import { SaturationMeter } from '@/components/ui/saturation-meter'
 import { WhyNowBlock, ExecutionDifficultyBlock, FalseOpportunityBlock, FounderFitBlock, SourceTransparencyBlock, WhyExistingProductsFailBlock, MarketQuadrantBlock, EnhancedEvidenceBlock, WhyOpportunityExistsBlock, UnderservedAudienceBlock, FeasibilitySummaryBlock } from '@/components/feature-blocks'
 import { CATEGORIES, type Category, type GapType, type GapAnalysis, type MarketSaturation, type ComplaintCluster, type TimePeriod, type ComplaintCategory, type WhyNowAnalysis, type ExecutionDifficulty, type FalseOpportunityAnalysis, type FounderFitSuggestion, type SourceTransparency, type WhyExistingProductsFail, type MarketQuadrantPosition } from '@/types'
@@ -708,10 +708,11 @@ function SaturationEntry({ sat, delay = 0 }: { sat: MarketSaturation; delay?: nu
 
 // ─── Main Panel ─────────────────────────────────────────────────────────────
 export function GapAnalysisPanel() {
-  const [category, setCategory] = useState<Category | 'all'>('all')
   const [gapTypeFilter, setGapTypeFilter] = useState<GapType | 'all'>('all')
   const [analysisError, setAnalysisError] = useState<ModuleError | null>(null)
 
+  const selectedCategory = useAppStore((s) => s.selectedCategory)
+  const setSelectedCategory = useAppStore((s) => s.setSelectedCategory)
   const analysisResults = useAppStore((s) => s.analysisResults)
   const setAnalysisResults = useAppStore((s) => s.setAnalysisResults)
   const saturationResults = useAppStore((s) => s.saturationResults)
@@ -727,16 +728,27 @@ export function GapAnalysisPanel() {
       const res = await fetch('/api/analyze', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ category, analysisType: 'full', timePeriod }),
+        body: JSON.stringify({ category: selectedCategory, analysisType: 'full', timePeriod }),
       })
       if (!res.ok) {
         let moduleError: ModuleError
         try {
           const errorBody = await res.json()
-          moduleError = errorBody.moduleError || classifyError(new Error(errorBody.error || `HTTP ${res.status}`), 'Gap Analysis', '/api/analyze')
+          moduleError = errorBody.moduleError || classifyError(new Error(errorBody.error || `HTTP ${res.status}`), 'Gap Analysis', '/api/analyze', {
+            category: selectedCategory,
+            payload: `category=${selectedCategory}, analysisType=full, timePeriod=${timePeriod}`,
+            backendMessage: errorBody.error,
+          })
           moduleError.statusCode = res.status
+          // Enrich with frontend request context if missing from backend error
+          if (!moduleError.requestCategory) moduleError.requestCategory = selectedCategory
+          if (!moduleError.requestPayload) moduleError.requestPayload = `category=${selectedCategory}, analysisType=full, timePeriod=${timePeriod}`
+          if (!moduleError.backendMessage && errorBody.error) moduleError.backendMessage = errorBody.error
         } catch {
-          moduleError = classifyError(new Error(`HTTP ${res.status}`), 'Gap Analysis', '/api/analyze')
+          moduleError = classifyError(new Error(`HTTP ${res.status}`), 'Gap Analysis', '/api/analyze', {
+            category: selectedCategory,
+            payload: `category=${selectedCategory}, analysisType=full, timePeriod=${timePeriod}`,
+          })
           moduleError.statusCode = res.status
         }
         setAnalysisError(moduleError)
@@ -752,7 +764,10 @@ export function GapAnalysisPanel() {
     },
     onError: (err) => {
       if (!analysisError) {
-        setAnalysisError(classifyError(err, 'Gap Analysis', '/api/analyze'))
+        setAnalysisError(classifyError(err, 'Gap Analysis', '/api/analyze', {
+          category: selectedCategory,
+          payload: `category=${selectedCategory}, analysisType=full, timePeriod=${timePeriod}`,
+        }))
       }
       toast.error('Analysis failed. Please try again.')
     },
@@ -785,8 +800,8 @@ export function GapAnalysisPanel() {
               <div className="space-y-2 w-full sm:w-auto">
                 <label className="text-sm font-medium">Category</label>
                 <Select
-                  value={category}
-                  onValueChange={(v) => setCategory(v as Category | 'all')}
+                  value={selectedCategory}
+                  onValueChange={(v) => setSelectedCategory(v as Category | 'all')}
                 >
                   <SelectTrigger className="w-full sm:w-48">
                     <SelectValue placeholder="Select category" />

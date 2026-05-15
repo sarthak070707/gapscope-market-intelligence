@@ -58,25 +58,54 @@ export async function GET(request: NextRequest) {
  * - { action: 'compare', productIds, category }: Compare specific products
  * Also supports just { category } as shorthand for detect
  */
+const MODULE_NAME = 'Trend Detection';
+
 export async function POST(request: NextRequest) {
+  let body: Record<string, unknown> | null = null;
   try {
-    const body = await request.json();
+    body = await request.json();
     const { action, category } = body;
 
-    if (!category) {
+    console.log(`[${MODULE_NAME}] Request received:`, {
+      method: request.method,
+      url: request.url,
+      category: body.category,
+      timePeriod: body.timePeriod,
+      action: body.action,
+    });
+
+    if (!category || category === 'unknown') {
+      console.error(`[${MODULE_NAME}] Missing or invalid category:`, { category, body });
       return NextResponse.json(
-        { error: 'Category is required' },
+        {
+          error: 'Missing or invalid category. Please select a category or use the default "AI Tools".',
+          moduleError: {
+            module: MODULE_NAME,
+            category: 'validation',
+            message: 'Missing or invalid category',
+            detail: `Received category: "${category}". A valid category is required.`,
+            possibleReason: 'The category was not passed from the frontend, or was set to "unknown". Please select a specific category.',
+            retryable: false,
+            timestamp: new Date().toISOString(),
+            endpoint: '/api/trends',
+            requestCategory: String(category),
+          }
+        },
         { status: 400 }
       );
     }
+
+    // Resolve 'all' to a specific default category for better search results
+    const effectiveCategory = category === 'all' ? 'AI Tools' : category;
+    console.log(`[${MODULE_NAME}] Using effective category: ${effectiveCategory} (original: ${category})`);
 
     // Default action is 'detect' if not specified
     const effectiveAction = action || 'detect';
 
     if (effectiveAction === 'detect') {
-      return await handleDetectTrends(category);
+      return await handleDetectTrends(effectiveCategory, String(category));
     } else if (effectiveAction === 'compare') {
-      return await handleCompareProducts(body);
+      return await handleCompareProducts(body, effectiveCategory);
     } else {
       return NextResponse.json(
         { error: `Unknown action: ${effectiveAction}. Use "detect" or "compare".` },
@@ -84,12 +113,22 @@ export async function POST(request: NextRequest) {
       );
     }
   } catch (error) {
-    logError('Trend Detection', error, { endpoint: '/api/trends', method: 'POST' });
-    const moduleError = classifyError(error, 'Trend Detection', '/api/trends');
+    logError(MODULE_NAME, error, { endpoint: '/api/trends', method: 'POST' });
+    const moduleError = classifyError(error, MODULE_NAME, '/api/trends', {
+      category: body?.category ? String(body.category) : undefined,
+      payload: `category=${body?.category}, action=${body?.action}, timePeriod=${body?.timePeriod || 'N/A'}`,
+      backendMessage: error instanceof Error ? error.message : String(error),
+    });
     return NextResponse.json(
       {
         error: moduleError.message,
         moduleError,
+        debug: {
+          receivedCategory: body?.category,
+          receivedAction: body?.action,
+          receivedTimePeriod: body?.timePeriod,
+          originalError: error instanceof Error ? error.message : String(error),
+        }
       },
       { status: 500 }
     );
@@ -99,10 +138,10 @@ export async function POST(request: NextRequest) {
 /**
  * Detect trending categories on Product Hunt using web search + LLM
  */
-async function handleDetectTrends(category: string) {
+async function handleDetectTrends(effectiveCategory: string, originalCategory: string) {
   // Search for trending products and categories on Product Hunt (with timeout + retry)
-  const searchQuery1 = `site:producthunt.com trending ${category} 2025`;
-  const searchQuery2 = `product hunt ${category} trends growth 2025`;
+  const searchQuery1 = `site:producthunt.com trending ${effectiveCategory} 2025`;
+  const searchQuery2 = `product hunt ${effectiveCategory} trends growth 2025`;
 
   const [searchResult1, searchResult2] = await Promise.all([
     retryWithBackoff(
@@ -155,7 +194,7 @@ async function handleDetectTrends(category: string) {
 
   // Also fetch existing product data from DB for context
   const existingProducts = await db.product.findMany({
-    where: category === 'all' ? {} : { category },
+    where: originalCategory === 'all' ? {} : { category: originalCategory },
     take: 20,
   });
 
@@ -171,7 +210,7 @@ async function handleDetectTrends(category: string) {
 Analyze the search results and existing product data to identify trending patterns.
 
 For each trend, provide:
-- category: "${category}"
+- category: "${effectiveCategory}"
 - name: A concise name for the trend
 - description: Description of the trend and what's driving it
 - growthRate: Estimated growth rate as a percentage
@@ -219,7 +258,7 @@ Identify 2-5 significant trends.`,
     try {
       const created = await db.trend.create({
         data: {
-          category: trend.category || category,
+          category: trend.category || effectiveCategory,
           name: trend.name || 'Unnamed Trend',
           description: trend.description || '',
           growthRate: trend.growthRate || 0,
@@ -245,11 +284,9 @@ Identify 2-5 significant trends.`,
 /**
  * Compare specific products from the database using LLM
  */
-async function handleCompareProducts(body: {
-  productIds?: string[];
-  category: string;
-}) {
-  const { productIds, category } = body;
+async function handleCompareProducts(body: Record<string, unknown>, effectiveCategory: string) {
+  const productIds = body.productIds as string[] | undefined;
+  const originalCategory = String(body.category || 'all');
 
   let products;
   if (productIds && Array.isArray(productIds) && productIds.length >= 2) {
@@ -267,7 +304,7 @@ async function handleCompareProducts(body: {
     }
   } else {
     products = await db.product.findMany({
-      where: category === 'all' ? {} : { category },
+      where: originalCategory === 'all' ? {} : { category: originalCategory },
       take: 5,
       include: { gaps: true, complaints: true },
     });
@@ -301,7 +338,7 @@ Gaps: ${p.gaps.map((g) => `${g.gapType}: ${g.title}`).join('; ') || 'None'}`;
   const comparison = await retryWithBackoff(
     () => withTimeout(
       () => generateStructuredResponse<CompetitorComparison>(
-        `You are a competitive product analyst. Compare the following products in the "${category}" category.
+        `You are a competitive product analyst. Compare the following products in the "${effectiveCategory}" category.
 For each product, identify:
 - Key pricing information
 - Core features list (3-5 features)

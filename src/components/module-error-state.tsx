@@ -287,7 +287,7 @@ export function ModuleErrorState({
           </div>
 
           {/* Debug info (collapsible) */}
-          {(error.endpoint || error.statusCode || error.detail) && (
+          {(error.endpoint || error.statusCode || error.detail || error.requestCategory || error.requestPayload || error.backendMessage) && (
             <Collapsible open={debugOpen} onOpenChange={setDebugOpen}>
               <CollapsibleTrigger asChild>
                 <Button
@@ -338,9 +338,29 @@ export function ModuleErrorState({
                       </div>
                     )}
                     <div>
-                      <span className="text-foreground/70">Category:</span>{' '}
+                      <span className="text-foreground/70">Error Type:</span>{' '}
                       {error.category}
                     </div>
+                    {error.requestCategory && (
+                      <div>
+                        <span className="text-foreground/70">Sent Category:</span>{' '}
+                        <span className={error.requestCategory === 'unknown' || error.requestCategory === 'undefined' ? 'text-red-500 font-semibold' : 'text-foreground'}>
+                          {error.requestCategory}
+                        </span>
+                      </div>
+                    )}
+                    {error.requestPayload && (
+                      <div>
+                        <span className="text-foreground/70">Request Payload:</span>{' '}
+                        <span className="break-all">{error.requestPayload}</span>
+                      </div>
+                    )}
+                    {error.backendMessage && (
+                      <div>
+                        <span className="text-foreground/70">Backend Message:</span>{' '}
+                        <span className="break-all text-orange-600 dark:text-orange-400">{error.backendMessage}</span>
+                      </div>
+                    )}
                     <div>
                       <span className="text-foreground/70">Timestamp:</span>{' '}
                       {formatFullTimestamp(error.timestamp)}

@@ -63,7 +63,7 @@ import {
   TableRow,
 } from '@/components/ui/table'
 import { Tooltip, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip'
-import { useAppStore } from '@/lib/store'
+import { useAppStore, getEffectiveCategory } from '@/lib/store'
 import { CATEGORIES, type Category, type TrendData, type CompetitorComparison, type SubNiche, type UnderservedUserGroup, type TimePeriod, type TrendComparison } from '@/types'
 import { WhyNowBlock } from '@/components/feature-blocks'
 import { TrendComparisonBlock } from '@/components/feature-blocks'
@@ -430,7 +430,8 @@ function formatPeriodLabel(period: string): string {
 }
 
 export function TrendsComparePanel() {
-  const [category, setCategory] = useState<Category | 'all'>('all')
+  const selectedCategory = useAppStore((s) => s.selectedCategory)
+  const setSelectedCategory = useAppStore((s) => s.setSelectedCategory)
   const [productInput, setProductInput] = useState('')
   const [selectedProducts, setSelectedProducts] = useState<string[]>([])
   const [trendError, setTrendError] = useState<ModuleError | null>(null)
@@ -539,16 +540,27 @@ export function TrendsComparePanel() {
       const res = await fetch('/api/trends', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'detect', category, timePeriod }),
+        body: JSON.stringify({ action: 'detect', category: selectedCategory, timePeriod }),
       })
       if (!res.ok) {
         let moduleError: ModuleError
         try {
           const errorBody = await res.json()
-          moduleError = errorBody.moduleError || classifyError(new Error(errorBody.error || `HTTP ${res.status}`), 'Trend Detection', '/api/trends')
+          moduleError = errorBody.moduleError || classifyError(new Error(errorBody.error || `HTTP ${res.status}`), 'Trend Detection', '/api/trends', {
+            category: selectedCategory,
+            payload: `action=detect, category=${selectedCategory}, timePeriod=${timePeriod}`,
+            backendMessage: errorBody.error,
+          })
           moduleError.statusCode = res.status
+          // Enrich with frontend request context if missing from backend error
+          if (!moduleError.requestCategory) moduleError.requestCategory = selectedCategory
+          if (!moduleError.requestPayload) moduleError.requestPayload = `action=detect, category=${selectedCategory}, timePeriod=${timePeriod}`
+          if (!moduleError.backendMessage && errorBody.error) moduleError.backendMessage = errorBody.error
         } catch {
-          moduleError = classifyError(new Error(`HTTP ${res.status}`), 'Trend Detection', '/api/trends')
+          moduleError = classifyError(new Error(`HTTP ${res.status}`), 'Trend Detection', '/api/trends', {
+            category: selectedCategory,
+            payload: `action=detect, category=${selectedCategory}, timePeriod=${timePeriod}`,
+          })
           moduleError.statusCode = res.status
         }
         setTrendError(moduleError)
@@ -563,7 +575,10 @@ export function TrendsComparePanel() {
     },
     onError: (err) => {
       if (!trendError) {
-        setTrendError(classifyError(err, 'Trend Detection', '/api/trends'))
+        setTrendError(classifyError(err, 'Trend Detection', '/api/trends', {
+          category: selectedCategory,
+          payload: `action=detect, category=${selectedCategory}, timePeriod=${timePeriod}`,
+        }))
       }
       toast.error('Trend detection failed. Please try again.')
     },
@@ -598,16 +613,27 @@ export function TrendsComparePanel() {
       const res = await fetch('/api/trends', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'compare', productIds: selectedProducts, category }),
+        body: JSON.stringify({ action: 'compare', productIds: selectedProducts, category: selectedCategory }),
       })
       if (!res.ok) {
         let moduleError: ModuleError
         try {
           const errorBody = await res.json()
-          moduleError = errorBody.moduleError || classifyError(new Error(errorBody.error || `HTTP ${res.status}`), 'Product Comparison', '/api/trends')
+          moduleError = errorBody.moduleError || classifyError(new Error(errorBody.error || `HTTP ${res.status}`), 'Product Comparison', '/api/trends', {
+            category: selectedCategory,
+            payload: `action=compare, products=${selectedProducts.join(',')}, category=${selectedCategory}`,
+            backendMessage: errorBody.error,
+          })
           moduleError.statusCode = res.status
+          // Enrich with frontend request context if missing from backend error
+          if (!moduleError.requestCategory) moduleError.requestCategory = selectedCategory
+          if (!moduleError.requestPayload) moduleError.requestPayload = `action=compare, products=${selectedProducts.join(',')}, category=${selectedCategory}`
+          if (!moduleError.backendMessage && errorBody.error) moduleError.backendMessage = errorBody.error
         } catch {
-          moduleError = classifyError(new Error(`HTTP ${res.status}`), 'Product Comparison', '/api/trends')
+          moduleError = classifyError(new Error(`HTTP ${res.status}`), 'Product Comparison', '/api/trends', {
+            category: selectedCategory,
+            payload: `action=compare, products=${selectedProducts.join(',')}, category=${selectedCategory}`,
+          })
           moduleError.statusCode = res.status
         }
         setCompareError(moduleError)
@@ -621,7 +647,10 @@ export function TrendsComparePanel() {
     },
     onError: (err) => {
       if (!compareError) {
-        setCompareError(classifyError(err, 'Product Comparison', '/api/trends'))
+        setCompareError(classifyError(err, 'Product Comparison', '/api/trends', {
+          category: selectedCategory,
+          payload: `action=compare, products=${selectedProducts.join(',')}, category=${selectedCategory}`,
+        }))
       }
       toast.error('Comparison failed. Please try again.')
     },
@@ -662,8 +691,8 @@ export function TrendsComparePanel() {
               <div className="space-y-2 w-full sm:w-auto">
                 <label className="text-sm font-medium">Category</label>
                 <Select
-                  value={category}
-                  onValueChange={(v) => setCategory(v as Category | 'all')}
+                  value={selectedCategory}
+                  onValueChange={(v) => setSelectedCategory(v as Category | 'all')}
                 >
                   <SelectTrigger className="w-full sm:w-48">
                     <SelectValue placeholder="Select category" />

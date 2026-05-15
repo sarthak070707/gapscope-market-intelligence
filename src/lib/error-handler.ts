@@ -20,6 +20,12 @@ export type ErrorCategory =
   | 'validation'   // Data validation failed
   | 'unknown';     // Unclassified error
 
+export interface RequestContext {
+  category?: string;
+  payload?: string;
+  backendMessage?: string;
+}
+
 export interface ModuleError {
   module: string;           // e.g., "Product Hunt Scanner", "Trend Detection"
   category: ErrorCategory;
@@ -30,13 +36,26 @@ export interface ModuleError {
   timestamp: string;        // ISO timestamp
   endpoint?: string;        // Which API endpoint failed
   statusCode?: number;      // HTTP status code if applicable
+  requestCategory?: string; // The product category that was sent in the request
+  requestPayload?: string;  // A short summary of the request body (e.g., "category=AI Tools, timePeriod=30d")
+  backendMessage?: string;  // The original error message from the backend
 }
 
 // ─── Classify Error ──────────────────────────────────────────────
 
-export function classifyError(error: unknown, module: string, endpoint?: string): ModuleError {
+export function classifyError(
+  error: unknown,
+  module: string,
+  endpoint?: string,
+  requestContext?: RequestContext
+): ModuleError {
   const timestamp = new Date().toISOString();
-  
+  const ctx = {
+    requestCategory: requestContext?.category,
+    requestPayload: requestContext?.payload,
+    backendMessage: requestContext?.backendMessage,
+  };
+
   if (error instanceof TimeoutError) {
     return {
       module,
@@ -47,12 +66,13 @@ export function classifyError(error: unknown, module: string, endpoint?: string)
       retryable: true,
       timestamp,
       endpoint,
+      ...ctx,
     };
   }
 
   if (error instanceof Error) {
     const msg = error.message.toLowerCase();
-    
+
     // AI response parsing errors
     if (msg.includes('failed to parse ai response') || msg.includes('json')) {
       return {
@@ -64,6 +84,7 @@ export function classifyError(error: unknown, module: string, endpoint?: string)
         retryable: true,
         timestamp,
         endpoint,
+        ...ctx,
       };
     }
 
@@ -78,6 +99,7 @@ export function classifyError(error: unknown, module: string, endpoint?: string)
         retryable: true,
         timestamp,
         endpoint,
+        ...ctx,
       };
     }
 
@@ -92,6 +114,7 @@ export function classifyError(error: unknown, module: string, endpoint?: string)
         retryable: true,
         timestamp,
         endpoint,
+        ...ctx,
       };
     }
 
@@ -107,10 +130,11 @@ export function classifyError(error: unknown, module: string, endpoint?: string)
         timestamp,
         endpoint,
         statusCode: 404,
+        ...ctx,
       };
     }
 
-    if (msg.includes('429') || msg.includes('rate limit') || msg.includes('too many')) {
+    if (msg.includes('429') || msg.includes('rate limit') || msg.includes('too many') || msg.includes('throttl')) {
       return {
         module,
         category: 'api',
@@ -121,6 +145,7 @@ export function classifyError(error: unknown, module: string, endpoint?: string)
         timestamp,
         endpoint,
         statusCode: 429,
+        ...ctx,
       };
     }
 
@@ -135,6 +160,116 @@ export function classifyError(error: unknown, module: string, endpoint?: string)
         timestamp,
         endpoint,
         statusCode: 500,
+        ...ctx,
+      };
+    }
+
+    // Empty / no result errors
+    if (msg.includes('empty') || msg.includes('no result') || msg.includes('no data') || msg.includes('nothing found')) {
+      return {
+        module,
+        category: 'api',
+        message: `${module} found no results`,
+        detail: error.message,
+        possibleReason: 'The query returned no data. Try a different category or time period.',
+        retryable: true,
+        timestamp,
+        endpoint,
+        ...ctx,
+      };
+    }
+
+    // Invalid / malformed errors
+    if (msg.includes('invalid') || msg.includes('malformed')) {
+      return {
+        module,
+        category: 'parsing',
+        message: `${module} received invalid data`,
+        detail: error.message,
+        possibleReason: 'The request or response data was malformed. Check the input parameters and try again.',
+        retryable: true,
+        timestamp,
+        endpoint,
+        ...ctx,
+      };
+    }
+
+    // Missing category / category required errors
+    if (msg.includes('missing category') || msg.includes('category is required')) {
+      return {
+        module,
+        category: 'validation',
+        message: `${module} requires a category`,
+        detail: error.message,
+        possibleReason: 'A product category must be specified for this operation. Select a category and try again.',
+        retryable: false,
+        timestamp,
+        endpoint,
+        ...ctx,
+      };
+    }
+
+    // Abort / cancel errors
+    if (msg.includes('abort') || msg.includes('cancel')) {
+      return {
+        module,
+        category: 'timeout',
+        message: `${module} request was cancelled`,
+        detail: error.message,
+        possibleReason: 'The request was aborted or cancelled. This may be due to a timeout or user action.',
+        retryable: true,
+        timestamp,
+        endpoint,
+        ...ctx,
+      };
+    }
+
+    // Unauthorized / forbidden / auth errors
+    if (msg.includes('unauthorized') || msg.includes('forbidden') || msg.includes('auth')) {
+      const statusCode = msg.includes('forbidden') ? 403 : 401;
+      return {
+        module,
+        category: 'api',
+        message: `${module} authentication failed`,
+        detail: error.message,
+        possibleReason: 'The API request lacked proper authentication or authorization. Check API keys and permissions.',
+        retryable: false,
+        timestamp,
+        endpoint,
+        statusCode,
+        ...ctx,
+      };
+    }
+
+    // Bad request errors
+    if (msg.includes('bad request')) {
+      return {
+        module,
+        category: 'validation',
+        message: `${module} received a bad request`,
+        detail: error.message,
+        possibleReason: 'The request parameters were invalid. Check the input and try again.',
+        retryable: false,
+        timestamp,
+        endpoint,
+        statusCode: 400,
+        ...ctx,
+      };
+    }
+
+    // Service unavailable / overloaded errors
+    if (msg.includes('service unavailable') || msg.includes('overloaded')) {
+      return {
+        module,
+        category: 'api',
+        message: `${module} service is unavailable`,
+        detail: error.message,
+        possibleReason: 'The external service is temporarily unavailable or overloaded. Try again later.',
+        retryable: true,
+        timestamp,
+        endpoint,
+        statusCode: 503,
+        ...ctx,
       };
     }
 
@@ -148,6 +283,7 @@ export function classifyError(error: unknown, module: string, endpoint?: string)
       retryable: true,
       timestamp,
       endpoint,
+      ...ctx,
     };
   }
 
@@ -161,6 +297,7 @@ export function classifyError(error: unknown, module: string, endpoint?: string)
     retryable: true,
     timestamp,
     endpoint,
+    ...ctx,
   };
 }
 
@@ -193,7 +330,7 @@ const DEFAULT_RETRY_OPTIONS: RetryOptions = {
 function isRateLimitError(error: unknown): boolean {
   if (error instanceof Error) {
     const msg = error.message.toLowerCase();
-    return msg.includes('429') || msg.includes('rate limit') || msg.includes('too many');
+    return msg.includes('429') || msg.includes('rate limit') || msg.includes('too many') || msg.includes('throttl');
   }
   return false;
 }
@@ -275,7 +412,12 @@ export interface LogContext {
   [key: string]: string | number | boolean | undefined;
 }
 
-export function logError(module: string, error: unknown, context?: LogContext): void {
+export function logError(
+  module: string,
+  error: unknown,
+  context?: LogContext,
+  requestContext?: RequestContext
+): void {
   const timestamp = new Date().toISOString();
   const errorInfo = {
     timestamp,
@@ -283,6 +425,11 @@ export function logError(module: string, error: unknown, context?: LogContext): 
     errorMessage: error instanceof Error ? error.message : String(error),
     errorType: error instanceof Error ? error.constructor.name : typeof error,
     ...context,
+    ...(requestContext ? {
+      requestCategory: requestContext.category,
+      requestPayload: requestContext.payload,
+      backendMessage: requestContext.backendMessage,
+    } : {}),
   };
   
   // In production, you'd send this to a monitoring service

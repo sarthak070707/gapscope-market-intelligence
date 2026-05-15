@@ -4,6 +4,7 @@ import { webSearch, readPage, generateStructuredResponse } from '@/lib/zai';
 import { retryWithBackoff, withTimeout, logError, classifyError, TimeoutError, type ModuleError } from '@/lib/error-handler';
 import type { ScannedProduct } from '@/types';
 
+const MODULE_NAME = 'Product Hunt Scanner';
 const SCAN_TIMEOUT_MS = 120_000;
 const LLM_TIMEOUT_MS = 90_000;
 const MAX_RETRIES = 2;
@@ -15,12 +16,39 @@ export async function POST(request: NextRequest) {
     const body = await request.json();
     const { category, period = 'monthly' } = body;
 
-    if (!category) {
+    console.log(`[${MODULE_NAME}] Request received:`, {
+      method: request.method,
+      url: request.url,
+      body: { ...body },
+      category: body.category,
+      timePeriod: body.timePeriod,
+      action: body.action,
+    });
+
+    if (!category || category === 'unknown') {
+      console.error(`[${MODULE_NAME}] Missing or invalid category:`, { category, body });
       return NextResponse.json(
-        { error: 'Category is required' },
+        { 
+          error: 'Missing or invalid category. Please select a category or use the default "AI Tools".',
+          moduleError: {
+            module: MODULE_NAME,
+            category: 'validation',
+            message: 'Missing or invalid category',
+            detail: `Received category: "${category}". A valid category is required.`,
+            possibleReason: 'The category was not passed from the frontend, or was set to "unknown". Please select a specific category.',
+            retryable: false,
+            timestamp: new Date().toISOString(),
+            endpoint: '/api/scan',
+            requestCategory: category,
+          }
+        },
         { status: 400 }
       );
     }
+
+    // Resolve 'all' to a specific default category for better search results
+    const effectiveCategory = category === 'all' ? 'AI Tools' : category;
+    console.log(`[${MODULE_NAME}] Using effective category: ${effectiveCategory} (original: ${category})`);
 
     // Create a scan job to track progress
     const scanJob = await db.scanJob.create({
@@ -33,13 +61,17 @@ export async function POST(request: NextRequest) {
     try {
       // Wrap entire scan operation with timeout protection
       const result = await withTimeout(
-        () => executeScan(category, scanJob.id),
+        () => executeScan(effectiveCategory, scanJob.id, category),
         SCAN_TIMEOUT_MS,
-        'Product Hunt Scanner'
+        MODULE_NAME
       );
       return result;
     } catch (innerError) {
-      const moduleError = classifyError(innerError, 'Product Hunt Scanner', '/api/scan');
+      const moduleError = classifyError(innerError, MODULE_NAME, '/api/scan', {
+        category: body.category,
+        payload: `category=${body.category}, timePeriod=${body.timePeriod || 'N/A'}`,
+        backendMessage: innerError instanceof Error ? innerError.message : String(innerError),
+      });
 
       // Update scan job as failed
       try {
@@ -51,10 +83,10 @@ export async function POST(request: NextRequest) {
           },
         });
       } catch (dbErr) {
-        logError('Product Hunt Scanner', dbErr, { context: 'Failed to update scan job status' });
+        logError(MODULE_NAME, dbErr, { context: 'Failed to update scan job status' });
       }
 
-      logError('Product Hunt Scanner', innerError, { endpoint: '/api/scan', category });
+      logError(MODULE_NAME, innerError, { endpoint: '/api/scan', category });
 
       return NextResponse.json(
         {
@@ -65,32 +97,43 @@ export async function POST(request: NextRequest) {
       );
     }
   } catch (error) {
-    logError('Product Hunt Scanner', error, { endpoint: '/api/scan' });
-    const moduleError = classifyError(error, 'Product Hunt Scanner', '/api/scan');
+    logError(MODULE_NAME, error, { endpoint: '/api/scan' });
+    const moduleError = classifyError(error, MODULE_NAME, '/api/scan', {
+      category: body?.category,
+      payload: `category=${body?.category}, timePeriod=${body?.timePeriod || 'N/A'}`,
+      backendMessage: error instanceof Error ? error.message : String(error),
+    });
     return NextResponse.json(
       {
         error: moduleError.message,
         moduleError,
+        debug: {
+          receivedCategory: body?.category,
+          receivedTimePeriod: body?.timePeriod,
+          originalError: error instanceof Error ? error.message : String(error),
+        }
       },
       { status: 500 }
     );
   }
 }
 
-async function executeScan(category: string, scanJobId: string): Promise<NextResponse> {
+async function executeScan(category: string, scanJobId: string, originalCategory: string): Promise<NextResponse> {
   // Step 1: Search for Product Hunt launches in the category (with retry)
-  console.log(`[Scan] Step 1: Starting parallel web searches for category: ${category}`);
+  // `category` is the effectiveCategory (resolved from 'all' -> 'AI Tools' if needed)
+  // `originalCategory` is the category as requested by the frontend
+  console.log(`[${MODULE_NAME}] Step 1: Starting parallel web searches for category: ${category}`);
   const searchQuery1 = `site:producthunt.com ${category} launched 2025`;
   const searchQuery2 = `product hunt ${category} tools 2025`;
   const searchStart = Date.now();
 
   const [searchResult1, searchResult2] = await Promise.all([
-    retryWithBackoff(() => webSearch(searchQuery1, 10), { maxRetries: MAX_RETRIES }, 'Product Hunt Scanner').catch((err) => {
-      logError('Product Hunt Scanner', err, { step: 'webSearch', query: searchQuery1 });
+    retryWithBackoff(() => webSearch(searchQuery1, 10), { maxRetries: MAX_RETRIES }, MODULE_NAME).catch((err) => {
+      logError(MODULE_NAME, err, { step: 'webSearch', query: searchQuery1 });
       return [];
     }),
-    retryWithBackoff(() => webSearch(searchQuery2, 10), { maxRetries: MAX_RETRIES }, 'Product Hunt Scanner').catch((err) => {
-      logError('Product Hunt Scanner', err, { step: 'webSearch', query: searchQuery2 });
+    retryWithBackoff(() => webSearch(searchQuery2, 10), { maxRetries: MAX_RETRIES }, MODULE_NAME).catch((err) => {
+      logError(MODULE_NAME, err, { step: 'webSearch', query: searchQuery2 });
       return [];
     }),
   ]);
@@ -100,7 +143,7 @@ async function executeScan(category: string, scanJobId: string): Promise<NextRes
     ...(Array.isArray(searchResult1) ? searchResult1 : []),
     ...(Array.isArray(searchResult2) ? searchResult2 : []),
   ];
-  console.log(`[Scan] Step 1 complete: found ${allResults.length} total results in ${Date.now() - searchStart}ms`);
+  console.log(`[${MODULE_NAME}] Step 1 complete: found ${allResults.length} total results in ${Date.now() - searchStart}ms`);
 
   // Deduplicate by URL
   const seenUrls = new Set<string>();
@@ -118,7 +161,7 @@ async function executeScan(category: string, scanJobId: string): Promise<NextRes
     .slice(0, 3); // Limit to top 3 pages to reduce scan time
 
   // Step 2: Read top Product Hunt pages in parallel with concurrency limit (with retry)
-  console.log(`[Scan] Step 2: Reading ${phUrls.length} Product Hunt pages in parallel (max ${MAX_CONCURRENT_READS} concurrent)`);
+  console.log(`[${MODULE_NAME}] Step 2: Reading ${phUrls.length} Product Hunt pages in parallel (max ${MAX_CONCURRENT_READS} concurrent)`);
   const pageReadStart = Date.now();
   const pageContents: { url: string; content: string }[] = [];
 
@@ -127,7 +170,7 @@ async function executeScan(category: string, scanJobId: string): Promise<NextRes
       const pageData = await retryWithBackoff(
         () => readPage(url),
         { maxRetries: MAX_RETRIES },
-        'Product Hunt Scanner'
+        MODULE_NAME
       );
       // readPage returns { data: { title, html, ... } }
       const html = pageData?.data?.html || '';
@@ -143,7 +186,7 @@ async function executeScan(category: string, scanJobId: string): Promise<NextRes
       return null;
     } catch (err) {
       // Skip pages that fail to read, but log the error
-      logError('Product Hunt Scanner', err, { step: 'readPage', url });
+      logError(MODULE_NAME, err, { step: 'readPage', url });
       return null;
     }
   }
@@ -160,7 +203,7 @@ async function executeScan(category: string, scanJobId: string): Promise<NextRes
       pageContents.push(result);
     }
   }
-  console.log(`[Scan] Step 2 complete: read ${pageContents.length}/${phUrls.length} pages successfully in ${Date.now() - pageReadStart}ms`);
+  console.log(`[${MODULE_NAME}] Step 2 complete: read ${pageContents.length}/${phUrls.length} pages successfully in ${Date.now() - pageReadStart}ms`);
 
   // If no PH pages found, use search snippets
   const rawContent =
@@ -191,7 +234,7 @@ async function executeScan(category: string, scanJobId: string): Promise<NextRes
   await new Promise((r) => setTimeout(r, INTER_CALL_DELAY_MS));
 
   // Step 3: Use LLM to parse raw content into structured product data (with retry + timeout)
-  console.log(`[Scan] Step 3: Calling LLM to extract structured data (timeout: ${LLM_TIMEOUT_MS}ms, content length: ${rawContent.length} chars)`);
+  console.log(`[${MODULE_NAME}] Step 3: Calling LLM to extract structured data (timeout: ${LLM_TIMEOUT_MS}ms, content length: ${rawContent.length} chars)`);
   const llmStart = Date.now();
   const products = await retryWithBackoff(
     () => withTimeout(
@@ -217,17 +260,17 @@ If you cannot find any products, return an empty array.`,
         `Return a JSON array of objects with fields: name, tagline, description, url, category, upvotes (number), launchDate, features (string[]), pricing, comments (string[]), reviewScore (number), sourceUrl`
       ),
       LLM_TIMEOUT_MS,
-      'Product Hunt Scanner'
+      MODULE_NAME
     ),
     { maxRetries: MAX_RETRIES },
-    'Product Hunt Scanner'
+    MODULE_NAME
   );
-  console.log(`[Scan] Step 3 complete: LLM returned ${Array.isArray(products) ? products.length : 0} products in ${Date.now() - llmStart}ms`);
+  console.log(`[${MODULE_NAME}] Step 3 complete: LLM returned ${Array.isArray(products) ? products.length : 0} products in ${Date.now() - llmStart}ms`);
 
   const safeProducts = Array.isArray(products) ? products : [];
 
   // Step 4: Save scanned products to the database
-  console.log(`[Scan] Step 4: Saving ${safeProducts.length} products to database`);
+  console.log(`[${MODULE_NAME}] Step 4: Saving ${safeProducts.length} products to database`);
   const dbStart = Date.now();
   const savedProducts: ScannedProduct[] = [];
   for (const product of safeProducts) {
@@ -236,7 +279,7 @@ If you cannot find any products, return an empty array.`,
       const existing = await db.product.findFirst({
         where: {
           name: product.name,
-          category: product.category || category,
+          category: product.category || originalCategory,
         },
       });
 
@@ -267,7 +310,7 @@ If you cannot find any products, return an empty array.`,
             tagline: product.tagline || '',
             description: product.description || '',
             url: product.url || '',
-            category: product.category || category,
+            category: product.category || originalCategory,
             upvotes: product.upvotes || 0,
             launchDate: product.launchDate || '2025',
             features: JSON.stringify(product.features || []),
@@ -283,11 +326,11 @@ If you cannot find any products, return an empty array.`,
         });
       }
     } catch (err) {
-      logError('Product Hunt Scanner', err, { step: 'saveProduct', productName: product.name });
+      logError(MODULE_NAME, err, { step: 'saveProduct', productName: product.name });
     }
   }
 
-  console.log(`[Scan] Step 4 complete: saved ${savedProducts.length} products in ${Date.now() - dbStart}ms`);
+  console.log(`[${MODULE_NAME}] Step 4 complete: saved ${savedProducts.length} products in ${Date.now() - dbStart}ms`);
 
   // Update scan job as completed
   await db.scanJob.update({

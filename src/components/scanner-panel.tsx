@@ -26,13 +26,14 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table'
-import { useAppStore } from '@/lib/store'
+import { useAppStore, getEffectiveCategory } from '@/lib/store'
 import { CATEGORIES, SEARCH_SUGGESTIONS, type Category, type ScannedProduct } from '@/types'
 import { ModuleErrorState } from '@/components/module-error-state'
 import { classifyError, type ModuleError } from '@/lib/error-handler'
 
 export function ScannerPanel() {
-  const [category, setCategory] = useState<Category | 'all'>('all')
+  const selectedCategory = useAppStore((s) => s.selectedCategory)
+  const setSelectedCategory = useAppStore((s) => s.setSelectedCategory)
   const [period, setPeriod] = useState<'daily' | 'weekly' | 'monthly'>('weekly')
   const [sortField, setSortField] = useState<'upvotes' | 'launchDate' | 'reviewScore'>('upvotes')
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc')
@@ -50,16 +51,27 @@ export function ScannerPanel() {
       const res = await fetch('/api/scan', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ category, period }),
+        body: JSON.stringify({ category: selectedCategory, period }),
       })
       if (!res.ok) {
         let moduleError: ModuleError
         try {
           const errorBody = await res.json()
-          moduleError = errorBody.moduleError || classifyError(new Error(errorBody.error || `HTTP ${res.status}`), 'Product Hunt Scanner', '/api/scan')
+          moduleError = errorBody.moduleError || classifyError(new Error(errorBody.error || `HTTP ${res.status}`), 'Product Hunt Scanner', '/api/scan', {
+            category: selectedCategory,
+            payload: `category=${selectedCategory}, period=${period}`,
+            backendMessage: errorBody.error,
+          })
           moduleError.statusCode = res.status
+          // Enrich with frontend request context if missing from backend error
+          if (!moduleError.requestCategory) moduleError.requestCategory = selectedCategory
+          if (!moduleError.requestPayload) moduleError.requestPayload = `category=${selectedCategory}, period=${period}`
+          if (!moduleError.backendMessage && errorBody.error) moduleError.backendMessage = errorBody.error
         } catch {
-          moduleError = classifyError(new Error(`HTTP ${res.status}`), 'Product Hunt Scanner', '/api/scan')
+          moduleError = classifyError(new Error(`HTTP ${res.status}`), 'Product Hunt Scanner', '/api/scan', {
+            category: selectedCategory,
+            payload: `category=${selectedCategory}, period=${period}`,
+          })
           moduleError.statusCode = res.status
         }
         setScanError(moduleError)
@@ -73,7 +85,10 @@ export function ScannerPanel() {
     },
     onError: (err) => {
       if (!scanError) {
-        setScanError(classifyError(err, 'Product Hunt Scanner', '/api/scan'))
+        setScanError(classifyError(err, 'Product Hunt Scanner', '/api/scan', {
+          category: selectedCategory,
+          payload: `category=${selectedCategory}, period=${period}`,
+        }))
       }
       toast.error('Scan failed. Please try again.')
     },
@@ -126,7 +141,7 @@ export function ScannerPanel() {
       cat.toLowerCase().includes(suggestion.toLowerCase().split(' ')[0])
     )
     if (matchedCategory) {
-      setCategory(matchedCategory)
+      setSelectedCategory(matchedCategory)
     }
   }
 
@@ -150,8 +165,8 @@ export function ScannerPanel() {
               <div className="space-y-2 w-full sm:w-auto">
                 <label className="text-sm font-medium">Category</label>
                 <Select
-                  value={category}
-                  onValueChange={(v) => setCategory(v as Category | 'all')}
+                  value={selectedCategory}
+                  onValueChange={(v) => setSelectedCategory(v as Category | 'all')}
                 >
                   <SelectTrigger className="w-full sm:w-48">
                     <SelectValue placeholder="Select category" />

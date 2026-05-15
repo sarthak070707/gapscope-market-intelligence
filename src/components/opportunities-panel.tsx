@@ -47,7 +47,7 @@ import {
 } from '@/components/ui/select'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Tooltip, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip'
-import { useAppStore } from '@/lib/store'
+import { useAppStore, getEffectiveCategory } from '@/lib/store'
 import {
   CATEGORIES,
   SEARCH_SUGGESTIONS,
@@ -711,7 +711,8 @@ function QualityBadge({ score }: { score: number }) {
 // ──────────────────────────────────────────────
 
 export function OpportunitiesPanel() {
-  const [category, setCategory] = useState<Category | 'all'>('all')
+  const selectedCategory = useAppStore((s) => s.selectedCategory)
+  const setSelectedCategory = useAppStore((s) => s.setSelectedCategory)
   const [focusArea, setFocusArea] = useState('')
   const [view, setView] = useState<'all' | 'saved'>('all')
   const [showSuggestions, setShowSuggestions] = useState(false)
@@ -784,16 +785,27 @@ export function OpportunitiesPanel() {
       const res = await fetch('/api/opportunities', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ category, focusArea: focusArea || undefined, timePeriod }),
+        body: JSON.stringify({ category: selectedCategory, focusArea: focusArea || undefined, timePeriod }),
       })
       if (!res.ok) {
         let moduleError: ModuleError
         try {
           const errorBody = await res.json()
-          moduleError = errorBody.moduleError || classifyError(new Error(errorBody.error || `HTTP ${res.status}`), 'Opportunity Generator', '/api/opportunities')
+          moduleError = errorBody.moduleError || classifyError(new Error(errorBody.error || `HTTP ${res.status}`), 'Opportunity Generator', '/api/opportunities', {
+            category: selectedCategory,
+            payload: `category=${selectedCategory}, focusArea=${focusArea || 'none'}, timePeriod=${timePeriod}`,
+            backendMessage: errorBody.error,
+          })
           moduleError.statusCode = res.status
+          // Enrich with frontend request context if missing from backend error
+          if (!moduleError.requestCategory) moduleError.requestCategory = selectedCategory
+          if (!moduleError.requestPayload) moduleError.requestPayload = `category=${selectedCategory}, focusArea=${focusArea || 'none'}, timePeriod=${timePeriod}`
+          if (!moduleError.backendMessage && errorBody.error) moduleError.backendMessage = errorBody.error
         } catch {
-          moduleError = classifyError(new Error(`HTTP ${res.status}`), 'Opportunity Generator', '/api/opportunities')
+          moduleError = classifyError(new Error(`HTTP ${res.status}`), 'Opportunity Generator', '/api/opportunities', {
+            category: selectedCategory,
+            payload: `category=${selectedCategory}, focusArea=${focusArea || 'none'}, timePeriod=${timePeriod}`,
+          })
           moduleError.statusCode = res.status
         }
         setGenerationError(moduleError)
@@ -807,7 +819,10 @@ export function OpportunitiesPanel() {
     },
     onError: (err) => {
       if (!generationError) {
-        setGenerationError(classifyError(err, 'Opportunity Generator', '/api/opportunities'))
+        setGenerationError(classifyError(err, 'Opportunity Generator', '/api/opportunities', {
+          category: selectedCategory,
+          payload: `category=${selectedCategory}, focusArea=${focusArea || 'none'}, timePeriod=${timePeriod}`,
+        }))
       }
       toast.error('Generation failed. Please try again.')
     },
@@ -846,8 +861,8 @@ export function OpportunitiesPanel() {
               <div className="space-y-2 w-full sm:w-auto">
                 <label className="text-sm font-medium">Category</label>
                 <Select
-                  value={category}
-                  onValueChange={(v) => setCategory(v as Category | 'all')}
+                  value={selectedCategory}
+                  onValueChange={(v) => setSelectedCategory(v as Category | 'all')}
                 >
                   <SelectTrigger className="w-full sm:w-48">
                     <SelectValue placeholder="Select category" />

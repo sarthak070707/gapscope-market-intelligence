@@ -75,12 +75,39 @@ export async function POST(request: NextRequest) {
     const body = await request.json();
     const { category, focusArea, timePeriod = '30d' } = body;
 
-    if (!category) {
+    console.log(`[${MODULE_NAME}] Request received:`, {
+      method: request.method,
+      url: request.url,
+      body: { ...body },
+      category: body.category,
+      timePeriod: body.timePeriod,
+      action: body.action,
+    });
+
+    if (!category || category === 'unknown') {
+      console.error(`[${MODULE_NAME}] Missing or invalid category:`, { category, body });
       return NextResponse.json(
-        { error: 'Category is required' },
+        { 
+          error: 'Missing or invalid category. Please select a category or use the default "AI Tools".',
+          moduleError: {
+            module: MODULE_NAME,
+            category: 'validation',
+            message: 'Missing or invalid category',
+            detail: `Received category: "${category}". A valid category is required.`,
+            possibleReason: 'The category was not passed from the frontend, or was set to "unknown". Please select a specific category.',
+            retryable: false,
+            timestamp: new Date().toISOString(),
+            endpoint: '/api/opportunities',
+            requestCategory: category,
+          }
+        },
         { status: 400 }
       );
     }
+
+    // Resolve 'all' to a specific default category for better LLM analysis
+    const effectiveCategory = category === 'all' ? 'AI Tools' : category;
+    console.log(`[${MODULE_NAME}] Using effective category: ${effectiveCategory} (original: ${category})`);
 
     // Fetch gaps and complaints from the database for this category
     const categoryFilter = category === 'all' ? {} : { category };
@@ -152,7 +179,7 @@ CRITICAL RULES:
 6. NEVER show mysterious AI numbers - always explain WHY scores are what they are
 
 For each opportunity provide:
-- title, description, category ("${category}"), saturation ("low"|"medium"|"high"), saturationScore (0-100)
+- title, description, category ("${effectiveCategory}"), saturation ("low"|"medium"|"high"), saturationScore (0-100)
 - gapEvidence (string[]), complaintRefs (string[]), trendSignals (string[]), qualityScore (0-10)
 - evidenceDetail: { similarProducts, repeatedComplaints, launchFrequency, commentSnippets[], pricingOverlap }
 - opportunityScore: { complaintFrequency, competitionDensity, pricingDissatisfaction, launchGrowth, underservedAudience (each 0-20), total (sum), explanation }
@@ -236,11 +263,20 @@ ${trendsContext || 'No trend data available'}`,
     return NextResponse.json(savedOpportunities);
   } catch (error) {
     logError(MODULE_NAME, error, { endpoint: '/api/opportunities', method: 'POST' });
-    const moduleError = classifyError(error, MODULE_NAME, '/api/opportunities');
+    const moduleError = classifyError(error, MODULE_NAME, '/api/opportunities', {
+      category: body?.category,
+      payload: `category=${body?.category}, timePeriod=${body?.timePeriod || 'N/A'}`,
+      backendMessage: error instanceof Error ? error.message : String(error),
+    });
     return NextResponse.json(
       {
         error: moduleError.message,
         moduleError,
+        debug: {
+          receivedCategory: body?.category,
+          receivedTimePeriod: body?.timePeriod,
+          originalError: error instanceof Error ? error.message : String(error),
+        }
       },
       { status: 500 }
     );

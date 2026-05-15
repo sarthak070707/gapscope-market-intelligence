@@ -5,6 +5,7 @@ import { safeJsonParse } from '@/lib/json';
 import { retryWithBackoff, withTimeout, logError, classifyError } from '@/lib/error-handler';
 import type { GapAnalysis, MarketSaturation, ComplaintAnalysis, ComplaintCluster, EvidenceDetail, SubNiche, ProductReference, UnderservedUserGroup, WhyNowAnalysis, ExecutionDifficulty, FalseOpportunityAnalysis, FounderFitSuggestion, SourceTransparency, WhyExistingProductsFail, MarketQuadrantPosition } from '@/types';
 
+const MODULE_NAME = 'Gap Analysis';
 const LLM_TIMEOUT_MS = 120_000;
 const MAX_RETRIES = 2;
 const INTER_CALL_DELAY_MS = 2000; // 2s pause between LLM calls to avoid rate limits
@@ -14,12 +15,39 @@ export async function POST(request: NextRequest) {
     const body = await request.json();
     const { category, analysisType = 'full', timePeriod = '30d' } = body;
 
-    if (!category) {
+    console.log(`[${MODULE_NAME}] Request received:`, {
+      method: request.method,
+      url: request.url,
+      body: { ...body },
+      category: body.category,
+      timePeriod: body.timePeriod,
+      action: body.action,
+    });
+
+    if (!category || category === 'unknown') {
+      console.error(`[${MODULE_NAME}] Missing or invalid category:`, { category, body });
       return NextResponse.json(
-        { error: 'Category is required' },
+        { 
+          error: 'Missing or invalid category. Please select a category or use the default "AI Tools".',
+          moduleError: {
+            module: MODULE_NAME,
+            category: 'validation',
+            message: 'Missing or invalid category',
+            detail: `Received category: "${category}". A valid category is required.`,
+            possibleReason: 'The category was not passed from the frontend, or was set to "unknown". Please select a specific category.',
+            retryable: false,
+            timestamp: new Date().toISOString(),
+            endpoint: '/api/analyze',
+            requestCategory: category,
+          }
+        },
         { status: 400 }
       );
     }
+
+    // Resolve 'all' to a specific default category for better LLM analysis
+    const effectiveCategory = category === 'all' ? 'AI Tools' : category;
+    console.log(`[${MODULE_NAME}] Using effective category: ${effectiveCategory} (original: ${category})`);
 
     // Fetch products from DB for the given category, with time filtering
     const whereClause: Record<string, unknown> = category === 'all' ? {} : { category };
@@ -64,7 +92,7 @@ export async function POST(request: NextRequest) {
       complaintClusters: [],
     };
 
-    // Prepare product summaries for LLM analysis
+    // Prepare product summaries for LLM analysis (use effectiveCategory in prompts)
     const productSummaries = effectiveProducts.map((p) => ({
       id: p.id,
       name: p.name,
@@ -86,10 +114,14 @@ export async function POST(request: NextRequest) {
     // Run gaps analysis (individual try/catch) — with delay to avoid rate limits
     if (analysisType === 'gaps' || analysisType === 'full') {
       try {
-        result.gaps = await analyzeGaps(productsContext, effectiveProducts, timePeriod);
+        result.gaps = await analyzeGaps(productsContext, effectiveProducts, timePeriod, effectiveCategory);
       } catch (error) {
-        logError('Gap Analysis', error, { endpoint: '/api/analyze', step: 'analyzeGaps', category });
-        const moduleError = classifyError(error, 'Gap Analysis', '/api/analyze');
+        logError(MODULE_NAME, error, { endpoint: '/api/analyze', step: 'analyzeGaps', category });
+        const moduleError = classifyError(error, MODULE_NAME, '/api/analyze', {
+          category: body.category,
+          payload: `category=${body.category}, timePeriod=${body.timePeriod || 'N/A'}`,
+          backendMessage: error instanceof Error ? error.message : String(error),
+        });
         partialErrors.gaps = moduleError;
       }
       // Delay between LLM calls to avoid rate limits
@@ -99,10 +131,14 @@ export async function POST(request: NextRequest) {
     // Run saturation analysis (individual try/catch) — with delay to avoid rate limits
     if (analysisType === 'saturation' || analysisType === 'full') {
       try {
-        result.saturation = await analyzeSaturation(productsContext, category, effectiveProducts);
+        result.saturation = await analyzeSaturation(productsContext, category, effectiveProducts, effectiveCategory);
       } catch (error) {
-        logError('Gap Analysis', error, { endpoint: '/api/analyze', step: 'analyzeSaturation', category });
-        const moduleError = classifyError(error, 'Gap Analysis', '/api/analyze');
+        logError(MODULE_NAME, error, { endpoint: '/api/analyze', step: 'analyzeSaturation', category });
+        const moduleError = classifyError(error, MODULE_NAME, '/api/analyze', {
+          category: body.category,
+          payload: `category=${body.category}, timePeriod=${body.timePeriod || 'N/A'}`,
+          backendMessage: error instanceof Error ? error.message : String(error),
+        });
         partialErrors.saturation = moduleError;
       }
       // Delay between LLM calls to avoid rate limits
@@ -112,12 +148,16 @@ export async function POST(request: NextRequest) {
     // Run complaints analysis (individual try/catch)
     if (analysisType === 'complaints' || analysisType === 'full') {
       try {
-        const complaintResult = await analyzeComplaints(productsContext, effectiveProducts);
+        const complaintResult = await analyzeComplaints(productsContext, effectiveProducts, effectiveCategory);
         result.complaints = complaintResult.complaints;
         result.complaintClusters = complaintResult.clusters;
       } catch (error) {
-        logError('Gap Analysis', error, { endpoint: '/api/analyze', step: 'analyzeComplaints', category });
-        const moduleError = classifyError(error, 'Gap Analysis', '/api/analyze');
+        logError(MODULE_NAME, error, { endpoint: '/api/analyze', step: 'analyzeComplaints', category });
+        const moduleError = classifyError(error, MODULE_NAME, '/api/analyze', {
+          category: body.category,
+          payload: `category=${body.category}, timePeriod=${body.timePeriod || 'N/A'}`,
+          backendMessage: error instanceof Error ? error.message : String(error),
+        });
         partialErrors.complaints = moduleError;
       }
     }
@@ -129,12 +169,21 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json(result);
   } catch (error) {
-    logError('Gap Analysis', error, { endpoint: '/api/analyze' });
-    const moduleError = classifyError(error, 'Gap Analysis', '/api/analyze');
+    logError(MODULE_NAME, error, { endpoint: '/api/analyze' });
+    const moduleError = classifyError(error, MODULE_NAME, '/api/analyze', {
+      category: body?.category,
+      payload: `category=${body?.category}, timePeriod=${body?.timePeriod || 'N/A'}`,
+      backendMessage: error instanceof Error ? error.message : String(error),
+    });
     return NextResponse.json(
       {
         error: moduleError.message,
         moduleError,
+        debug: {
+          receivedCategory: body?.category,
+          receivedTimePeriod: body?.timePeriod,
+          originalError: error instanceof Error ? error.message : String(error),
+        }
       },
       { status: 500 }
     );
@@ -144,7 +193,8 @@ export async function POST(request: NextRequest) {
 async function analyzeGaps(
   productsContext: string,
   products: { id: string; name: string; category: string; pricing: string; comments: string; features: string }[],
-  timePeriod: string
+  timePeriod: string,
+  effectiveCategory: string
 ): Promise<GapAnalysis[]> {
   const gaps = await retryWithBackoff(
     () => withTimeout(
@@ -227,14 +277,14 @@ Rule 5: For "whyThisMatters", think like a venture capitalist explaining to a fo
   - opportunityScore: 0-100 score
 
 Identify 3-8 meaningful gaps. Base your analysis ONLY on the product data provided. Every number must come from or be derived from the data.`,
-        `Analyze these products for market gaps (time period: ${timePeriod}):\n\n${productsContext}`,
+        `Analyze these products for market gaps in the "${effectiveCategory}" category (time period: ${timePeriod}):\n\n${productsContext}`,
         `Return a JSON array of objects with fields: gapType (string), title (string), description (string), evidence (string), severity (string: "low"|"medium"|"high"), evidenceDetail (object: { similarProducts: number, repeatedComplaints: number, launchFrequency: number, commentSnippets: string[], pricingOverlap: number, launchGrowth: number }), whyThisMatters (string), subNiche (object: { name: string, description: string, parentCategory: string, opportunityScore: number }), affectedProducts (array of { name: string, pricing: string, strengths: string[], weaknesses: string[] }), underservedUsers (array of { userGroup: string, description: string, evidence: string, opportunityScore: number }), whyNow (object: { marketGrowthDriver: string, incumbentWeakness: string, timingAdvantage: string, catalystEvents: string[] }), executionDifficulty (object: { level: string, demandLevel: string, competitionLevel: string, technicalComplexity: string, timeToMvp: string, estimatedBudget: string, keyChallenges: string[] }), falseOpportunity (object: { isFalseOpportunity: boolean, reason: string, estimatedMarketSize: string, riskFactors: string[], verdict: string }), founderFit (object: { bestFit: string[], rationale: string, requiredSkills: string[], idealTeamSize: string }), sourceTransparency (object: { sourcePlatforms: string[], totalComments: number, complaintFrequency: number, reviewSources: array of { platform: string, count: number, avgScore: number }, dataFreshness: string, confidenceLevel: string }), whyExistingProductsFail (object: { rootCause: string, userImpact: string, missedByCompetitors: string }), marketQuadrant (object: { competitionScore: number, opportunityScore: number, quadrant: string, label: string })`
       ),
       LLM_TIMEOUT_MS,
-      'Gap Analysis'
+      MODULE_NAME
     ),
     { maxRetries: MAX_RETRIES },
-    'Gap Analysis'
+    MODULE_NAME
   );
 
   const safeGaps = Array.isArray(gaps) ? gaps : [];
@@ -268,7 +318,7 @@ Identify 3-8 meaningful gaps. Base your analysis ONLY on the product data provid
         });
       }
     } catch (err) {
-      logError('Gap Analysis', err, { step: 'saveGap', gapTitle: gap.title });
+      logError(MODULE_NAME, err, { step: 'saveGap', gapTitle: gap.title });
     }
   }
 
@@ -341,7 +391,8 @@ function findRelevantProductForComplaint(
 async function analyzeSaturation(
   productsContext: string,
   category: string,
-  products: { id: string; name: string; features: string; pricing: string; comments: string; category: string; upvotes: number; reviewScore: number; tagline: string; description: string }[]
+  products: { id: string; name: string; features: string; pricing: string; comments: string; category: string; upvotes: number; reviewScore: number; tagline: string; description: string }[],
+  _effectiveCategory: string
 ): Promise<MarketSaturation[]> {
   // Group products by category
   const categoryGroups: Record<string, typeof products> = {};
@@ -441,14 +492,14 @@ For each competitor, provide:
             `Return a JSON array of objects with fields: name (string), pricing (string), strengths (string[]), weaknesses (string[])`
           ),
           LLM_TIMEOUT_MS,
-          'Gap Analysis'
+          MODULE_NAME
         ),
         { maxRetries: MAX_RETRIES },
-        'Gap Analysis'
+        MODULE_NAME
       );
       if (!Array.isArray(topCompetitors)) topCompetitors = [];
     } catch (err) {
-      logError('Gap Analysis', err, { step: 'saturation-topCompetitors', category: cat });
+      logError(MODULE_NAME, err, { step: 'saturation-topCompetitors', category: cat });
       topCompetitors = [];
     }
 
@@ -484,14 +535,14 @@ For each sub-niche:
             `Return a JSON array of objects with fields: name (string), description (string), parentCategory (string), opportunityScore (number)`
           ),
           LLM_TIMEOUT_MS,
-          'Gap Analysis'
+          MODULE_NAME
         ),
         { maxRetries: MAX_RETRIES },
-        'Gap Analysis'
+        MODULE_NAME
       );
       if (!Array.isArray(subNiches)) subNiches = [];
     } catch (err) {
-      logError('Gap Analysis', err, { step: 'saturation-subNiches', category: cat });
+      logError(MODULE_NAME, err, { step: 'saturation-subNiches', category: cat });
       subNiches = [];
     }
 
@@ -516,7 +567,8 @@ For each sub-niche:
 
 async function analyzeComplaints(
   productsContext: string,
-  products: { id: string; name: string; category: string; comments: string }[]
+  products: { id: string; name: string; category: string; comments: string }[],
+  _effectiveCategory: string
 ): Promise<{ complaints: ComplaintAnalysis[]; clusters: ComplaintCluster[] }> {
   const complaints = await retryWithBackoff(
     () => withTimeout(
@@ -542,10 +594,10 @@ Extract 3-10 distinct complaints. Base your analysis ONLY on the actual product 
         `Return a JSON array of objects with fields: text (string), category (string), sentiment (string), frequency (number)`
       ),
       LLM_TIMEOUT_MS,
-      'Gap Analysis'
+      MODULE_NAME
     ),
     { maxRetries: MAX_RETRIES },
-    'Gap Analysis'
+    MODULE_NAME
   );
 
   const safeComplaints = Array.isArray(complaints) ? complaints : [];
@@ -580,14 +632,14 @@ For each cluster, provide:
           `Return a JSON array of objects with fields: category (string), label (string), percentage (number), count (number), exampleSnippets (string[])`
         ),
         LLM_TIMEOUT_MS,
-        'Gap Analysis'
+        MODULE_NAME
       ),
       { maxRetries: MAX_RETRIES },
-      'Gap Analysis'
+      MODULE_NAME
     );
     if (!Array.isArray(clusters)) clusters = [];
   } catch (err) {
-    logError('Gap Analysis', err, { step: 'complaintClusters' });
+    logError(MODULE_NAME, err, { step: 'complaintClusters' });
     clusters = [];
   }
 
@@ -607,7 +659,7 @@ For each cluster, provide:
         });
       }
     } catch (err) {
-      logError('Gap Analysis', err, { step: 'saveComplaint' });
+      logError(MODULE_NAME, err, { step: 'saveComplaint' });
     }
   }
 
