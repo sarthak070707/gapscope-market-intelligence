@@ -153,8 +153,8 @@ Errors are classified at the point of occurrence using a `classifyError()` funct
 
 ```typescript
 interface ModuleError {
-  type: 'rate\\\_limit' | 'api\\\_error' | 'network\\\_error' | 'parse\\\_error' | 'unknown'
-  stage: string            // e.g. "WEB\\\_SEARCH", "DB\\\_FALLBACK", "AI\\\_KNOWLEDGE"
+  type: 'rate\\\\\\\_limit' | 'api\\\\\\\_error' | 'network\\\\\\\_error' | 'parse\\\\\\\_error' | 'unknown'
+  stage: string            // e.g. "WEB\\\\\\\_SEARCH", "DB\\\\\\\_FALLBACK", "AI\\\\\\\_KNOWLEDGE"
   message: string          // Original provider message preserved
   providerMessage?: string // Raw upstream error text
   retryAfterSeconds?: number
@@ -162,7 +162,7 @@ interface ModuleError {
 }
 ```
 
-All thrown errors carry a stage prefix: `throw new Error(\\\\`\[STAGE\_NAME] ${originalMessage}`)`. This ensures terminal logs show the exact failing stage, the original error message, and the full stack trace — no generic "something went wrong" messages.
+All thrown errors carry a stage prefix: `throw new Error(\\\\\\\\`\[STAGE\_NAME] ${originalMessage}`)`. This ensures terminal logs show the exact failing stage, the original error message, and the full stack trace — no generic "something went wrong" messages.
 
 ### Observability and Debugging Layers
 
@@ -213,17 +213,17 @@ Every product, gap, opportunity, and trend record includes a `dataSource` field.
 
 \---
 
-## Screenshots
+## \## Screenshots
 
-### \## Dashboard Preview
+### \### Dashboard Preview
 
 *!\[Dashboard](./screenshots/dashboard.png)*
 
-### \## Product Hunt Scanner
+### \### Product Hunt Scanner
 
 *!\[Product Hunt Scanner](./screenshots/product-hunt.png)*
 
-### \## Trending Gaps
+### \### Trending Gaps
 
 *!\[Trending Gaps](./screenshots/trending-gaps.png)*
 
@@ -284,16 +284,16 @@ Create a `.env` file in the project root based on `.env.example`:
 
 ```env
 # Database — SQLite connection string
-DATABASE\\\_URL=file:./db/custom.db
+DATABASE\\\\\\\_URL=file:./db/custom.db
 
 # AI API — Used for web search and LLM-powered analysis
-AI\\\_API\\\_KEY=your\\\_ai\\\_api\\\_key\\\_here
+AI\\\\\\\_API\\\\\\\_KEY=your\\\\\\\_ai\\\\\\\_api\\\\\\\_key\\\\\\\_here
 
 # Search API — Used for live product and trend discovery
-SEARCH\\\_API\\\_KEY=your\\\_search\\\_api\\\_key\\\_here
+SEARCH\\\\\\\_API\\\\\\\_KEY=your\\\\\\\_search\\\\\\\_api\\\\\\\_key\\\\\\\_here
 ```
 
-> \\\*\\\*Note:\\\*\\\* The application will function without `AI\\\_API\\\_KEY` and `SEARCH\\\_API\\\_KEY` by falling back to database cache and seed data. However, live scanning and AI-powered insights require valid API keys.
+> \\\\\\\*\\\\\\\*Note:\\\\\\\*\\\\\\\* The application will function without `AI\\\\\\\_API\\\\\\\_KEY` and `SEARCH\\\\\\\_API\\\\\\\_KEY` by falling back to database cache and seed data. However, live scanning and AI-powered insights require valid API keys.
 
 \---
 
