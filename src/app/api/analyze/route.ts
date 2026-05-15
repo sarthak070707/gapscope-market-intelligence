@@ -7,8 +7,8 @@ import type { GapAnalysis, MarketSaturation, ComplaintAnalysis, ComplaintCluster
 
 const MODULE_NAME = 'Gap Analysis';
 const LLM_TIMEOUT_MS = 120_000;
-const MAX_RETRIES = 2;
-const INTER_CALL_DELAY_MS = 2000; // 2s pause between LLM calls to avoid rate limits
+const MAX_RETRIES = 1; // Reduce from 2 to 1 to minimize rate limit impact
+const INTER_CALL_DELAY_MS = 4000; // 4s pause between LLM calls to avoid rate limits
 
 // ─── Stage Logger Helper ──────────────────────────────────────────
 // Creates a step-by-step log for each major stage with BEFORE/AFTER markers
@@ -531,6 +531,7 @@ async function analyzeSaturation(
   products: { id: string; name: string; features: string; pricing: string; comments: string; category: string; upvotes: number; reviewScore: number; tagline: string; description: string }[],
   _effectiveCategory: string
 ): Promise<MarketSaturation[]> {
+  try {
   stageLog('SATURATION_LOCAL', 'START', `Computing local saturation metrics for ${products.length} products`);
   
   // Guard: ensure products is a valid array
@@ -727,6 +728,14 @@ For each sub-niche:
 
   stageLog('SATURATION', 'END', `Returning ${saturationResults.length} saturation results`);
   return saturationResults;
+
+  } catch (error) {
+    const msg = error instanceof Error ? error.message : String(error);
+    stageLog('SATURATION', 'ERROR', `Saturation analysis outer catch: ${msg}`);
+    logError(MODULE_NAME, error, { step: 'analyzeSaturation' });
+    // Return empty array instead of throwing - let the main handler continue with other analyses
+    return [];
+  }
 }
 
 async function analyzeComplaints(
@@ -736,6 +745,7 @@ async function analyzeComplaints(
 ): Promise<{ complaints: ComplaintAnalysis[]; clusters: ComplaintCluster[] }> {
   stageLog('COMPLAINTS_LLM', 'START', 'Calling LLM for complaint extraction');
   
+  let rateLimitHit = false;
   let complaints: unknown;
   try {
     complaints = await retryWithBackoff(
@@ -769,7 +779,13 @@ Extract 3-10 distinct complaints.`,
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     stageLog('COMPLAINTS_LLM', 'ERROR', `LLM complaint extraction failed: ${msg}`);
-    throw err; // Re-throw to be caught by caller's try/catch
+    // Track if rate limit was hit to skip clustering call
+    if (msg.includes('429') || msg.includes('rate limit') || msg.includes('too many')) {
+      rateLimitHit = true;
+      stageLog('COMPLAINTS_LLM', 'INFO', 'Rate limit detected — will skip clustering call');
+    }
+    // Don't re-throw - return empty results so other analyses can continue
+    return { complaints: [], clusters: [] };
   }
 
   const safeComplaints = Array.isArray(complaints) ? complaints : [];
@@ -781,7 +797,8 @@ Extract 3-10 distinct complaints.`,
   await new Promise((r) => setTimeout(r, INTER_CALL_DELAY_MS));
 
   let clusters: ComplaintCluster[] = [];
-  if (safeComplaints.length > 0) {
+  if (safeComplaints.length > 0 && !rateLimitHit) {
+    // Check if we've already hit rate limits recently
     try {
       stageLog('COMPLAINTS_LLM_CLUSTERS', 'START', 'Calling LLM for complaint clustering');
       clusters = await retryWithBackoff(
@@ -820,7 +837,8 @@ For each cluster, provide:
       clusters = [];
     }
   } else {
-    stageLog('COMPLAINTS_LLM_CLUSTERS', 'INFO', 'Skipping clustering — no complaints extracted');
+    const reason = rateLimitHit ? 'rate limit was hit' : 'no complaints extracted';
+    stageLog('COMPLAINTS_LLM_CLUSTERS', 'INFO', `Skipping clustering — ${reason}`);
   }
 
   // ═══ Save complaints to the database ═══

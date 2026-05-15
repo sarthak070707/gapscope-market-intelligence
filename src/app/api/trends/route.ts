@@ -170,43 +170,59 @@ export const POST = withErrorHandler(MODULE_NAME, '/api/trends', async (request:
 async function handleDetectTrends(effectiveCategory: string, originalCategory: string) {
   console.log(`[${MODULE_NAME}] handleDetectTrends: starting for "${effectiveCategory}"...`);
   
-  // Search for trending products and categories on Product Hunt (with timeout + retry)
-  const searchQuery1 = `site:producthunt.com trending ${effectiveCategory} 2025`;
-  const searchQuery2 = `product hunt ${effectiveCategory} trends growth 2025`;
-
-  console.log(`[${MODULE_NAME}] Searching: "${searchQuery1}" and "${searchQuery2}"`);
-
-  const [searchResult1, searchResult2] = await Promise.all([
-    retryWithBackoff(
-      () => withTimeout(
-        () => webSearch(searchQuery1, 10),
-        WEBSEARCH_TIMEOUT_MS,
-        MODULE_NAME
-      ),
-      { maxRetries: MAX_RETRIES },
-      MODULE_NAME
-    ).catch((err) => {
-      logError(MODULE_NAME, err, { step: 'webSearch', query: searchQuery1 });
-      return [];
-    }),
-    retryWithBackoff(
-      () => withTimeout(
-        () => webSearch(searchQuery2, 10),
-        WEBSEARCH_TIMEOUT_MS,
-        MODULE_NAME
-      ),
-      { maxRetries: MAX_RETRIES },
-      MODULE_NAME
-    ).catch((err) => {
-      logError(MODULE_NAME, err, { step: 'webSearch', query: searchQuery2 });
-      return [];
-    }),
-  ]);
-
-  const allResults = [
-    ...(Array.isArray(searchResult1) ? searchResult1 : []),
-    ...(Array.isArray(searchResult2) ? searchResult2 : []),
+  // Search for trending products and categories on Product Hunt (sequential fallback)
+  const searchQueries = [
+    `Product Hunt ${effectiveCategory} trends last 30 days`,
+    `AI tools Product Hunt launches 2025`,
+    `site:producthunt.com/posts ${effectiveCategory}`,
+    `site:producthunt.com/products artificial intelligence ${effectiveCategory}`,
+    `${effectiveCategory} market trends growth 2025`,
+    `product hunt ${effectiveCategory} trending products`,
   ];
+
+  console.log(`[${MODULE_NAME}] Starting sequential search with ${searchQueries.length} queries...`);
+
+  let allResults: Record<string, unknown>[] = [];
+  const seenUrls = new Set<string>();
+
+  for (let i = 0; i < searchQueries.length; i++) {
+    const query = searchQueries[i];
+    console.log(`[${MODULE_NAME}] Search attempt ${i + 1}/${searchQueries.length}: "${query}"`);
+
+    try {
+      const results = await retryWithBackoff(
+        () => withTimeout(() => webSearch(query, 10), WEBSEARCH_TIMEOUT_MS, MODULE_NAME),
+        { maxRetries: 1 },
+        MODULE_NAME
+      ).catch((err) => {
+        logError(MODULE_NAME, err, { step: 'webSearch', query, attempt: i + 1 });
+        return [];
+      });
+
+      const searchResults = Array.isArray(results) ? results : [];
+
+      for (const r of searchResults) {
+        const url = (r.url as string) || (r.link as string) || '';
+        if (url && !seenUrls.has(url)) {
+          seenUrls.add(url);
+          allResults.push(r);
+        }
+      }
+
+      console.log(`[${MODULE_NAME}] Found ${allResults.length} results so far`);
+
+      if (allResults.length > 0) {
+        console.log(`[${MODULE_NAME}] Got search results on attempt ${i + 1}, stopping search`);
+        break;
+      }
+
+      if (i < searchQueries.length - 1) {
+        await new Promise((r) => setTimeout(r, 1000));
+      }
+    } catch (err) {
+      logError(MODULE_NAME, err, { step: 'webSearch', query, attempt: i + 1 });
+    }
+  }
   console.log(`[${MODULE_NAME}] Web search returned ${allResults.length} results`);
 
   const searchContext = allResults
@@ -224,7 +240,7 @@ async function handleDetectTrends(effectiveCategory: string, originalCategory: s
           module: MODULE_NAME,
           category: 'api',
           message: 'Web search returned no results for trend detection',
-          detail: `Searched for "${effectiveCategory}" trends on Product Hunt using 2 queries but got no usable results. The trend detection module requires web search results to identify trends.`,
+          detail: `Tried ${searchQueries.length} different search queries for "${effectiveCategory}" trends on Product Hunt but got no usable results.`,
           possibleReason: 'The category may be too niche for Product Hunt trend detection, or the web search API is temporarily unavailable. Try "AI Tools" or "Productivity" which have more activity.',
           retryable: true,
           timestamp: new Date().toISOString(),

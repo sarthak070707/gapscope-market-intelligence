@@ -9,6 +9,69 @@ const MODULE_NAME = 'Opportunity Generator';
 const LLM_TIMEOUT_MS = 120_000;
 const MAX_RETRIES = 2;
 
+// ─── Rate-Limit Protection: Cooldown + Cache ──────────────────────
+const COOLDOWN_MS = 60_000; // 60 seconds cooldown between requests for same category+timePeriod
+const CACHE_TTL_MS = 5 * 60_000; // Cache successful results for 5 minutes
+
+interface CacheEntry {
+  result: OpportunitySuggestion[];
+  timestamp: number;
+  category: string;
+  timePeriod: string;
+}
+
+interface CooldownEntry {
+  timestamp: number;
+  category: string;
+  timePeriod: string;
+}
+
+const opportunityCache = new Map<string, CacheEntry>();
+const cooldownMap = new Map<string, CooldownEntry>();
+
+function getCacheKey(category: string, timePeriod: string): string {
+  return `${category}::${timePeriod}`;
+}
+
+function isOnCooldown(category: string, timePeriod: string): boolean {
+  const key = getCacheKey(category, timePeriod);
+  const entry = cooldownMap.get(key);
+  if (!entry) return false;
+  return Date.now() - entry.timestamp < COOLDOWN_MS;
+}
+
+function getCachedResult(category: string, timePeriod: string): OpportunitySuggestion[] | null {
+  const key = getCacheKey(category, timePeriod);
+  const entry = opportunityCache.get(key);
+  if (!entry) return null;
+  if (Date.now() - entry.timestamp > CACHE_TTL_MS) {
+    opportunityCache.delete(key);
+    return null;
+  }
+  return entry.result;
+}
+
+function setCachedResult(category: string, timePeriod: string, result: OpportunitySuggestion[]): void {
+  const key = getCacheKey(category, timePeriod);
+  opportunityCache.set(key, { result, timestamp: Date.now(), category, timePeriod });
+}
+
+function setCooldown(category: string, timePeriod: string): void {
+  const key = getCacheKey(category, timePeriod);
+  cooldownMap.set(key, { timestamp: Date.now(), category, timePeriod });
+}
+
+// Clean up old entries every 5 minutes
+setInterval(() => {
+  const now = Date.now();
+  for (const [key, entry] of opportunityCache.entries()) {
+    if (now - entry.timestamp > CACHE_TTL_MS) opportunityCache.delete(key);
+  }
+  for (const [key, entry] of cooldownMap.entries()) {
+    if (now - entry.timestamp > COOLDOWN_MS * 2) cooldownMap.delete(key);
+  }
+}, 5 * 60_000);
+
 /**
  * GET /api/opportunities
  * List all opportunities, with optional ?saved=true filter
@@ -76,6 +139,7 @@ export async function GET(request: NextRequest) {
  */
 export const POST_HANDLER = withErrorHandler(MODULE_NAME, '/api/opportunities', async (request: NextRequest) => {
   let body: Record<string, unknown> | null = null;
+  let effectiveCategory = '';
   try {
     body = await request.json();
     const { category, focusArea, timePeriod = '30d' } = body;
@@ -110,8 +174,52 @@ export const POST_HANDLER = withErrorHandler(MODULE_NAME, '/api/opportunities', 
     }
 
     // Resolve 'all' to a specific default category for better LLM analysis
-    const effectiveCategory = category === 'all' ? 'AI Tools' : category;
+    effectiveCategory = category === 'all' ? 'AI Tools' : category;
     console.log(`[${MODULE_NAME}] Using effective category: ${effectiveCategory} (original: ${category})`);
+
+    // Check if this request is on cooldown (recent 429)
+    if (isOnCooldown(effectiveCategory, String(timePeriod))) {
+      console.log(`[${MODULE_NAME}] Rate-limit cooldown active for ${effectiveCategory}/${timePeriod}`);
+      
+      // Try returning cached results instead
+      const cached = getCachedResult(effectiveCategory, String(timePeriod));
+      if (cached && cached.length > 0) {
+        console.log(`[${MODULE_NAME}] Returning ${cached.length} cached opportunities`);
+        return NextResponse.json(cached);
+      }
+      
+      // No cached results — return rate limit error with wait time
+      const key = getCacheKey(effectiveCategory, String(timePeriod));
+      const cooldownEntry = cooldownMap.get(key);
+      const elapsed = cooldownEntry ? Date.now() - cooldownEntry.timestamp : 0;
+      const remainingSeconds = Math.ceil((COOLDOWN_MS - elapsed) / 1000);
+      
+      return NextResponse.json(
+        {
+          error: `Please wait ${remainingSeconds} seconds before retrying opportunity generation for "${effectiveCategory}".`,
+          moduleError: {
+            module: MODULE_NAME,
+            category: 'rate_limit',
+            message: 'Rate limit cooldown active',
+            detail: `A recent request for "${effectiveCategory}" (timePeriod: ${timePeriod}) hit a rate limit. Please wait ${remainingSeconds} seconds before retrying.`,
+            possibleReason: 'Too many AI requests were sent in a short period. The system enforces a cooldown to avoid repeated rate-limit errors.',
+            retryable: true,
+            timestamp: new Date().toISOString(),
+            endpoint: '/api/opportunities',
+            requestCategory: effectiveCategory,
+            cooldownRemainingSeconds: remainingSeconds,
+          }
+        },
+        { status: 429 }
+      );
+    }
+
+    // Check cache for existing results
+    const cachedResult = getCachedResult(effectiveCategory, String(timePeriod));
+    if (cachedResult && cachedResult.length > 0) {
+      console.log(`[${MODULE_NAME}] Returning ${cachedResult.length} cached opportunities for ${effectiveCategory}/${timePeriod}`);
+      return NextResponse.json(cachedResult);
+    }
 
     // Pre-flight: check database connection
     console.log(`[${MODULE_NAME}] Checking database connection...`);
@@ -329,9 +437,19 @@ ${trendsContext || 'No trend data available'}`,
       }
     }
 
+    // Cache successful results
+    setCachedResult(effectiveCategory, String(timePeriod), savedOpportunities);
+
     console.log(`[${MODULE_NAME}] Saved ${savedOpportunities.length} opportunities`);
     return NextResponse.json(savedOpportunities);
   } catch (error) {
+    // Set cooldown if this was a rate limit error
+    const errMsg = error instanceof Error ? error.message.toLowerCase() : '';
+    if (errMsg.includes('429') || errMsg.includes('rate limit')) {
+      setCooldown(effectiveCategory, String(body?.timePeriod || '30d'));
+      console.log(`[${MODULE_NAME}] Setting rate-limit cooldown for ${effectiveCategory}`);
+    }
+
     logError(MODULE_NAME, error, { endpoint: '/api/opportunities', method: 'POST' });
     const moduleError = classifyError(error, MODULE_NAME, '/api/opportunities', {
       category: body?.category as string | undefined,

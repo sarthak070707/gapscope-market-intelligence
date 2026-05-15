@@ -154,47 +154,75 @@ export const POST = withErrorHandler(MODULE_NAME, '/api/scan', async (request: N
 });
 
 async function executeScan(category: string, scanJobId: string, originalCategory: string): Promise<NextResponse> {
-  // Step 1: Search for Product Hunt launches in the category (with retry)
-  console.log(`[${MODULE_NAME}] Step 1: Starting parallel web searches for category: ${category}`);
-  const searchQuery1 = `site:producthunt.com ${category} launched 2025`;
-  const searchQuery2 = `product hunt ${category} tools 2025`;
+  // Step 1: Search for Product Hunt launches using sequential fallback queries
+  console.log(`[${MODULE_NAME}] Step 1: Starting sequential web searches for category: ${category}`);
   const searchStart = Date.now();
 
-  console.log(`[${MODULE_NAME}] Step 1a: Searching: "${searchQuery1}"`);
-  console.log(`[${MODULE_NAME}] Step 1b: Searching: "${searchQuery2}"`);
-
-  const [searchResult1, searchResult2] = await Promise.all([
-    retryWithBackoff(() => webSearch(searchQuery1, 10), { maxRetries: MAX_RETRIES }, MODULE_NAME).catch((err) => {
-      logError(MODULE_NAME, err, { step: 'webSearch', query: searchQuery1 });
-      return [];
-    }),
-    retryWithBackoff(() => webSearch(searchQuery2, 10), { maxRetries: MAX_RETRIES }, MODULE_NAME).catch((err) => {
-      logError(MODULE_NAME, err, { step: 'webSearch', query: searchQuery2 });
-      return [];
-    }),
-  ]);
-
-  // webSearch returns an array directly
-  const allResults = [
-    ...(Array.isArray(searchResult1) ? searchResult1 : []),
-    ...(Array.isArray(searchResult2) ? searchResult2 : []),
+  const searchQueries = [
+    `site:producthunt.com/products ${category} tools`,
+    `site:producthunt.com/posts ${category} Product Hunt`,
+    `Product Hunt ${category} weekly launches 2025`,
+    `Product Hunt ${category} artificial intelligence new products`,
+    `${category} tools Product Hunt launches`,
+    `best ${category} products Product Hunt 2025`,
   ];
-  console.log(`[${MODULE_NAME}] Step 1 complete: found ${allResults.length} total results in ${Date.now() - searchStart}ms`);
 
-  // Deduplicate by URL
+  let allResults: Record<string, unknown>[] = [];
+  let phUrls: string[] = [];
   const seenUrls = new Set<string>();
-  const uniqueResults = allResults.filter((r: Record<string, unknown>) => {
+
+  for (let i = 0; i < searchQueries.length; i++) {
+    const query = searchQueries[i];
+    console.log(`[${MODULE_NAME}] Search attempt ${i + 1}/${searchQueries.length}: "${query}"`);
+
+    try {
+      const results = await retryWithBackoff(() => webSearch(query, 10), { maxRetries: 1 }, MODULE_NAME).catch(() => []);
+      const searchResults = Array.isArray(results) ? results : [];
+
+      // Deduplicate
+      for (const r of searchResults) {
+        const url = (r.url as string) || (r.link as string) || '';
+        if (url && !seenUrls.has(url)) {
+          seenUrls.add(url);
+          allResults.push(r);
+        }
+      }
+
+      // Check for Product Hunt URLs
+      phUrls = allResults
+        .map((r) => (r.url as string) || (r.link as string) || '')
+        .filter((url) => url.includes('producthunt.com'));
+
+      console.log(`[${MODULE_NAME}] Found ${phUrls.length} PH URLs so far (total results: ${allResults.length})`);
+
+      if (phUrls.length > 0) {
+        console.log(`[${MODULE_NAME}] Found Product Hunt URLs on attempt ${i + 1}, stopping search`);
+        break;
+      }
+
+      // Small delay between search queries to avoid rate limits
+      if (i < searchQueries.length - 1) {
+        await new Promise((r) => setTimeout(r, 1000));
+      }
+    } catch (err) {
+      logError(MODULE_NAME, err, { step: 'webSearch', query, attempt: i + 1 });
+      // Continue to next query
+    }
+  }
+
+  // Deduplicate final results
+  const finalSeenUrls = new Set<string>();
+  const uniqueResults = allResults.filter((r) => {
     const url = (r.url as string) || (r.link as string) || '';
-    if (!url || seenUrls.has(url)) return false;
-    seenUrls.add(url);
+    if (!url || finalSeenUrls.has(url)) return false;
+    finalSeenUrls.add(url);
     return true;
   });
 
-  // Filter for Product Hunt URLs
-  const phUrls = uniqueResults
-    .map((r: Record<string, unknown>) => (r.url as string) || (r.link as string) || '')
-    .filter((url: string) => url.includes('producthunt.com'))
-    .slice(0, 3); // Limit to top 3 pages to reduce scan time
+  // Limit PH URLs to top 3 pages to reduce scan time
+  phUrls = phUrls.slice(0, 3);
+
+  console.log(`[${MODULE_NAME}] Step 1 complete: found ${uniqueResults.length} unique results (${phUrls.length} PH URLs) in ${Date.now() - searchStart}ms`);
 
   // Step 2: Read top Product Hunt pages in parallel with concurrency limit (with retry)
   console.log(`[${MODULE_NAME}] Step 2: Reading ${phUrls.length} Product Hunt pages in parallel (max ${MAX_CONCURRENT_READS} concurrent)`);
@@ -272,7 +300,7 @@ async function executeScan(category: string, scanJobId: string, originalCategory
           module: MODULE_NAME,
           category: 'api',
           message: 'Product Hunt fetch returned no results',
-          detail: `Web search for "${category}" products on Product Hunt returned no usable content. Both search queries and page reads yielded empty results.`,
+          detail: `Tried ${searchQueries.length} different search queries for "${category}" products on Product Hunt but got no usable content.`,
           possibleReason: 'The category may be too niche or Product Hunt may not have recent launches in this area. Try "AI Tools" or "Productivity" which have more listings.',
           retryable: true,
           timestamp: new Date().toISOString(),

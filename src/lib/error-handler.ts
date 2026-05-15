@@ -380,13 +380,96 @@ export function classifyError(
       };
     }
 
-    // ── Generic error with message — include original error message in detail ──
+    // ── Constraint / foreign key / Prisma-specific errors ──
+    if (msg.includes('constraint') || msg.includes('foreign key') || msg.includes('unique') ||
+        msg.includes('violate') || msg.includes('duplicate') || msg.includes('already exists') ||
+        msg.includes('record to update not found') || msg.includes('record to delete not found')) {
+      return {
+        module,
+        category: 'database',
+        message: `${module} encountered a database constraint error`,
+        detail: error.message,
+        possibleReason: 'A database constraint was violated. This may be due to duplicate data or missing related records. Try running a fresh scan first.',
+        retryable: true,
+        timestamp,
+        endpoint,
+        ...ctx,
+      };
+    }
+
+    // ── Schema / migration errors ──
+    if (msg.includes('migration') || msg.includes('schema') || msg.includes('column') ||
+        msg.includes('table') || msg.includes('does not exist') || msg.includes('no such')) {
+      return {
+        module,
+        category: 'database',
+        message: `${module} encountered a database schema error`,
+        detail: error.message,
+        possibleReason: 'The database schema may be out of date. Run "bun run db:push" to update the schema, then try again.',
+        retryable: false,
+        timestamp,
+        endpoint,
+        ...ctx,
+      };
+    }
+
+    // ── Timeout-like errors that aren't TimeoutError instances ──
+    if (msg.includes('timed out') || msg.includes('timeout') || msg.includes('deadline exceeded') ||
+        msg.includes('took too long') || msg.includes('expired')) {
+      return {
+        module,
+        category: 'timeout',
+        message: `${module} timed out`,
+        detail: error.message,
+        possibleReason: 'The operation took too long. This may be due to a large amount of data or a slow server. Try again with a narrower scope.',
+        retryable: true,
+        timestamp,
+        endpoint,
+        ...ctx,
+      };
+    }
+
+    // ── Rate-limit-like errors with unusual phrasing ──
+    if (msg.includes('slow down') || msg.includes('wait before') || msg.includes('try again later') ||
+        msg.includes('quota') || msg.includes('limit exceeded') || msg.includes('capacity')) {
+      return {
+        module,
+        category: 'rate_limit',
+        message: `${module} hit a rate limit or quota`,
+        detail: error.message,
+        possibleReason: 'The API rate limit or quota was reached. Wait 60 seconds before retrying.',
+        retryable: true,
+        timestamp,
+        endpoint,
+        statusCode: 429,
+        ...ctx,
+      };
+    }
+
+    // ── AI/LLM generation errors with unusual phrasing ──
+    if (msg.includes('completion') || msg.includes('generation') || msg.includes('model') ||
+        msg.includes('token') || msg.includes('context length') || msg.includes('context window') ||
+        msg.includes('content policy') || msg.includes('safety')) {
+      return {
+        module,
+        category: 'ai_response',
+        message: `${module} AI generation failed`,
+        detail: error.message,
+        possibleReason: 'The AI model encountered an error generating a response. This could be due to the input being too long or content policy restrictions. Try with a shorter input or different category.',
+        retryable: true,
+        timestamp,
+        endpoint,
+        ...ctx,
+      };
+    }
+
+    // ── Generic error with message — fallback to 'api' instead of 'unknown' ──
     return {
       module,
-      category: 'unknown',
+      category: 'api',
       message: `${module} encountered an unexpected error`,
       detail: error.message,
-      possibleReason: 'An unexpected error occurred. The error has been logged. Try again, and if it persists, try a different category or scope.',
+      possibleReason: `An unexpected error occurred (type: ${error.constructor.name}). The error has been logged. Try again, and if it persists, try a different category or scope.`,
       retryable: true,
       timestamp,
       endpoint,
@@ -397,7 +480,7 @@ export function classifyError(
   // Non-Error thrown
   return {
     module,
-    category: 'unknown',
+    category: 'api',
     message: `${module} encountered an unknown error`,
     detail: String(error),
     possibleReason: 'An unexpected non-Error value was thrown. Try again.',

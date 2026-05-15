@@ -29,6 +29,7 @@ import {
   ArrowUpRight,
   Wrench,
   Zap,
+  Clock,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
@@ -718,6 +719,7 @@ export function OpportunitiesPanel() {
   const [showSuggestions, setShowSuggestions] = useState(false)
   const [loadingSaved, setLoadingSaved] = useState(false)
   const [generationError, setGenerationError] = useState<ModuleError | null>(null)
+  const [cooldownSeconds, setCooldownSeconds] = useState(0)
 
   const opportunities = useAppStore((s) => s.opportunities)
   const setOpportunities = useAppStore((s) => s.setOpportunities)
@@ -751,6 +753,21 @@ export function OpportunitiesPanel() {
   useEffect(() => {
     fetchSavedOpportunities()
   }, [fetchSavedOpportunities])
+
+  // Cooldown countdown timer
+  useEffect(() => {
+    if (cooldownSeconds <= 0) return
+    const timer = setInterval(() => {
+      setCooldownSeconds((prev) => {
+        if (prev <= 1) {
+          clearInterval(timer)
+          return 0
+        }
+        return prev - 1
+      })
+    }, 1000)
+    return () => clearInterval(timer)
+  }, [cooldownSeconds])
 
   // Persist save/unsave to API
   const persistSave = async (opp: OpportunitySuggestion) => {
@@ -801,12 +818,18 @@ export function OpportunitiesPanel() {
           if (!moduleError.requestCategory) moduleError.requestCategory = selectedCategory
           if (!moduleError.requestPayload) moduleError.requestPayload = `category=${selectedCategory}, focusArea=${focusArea || 'none'}, timePeriod=${timePeriod}`
           if (!moduleError.backendMessage && errorBody.error) moduleError.backendMessage = errorBody.error
+          // Start cooldown if 429 rate limit
+          if (res.status === 429 || moduleError.category === 'rate_limit') {
+            const seconds = errorBody.moduleError?.cooldownRemainingSeconds || 60
+            setCooldownSeconds(seconds)
+          }
         } catch {
           moduleError = classifyError(new Error(`HTTP ${res.status}`), 'Opportunity Generator', '/api/opportunities', {
             category: selectedCategory,
             payload: `category=${selectedCategory}, focusArea=${focusArea || 'none'}, timePeriod=${timePeriod}`,
           })
           moduleError.statusCode = res.status
+          if (res.status === 429) setCooldownSeconds(60)
         }
         setGenerationError(moduleError)
         throw new Error(moduleError.message)
@@ -815,6 +838,7 @@ export function OpportunitiesPanel() {
     },
     onSuccess: (data) => {
       setOpportunities(data)
+      setCooldownSeconds(0)
       toast.success(`Generated ${data.length} opportunities!`)
     },
     onError: (err) => {
@@ -917,11 +941,13 @@ export function OpportunitiesPanel() {
 
               <Button
                 onClick={() => generateMutation.mutate()}
-                disabled={generateMutation.isPending}
+                disabled={generateMutation.isPending || cooldownSeconds > 0}
                 className="w-full sm:w-auto bg-orange-600 hover:bg-orange-700 text-white"
               >
                 {generateMutation.isPending ? (
                   <><Loader2 className="h-4 w-4 animate-spin" />Generating...</>
+                ) : cooldownSeconds > 0 ? (
+                  <><Clock className="h-4 w-4" />Wait {cooldownSeconds}s</>
                 ) : (
                   <><Lightbulb className="h-4 w-4" />Generate Opportunities</>
                 )}
@@ -935,7 +961,7 @@ export function OpportunitiesPanel() {
       {generationError && !generateMutation.isPending && (
         <ModuleErrorState
           error={generationError}
-          onRetry={() => generateMutation.mutate()}
+          onRetry={cooldownSeconds > 0 ? undefined : () => generateMutation.mutate()}
           isRetrying={generateMutation.isPending}
         />
       )}
