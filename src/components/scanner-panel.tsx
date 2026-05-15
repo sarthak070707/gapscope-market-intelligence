@@ -45,9 +45,14 @@ export function ScannerPanel() {
   const scanResults = useAppStore((s) => s.scanResults)
   const setScanResults = useAppStore((s) => s.setScanResults)
 
+  // Use a ref to track if scanError was already set in the mutationFn,
+  // because React state updates are async and the closure may see stale null
+  const [scanErrorSetByMutation, setScanErrorSetByMutation] = useState(false)
+
   const scanMutation = useMutation({
     mutationFn: async () => {
       setScanError(null)
+      setScanErrorSetByMutation(false)
       const res = await fetch('/api/scan', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -57,24 +62,39 @@ export function ScannerPanel() {
         let moduleError: ModuleError
         try {
           const errorBody = await res.json()
-          moduleError = errorBody.moduleError || classifyError(new Error(errorBody.error || `HTTP ${res.status}`), 'Product Hunt Scanner', '/api/scan', {
-            category: selectedCategory,
-            payload: `category=${selectedCategory}, period=${period}`,
-            backendMessage: errorBody.error,
-          })
-          moduleError.statusCode = res.status
-          // Enrich with frontend request context if missing from backend error
-          if (!moduleError.requestCategory) moduleError.requestCategory = selectedCategory
-          if (!moduleError.requestPayload) moduleError.requestPayload = `category=${selectedCategory}, period=${period}`
-          if (!moduleError.backendMessage && errorBody.error) moduleError.backendMessage = errorBody.error
+          // If the backend returned a structured moduleError, use it directly
+          // to avoid double-classification (the error message already has [CATEGORY] prefix)
+          if (errorBody.moduleError && typeof errorBody.moduleError === 'object') {
+            moduleError = errorBody.moduleError as ModuleError
+            moduleError.statusCode = res.status
+            // Enrich with frontend request context if missing
+            if (!moduleError.requestCategory) moduleError.requestCategory = selectedCategory
+            if (!moduleError.requestPayload) moduleError.requestPayload = `category=${selectedCategory}, period=${period}`
+            if (!moduleError.backendMessage && errorBody.error) moduleError.backendMessage = errorBody.error
+          } else {
+            // Backend returned a plain error - classify it
+            moduleError = classifyError(new Error(errorBody.error || `HTTP ${res.status}`), 'Product Hunt Scanner', '/api/scan', {
+              category: selectedCategory,
+              payload: `category=${selectedCategory}, period=${period}`,
+              backendMessage: errorBody.error,
+            })
+            moduleError.statusCode = res.status
+            if (!moduleError.requestCategory) moduleError.requestCategory = selectedCategory
+            if (!moduleError.requestPayload) moduleError.requestPayload = `category=${selectedCategory}, period=${period}`
+            if (!moduleError.backendMessage && errorBody.error) moduleError.backendMessage = errorBody.error
+          }
         } catch {
+          // JSON parse failed (gateway returned HTML or non-JSON error)
           moduleError = classifyError(new Error(`HTTP ${res.status}`), 'Product Hunt Scanner', '/api/scan', {
             category: selectedCategory,
             payload: `category=${selectedCategory}, period=${period}`,
           })
           moduleError.statusCode = res.status
+          if (!moduleError.requestCategory) moduleError.requestCategory = selectedCategory
+          if (!moduleError.requestPayload) moduleError.requestPayload = `category=${selectedCategory}, period=${period}`
         }
         setScanError(moduleError)
+        setScanErrorSetByMutation(true)
         throw new Error(moduleError.message)
       }
       return res.json() as Promise<ScannedProduct[]>
@@ -84,7 +104,9 @@ export function ScannerPanel() {
       toast.success(`Scan complete! Found ${data.length} products.`)
     },
     onError: (err) => {
-      if (!scanError) {
+      // Only re-classify if the mutationFn didn't already set scanError
+      // (prevents double-classification which causes [API_ERROR] [API_ERROR] ... prefix)
+      if (!scanErrorSetByMutation) {
         setScanError(classifyError(err, 'Product Hunt Scanner', '/api/scan', {
           category: selectedCategory,
           payload: `category=${selectedCategory}, period=${period}`,

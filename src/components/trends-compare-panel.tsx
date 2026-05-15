@@ -436,6 +436,8 @@ export function TrendsComparePanel() {
   const [selectedProducts, setSelectedProducts] = useState<string[]>([])
   const [trendError, setTrendError] = useState<ModuleError | null>(null)
   const [compareError, setCompareError] = useState<ModuleError | null>(null)
+  const [trendErrorSetByMutation, setTrendErrorSetByMutation] = useState(false)
+  const [compareErrorSetByMutation, setCompareErrorSetByMutation] = useState(false)
 
   const trendResults = useAppStore((s) => s.trendResults)
   const setTrendResults = useAppStore((s) => s.setTrendResults)
@@ -537,6 +539,7 @@ export function TrendsComparePanel() {
   const trendMutation = useMutation({
     mutationFn: async () => {
       setTrendError(null)
+      setTrendErrorSetByMutation(false)
       const res = await fetch('/api/trends', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -546,16 +549,22 @@ export function TrendsComparePanel() {
         let moduleError: ModuleError
         try {
           const errorBody = await res.json()
-          moduleError = errorBody.moduleError || classifyError(new Error(errorBody.error || `HTTP ${res.status}`), 'Trend Detection', '/api/trends', {
-            category: selectedCategory,
-            payload: `action=detect, category=${selectedCategory}, timePeriod=${timePeriod}`,
-            backendMessage: errorBody.error,
-          })
-          moduleError.statusCode = res.status
-          // Enrich with frontend request context if missing from backend error
-          if (!moduleError.requestCategory) moduleError.requestCategory = selectedCategory
-          if (!moduleError.requestPayload) moduleError.requestPayload = `action=detect, category=${selectedCategory}, timePeriod=${timePeriod}`
-          if (!moduleError.backendMessage && errorBody.error) moduleError.backendMessage = errorBody.error
+          if (errorBody.moduleError && typeof errorBody.moduleError === 'object') {
+            moduleError = errorBody.moduleError as ModuleError
+            moduleError.statusCode = res.status
+            if (!moduleError.requestCategory) moduleError.requestCategory = selectedCategory
+            if (!moduleError.requestPayload) moduleError.requestPayload = `action=detect, category=${selectedCategory}, timePeriod=${timePeriod}`
+            if (!moduleError.backendMessage && errorBody.error) moduleError.backendMessage = errorBody.error
+          } else {
+            moduleError = classifyError(new Error(errorBody.error || `HTTP ${res.status}`), 'Trend Detection', '/api/trends', {
+              category: selectedCategory,
+              payload: `action=detect, category=${selectedCategory}, timePeriod=${timePeriod}`,
+              backendMessage: errorBody.error,
+            })
+            moduleError.statusCode = res.status
+            if (!moduleError.requestCategory) moduleError.requestCategory = selectedCategory
+            if (!moduleError.requestPayload) moduleError.requestPayload = `action=detect, category=${selectedCategory}, timePeriod=${timePeriod}`
+          }
         } catch {
           moduleError = classifyError(new Error(`HTTP ${res.status}`), 'Trend Detection', '/api/trends', {
             category: selectedCategory,
@@ -564,6 +573,7 @@ export function TrendsComparePanel() {
           moduleError.statusCode = res.status
         }
         setTrendError(moduleError)
+        setTrendErrorSetByMutation(true)
         throw new Error(moduleError.message)
       }
       return res.json() as Promise<TrendData[]>
@@ -574,7 +584,7 @@ export function TrendsComparePanel() {
       toast.success(`Detected ${data.length} trends!`)
     },
     onError: (err) => {
-      if (!trendError) {
+      if (!trendErrorSetByMutation) {
         setTrendError(classifyError(err, 'Trend Detection', '/api/trends', {
           category: selectedCategory,
           payload: `action=detect, category=${selectedCategory}, timePeriod=${timePeriod}`,
@@ -610,6 +620,7 @@ export function TrendsComparePanel() {
   const compareMutation = useMutation({
     mutationFn: async () => {
       setCompareError(null)
+      setCompareErrorSetByMutation(false)
       const res = await fetch('/api/trends', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -619,16 +630,22 @@ export function TrendsComparePanel() {
         let moduleError: ModuleError
         try {
           const errorBody = await res.json()
-          moduleError = errorBody.moduleError || classifyError(new Error(errorBody.error || `HTTP ${res.status}`), 'Product Comparison', '/api/trends', {
-            category: selectedCategory,
-            payload: `action=compare, products=${selectedProducts.join(',')}, category=${selectedCategory}`,
-            backendMessage: errorBody.error,
-          })
-          moduleError.statusCode = res.status
-          // Enrich with frontend request context if missing from backend error
-          if (!moduleError.requestCategory) moduleError.requestCategory = selectedCategory
-          if (!moduleError.requestPayload) moduleError.requestPayload = `action=compare, products=${selectedProducts.join(',')}, category=${selectedCategory}`
-          if (!moduleError.backendMessage && errorBody.error) moduleError.backendMessage = errorBody.error
+          if (errorBody.moduleError && typeof errorBody.moduleError === 'object') {
+            moduleError = errorBody.moduleError as ModuleError
+            moduleError.statusCode = res.status
+            if (!moduleError.requestCategory) moduleError.requestCategory = selectedCategory
+            if (!moduleError.requestPayload) moduleError.requestPayload = `action=compare, products=${selectedProducts.join(',')}, category=${selectedCategory}`
+            if (!moduleError.backendMessage && errorBody.error) moduleError.backendMessage = errorBody.error
+          } else {
+            moduleError = classifyError(new Error(errorBody.error || `HTTP ${res.status}`), 'Product Comparison', '/api/trends', {
+              category: selectedCategory,
+              payload: `action=compare, products=${selectedProducts.join(',')}, category=${selectedCategory}`,
+              backendMessage: errorBody.error,
+            })
+            moduleError.statusCode = res.status
+            if (!moduleError.requestCategory) moduleError.requestCategory = selectedCategory
+            if (!moduleError.requestPayload) moduleError.requestPayload = `action=compare, products=${selectedProducts.join(',')}, category=${selectedCategory}`
+          }
         } catch {
           moduleError = classifyError(new Error(`HTTP ${res.status}`), 'Product Comparison', '/api/trends', {
             category: selectedCategory,
@@ -637,6 +654,7 @@ export function TrendsComparePanel() {
           moduleError.statusCode = res.status
         }
         setCompareError(moduleError)
+        setCompareErrorSetByMutation(true)
         throw new Error(moduleError.message)
       }
       return res.json() as Promise<CompetitorComparison>
@@ -646,7 +664,7 @@ export function TrendsComparePanel() {
       toast.success('Comparison complete!')
     },
     onError: (err) => {
-      if (!compareError) {
+      if (!compareErrorSetByMutation) {
         setCompareError(classifyError(err, 'Product Comparison', '/api/trends', {
           category: selectedCategory,
           payload: `action=compare, products=${selectedProducts.join(',')}, category=${selectedCategory}`,

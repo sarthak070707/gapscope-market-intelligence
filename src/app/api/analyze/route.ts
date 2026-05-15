@@ -350,7 +350,7 @@ export const POST = withErrorHandler(MODULE_NAME, '/api/analyze', async (request
           },
           partialErrors,
         },
-        { status: 502 }
+        { status: 500 }
       );
     }
 

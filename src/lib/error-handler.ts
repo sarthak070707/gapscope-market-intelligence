@@ -316,6 +316,22 @@ export function classifyError(
       };
     }
 
+    if (msg.includes('502') || msg.includes('bad gateway')) {
+      return {
+        module,
+        category: 'api',
+        message: `[BAD_GATEWAY] ${error.message}`,
+        detail: error.message,
+        possibleReason: `Bad Gateway (502) at stage ${extractedStage || 'unknown'}: ${error.message.substring(0, 100)}. The gateway/proxy could not reach the backend. This usually means the backend server was too slow or temporarily unavailable. Wait a moment and try again.`,
+        retryable: true,
+        timestamp,
+        endpoint,
+        statusCode: 502,
+        ...errorOrigin,
+        ...ctx,
+      };
+    }
+
     if (msg.includes('503') || msg.includes('service unavailable') || msg.includes('overloaded')) {
       return {
         module,
@@ -504,10 +520,14 @@ export function classifyError(
 
     // ── Generic error with message — fallback to 'api' instead of 'unknown' ──
     // NEVER replace original error message with generic text
+    // CRITICAL: If the error message already has a classification prefix like [API_ERROR],
+    // [RATE_LIMIT], [TIMEOUT], etc., do NOT add another prefix (prevents double-wrapping)
+    const alreadyClassified = /^[A-Z_]{2,}\]/.test(error.message);
+    const finalMessage = alreadyClassified ? error.message : `[API_ERROR] ${error.message}`;
     return {
       module,
       category: 'api',
-      message: `[API_ERROR] ${error.message}`,
+      message: finalMessage,
       detail: `[${error.constructor.name}] ${error.message}`,
       possibleReason: `Error at stage ${extractedStage || 'unknown'} (${error.constructor.name}): ${error.message.substring(0, 150)}. Check Debug Info for full stack trace.`,
       retryable: true,
@@ -828,6 +848,83 @@ export function validateDashboardStats(data: unknown): {
     isValid: missingFields.length === 0,
     missingFields,
   };
+}
+
+// ─── createErrorResponse: Build Structured Error Response ─────────
+
+/**
+ * Creates a structured NextResponse.json error that PRESERVES:
+ * - The original error message (never replaces with generic text)
+ * - The original error stack trace
+ * - The stage name where the error occurred
+ * - The classified error category
+ *
+ * Usage:
+ *   catch (error) {
+ *     logStageError(MODULE, 'STAGE_NAME', error);
+ *     return createErrorResponse(error, MODULE, '/api/endpoint', {
+ *       stage: 'STAGE_NAME',
+ *       category: body?.category,
+ *       payload: `category=${body?.category}`,
+ *     });
+ *   }
+ */
+export function createErrorResponse(
+  error: unknown,
+  module: string,
+  endpoint: string,
+  context?: {
+    stage?: string;
+    category?: string;
+    payload?: string;
+    statusCode?: number;
+  }
+): Response {
+  const moduleError = classifyError(error, module, endpoint, {
+    category: context?.category,
+    payload: context?.payload,
+    backendMessage: error instanceof Error ? error.message : String(error),
+  });
+
+  // Enrich with stage if provided and not already extracted
+  if (context?.stage && !moduleError.stage) {
+    moduleError.stage = context.stage;
+  }
+
+  // Enrich with original stack if not already present
+  if (!moduleError.originalStack && error instanceof Error && error.stack) {
+    moduleError.originalStack = error.stack;
+  }
+
+  // Enrich with original constructor name
+  if (!moduleError.originalName && error instanceof Error) {
+    moduleError.originalName = error.constructor.name;
+  }
+
+  const debug = {
+    stage: moduleError.stage || context?.stage,
+    errorCategory: moduleError.category,
+    originalError: error instanceof Error ? error.message : String(error),
+    originalStack: error instanceof Error ? error.stack : undefined,
+    originalName: error instanceof Error ? error.constructor.name : typeof error,
+    receivedCategory: context?.category,
+    requestPayload: context?.payload,
+    caughtBy: 'createErrorResponse',
+  };
+
+  const status = context?.statusCode || moduleError.statusCode || 500;
+
+  return new Response(
+    JSON.stringify({
+      error: moduleError.message,
+      moduleError,
+      debug,
+    }),
+    {
+      status,
+      headers: { 'Content-Type': 'application/json' },
+    }
+  );
 }
 
 // ─── Global Route Handler Wrapper ─────────────────────────────────

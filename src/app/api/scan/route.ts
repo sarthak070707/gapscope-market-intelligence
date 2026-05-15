@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db, checkDatabaseConnection } from '@/lib/db';
 import { webSearch, readPage, generateStructuredResponse } from '@/lib/zai';
-import { retryWithBackoff, withTimeout, logError, classifyError, withErrorHandler, logStageError, logStageStart, logStageEnd, type ModuleError } from '@/lib/error-handler';
+import { retryWithBackoff, withTimeout, logError, classifyError, withErrorHandler, logStageError, logStageStart, logStageEnd, createErrorResponse, type ModuleError } from '@/lib/error-handler';
 import type { ScannedProduct } from '@/types';
 
 const MODULE_NAME = 'Product Hunt Scanner';
@@ -146,18 +146,33 @@ async function executeScan(category: string, scanJobId: string, originalCategory
     `Product Hunt ${category} top products this month`,
   ];
 
-  console.log(`[${MODULE_NAME}] [SEARCH QUERIES]`, searchQueries);
+  console.log(`[${MODULE_NAME}] [SEARCH QUERIES] Final query list before execution:`, JSON.stringify(searchQueries));
 
   let allResults: Record<string, unknown>[] = [];
   let phUrls: string[] = [];
   const seenUrls = new Set<string>();
 
+  // Track rate limit failures to distinguish from "no results"
+  let rateLimitFailures = 0;
+  let totalSearchAttempts = 0;
+  let lastRateLimitMessage = '';
+
   for (let i = 0; i < searchQueries.length; i++) {
     const query = searchQueries[i];
     console.log(`[${MODULE_NAME}] Search attempt ${i + 1}/${searchQueries.length}: "${query}"`);
+    totalSearchAttempts++;
 
     try {
-      const results = await retryWithBackoff(() => webSearch(query, 10), { maxRetries: 1 }, MODULE_NAME).catch(() => null);
+      const results = await retryWithBackoff(() => webSearch(query, 10), { maxRetries: 1 }, MODULE_NAME).catch((err) => {
+        // Track rate limit failures specifically
+        const errMsg = err instanceof Error ? err.message : String(err);
+        if (errMsg.includes('429') || errMsg.toLowerCase().includes('rate limit') || errMsg.toLowerCase().includes('too many')) {
+          rateLimitFailures++;
+          lastRateLimitMessage = errMsg;
+          console.warn(`[${MODULE_NAME}] Rate limit hit on query "${query}": ${errMsg}`);
+        }
+        return null;
+      });
 
       if (!results || !Array.isArray(results)) {
         console.warn(`[${MODULE_NAME}] webSearch returned non-array for query "${query}": ${typeof results}`);
@@ -187,6 +202,12 @@ async function executeScan(category: string, scanJobId: string, originalCategory
         break;
       }
 
+      // If we already have some search results, no need to try more queries
+      if (allResults.length > 0) {
+        console.log(`[${MODULE_NAME}] Found ${allResults.length} search results on attempt ${i + 1}, stopping search`);
+        break;
+      }
+
       // Small delay between search queries to avoid rate limits
       if (i < searchQueries.length - 1) {
         await new Promise((r) => setTimeout(r, 1000));
@@ -209,8 +230,13 @@ async function executeScan(category: string, scanJobId: string, originalCategory
   // Limit PH URLs to top 3 pages to reduce scan time
   phUrls = phUrls.slice(0, 3);
 
-  console.log(`[${MODULE_NAME}] Step 1 complete: found ${uniqueResults.length} unique results (${phUrls.length} PH URLs) in ${Date.now() - searchStart}ms`);
-  logStageEnd(MODULE_NAME, 'WEB_SEARCH', `${uniqueResults.length} results`, { phUrlCount: phUrls.length, durationMs: Date.now() - searchStart });
+  console.log(`[${MODULE_NAME}] Step 1 complete: found ${uniqueResults.length} unique results (${phUrls.length} PH URLs) in ${Date.now() - searchStart}ms. Rate limit failures: ${rateLimitFailures}/${totalSearchAttempts}`);
+  logStageEnd(MODULE_NAME, 'WEB_SEARCH', `${uniqueResults.length} results`, { phUrlCount: phUrls.length, durationMs: Date.now() - searchStart, rateLimitFailures });
+
+  // If ALL searches hit rate limits, report that specifically instead of "no results"
+  if (uniqueResults.length === 0 && rateLimitFailures > 0 && rateLimitFailures >= totalSearchAttempts - 1) {
+    throw new Error(`[SCAN_WEB_SEARCH] All ${totalSearchAttempts} web search queries were rate limited (429). The search API is throttling requests. Last rate limit error: ${lastRateLimitMessage}. Wait 60 seconds before retrying. Rate limits reset quickly, so a retry after a short wait should succeed.`);
+  }
 
   // Step 2: Read top Product Hunt pages in parallel with concurrency limit (with retry)
   console.log(`[${MODULE_NAME}] Step 2: Reading ${phUrls.length} Product Hunt pages in parallel (max ${MAX_CONCURRENT_READS} concurrent)`);
@@ -277,6 +303,10 @@ async function executeScan(category: string, scanJobId: string, originalCategory
           .join('\n\n');
 
   if (!rawContent.trim()) {
+    // Distinguish between rate-limited and genuinely empty results
+    if (rateLimitFailures > 0) {
+      throw new Error(`[SCAN_WEB_SEARCH] Product Hunt fetch returned no results due to rate limiting. ${rateLimitFailures} of ${totalSearchAttempts} search queries were rate limited (429). Last error: ${lastRateLimitMessage}. Wait 60 seconds before retrying.`);
+    }
     throw new Error(`[SCAN_WEB_SEARCH] Product Hunt fetch returned no results. Tried ${searchQueries.length} different search queries for "${category}" products on Product Hunt but got no usable content. The category may be too niche or Product Hunt may not have recent launches in this area. Try "AI Tools" or "Productivity" which have more listings.`);
   }
 

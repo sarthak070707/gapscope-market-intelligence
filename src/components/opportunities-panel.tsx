@@ -719,6 +719,7 @@ export function OpportunitiesPanel() {
   const [showSuggestions, setShowSuggestions] = useState(false)
   const [loadingSaved, setLoadingSaved] = useState(false)
   const [generationError, setGenerationError] = useState<ModuleError | null>(null)
+  const [errorSetByMutation, setErrorSetByMutation] = useState(false)
   const [cooldownSeconds, setCooldownSeconds] = useState(0)
 
   const opportunities = useAppStore((s) => s.opportunities)
@@ -799,6 +800,7 @@ export function OpportunitiesPanel() {
   const generateMutation = useMutation({
     mutationFn: async () => {
       setGenerationError(null)
+      setErrorSetByMutation(false)
       const res = await fetch('/api/opportunities', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -808,16 +810,22 @@ export function OpportunitiesPanel() {
         let moduleError: ModuleError
         try {
           const errorBody = await res.json()
-          moduleError = errorBody.moduleError || classifyError(new Error(errorBody.error || `HTTP ${res.status}`), 'Opportunity Generator', '/api/opportunities', {
-            category: selectedCategory,
-            payload: `category=${selectedCategory}, focusArea=${focusArea || 'none'}, timePeriod=${timePeriod}`,
-            backendMessage: errorBody.error,
-          })
-          moduleError.statusCode = res.status
-          // Enrich with frontend request context if missing from backend error
-          if (!moduleError.requestCategory) moduleError.requestCategory = selectedCategory
-          if (!moduleError.requestPayload) moduleError.requestPayload = `category=${selectedCategory}, focusArea=${focusArea || 'none'}, timePeriod=${timePeriod}`
-          if (!moduleError.backendMessage && errorBody.error) moduleError.backendMessage = errorBody.error
+          if (errorBody.moduleError && typeof errorBody.moduleError === 'object') {
+            moduleError = errorBody.moduleError as ModuleError
+            moduleError.statusCode = res.status
+            if (!moduleError.requestCategory) moduleError.requestCategory = selectedCategory
+            if (!moduleError.requestPayload) moduleError.requestPayload = `category=${selectedCategory}, focusArea=${focusArea || 'none'}, timePeriod=${timePeriod}`
+            if (!moduleError.backendMessage && errorBody.error) moduleError.backendMessage = errorBody.error
+          } else {
+            moduleError = classifyError(new Error(errorBody.error || `HTTP ${res.status}`), 'Opportunity Generator', '/api/opportunities', {
+              category: selectedCategory,
+              payload: `category=${selectedCategory}, focusArea=${focusArea || 'none'}, timePeriod=${timePeriod}`,
+              backendMessage: errorBody.error,
+            })
+            moduleError.statusCode = res.status
+            if (!moduleError.requestCategory) moduleError.requestCategory = selectedCategory
+            if (!moduleError.requestPayload) moduleError.requestPayload = `category=${selectedCategory}, focusArea=${focusArea || 'none'}, timePeriod=${timePeriod}`
+          }
           // Start cooldown if 429 rate limit
           if (res.status === 429 || moduleError.category === 'rate_limit') {
             const seconds = errorBody.moduleError?.cooldownRemainingSeconds || 60
@@ -832,6 +840,7 @@ export function OpportunitiesPanel() {
           if (res.status === 429) setCooldownSeconds(60)
         }
         setGenerationError(moduleError)
+        setErrorSetByMutation(true)
         throw new Error(moduleError.message)
       }
       return res.json() as Promise<OpportunitySuggestion[]>
@@ -842,7 +851,7 @@ export function OpportunitiesPanel() {
       toast.success(`Generated ${data.length} opportunities!`)
     },
     onError: (err) => {
-      if (!generationError) {
+      if (!errorSetByMutation) {
         setGenerationError(classifyError(err, 'Opportunity Generator', '/api/opportunities', {
           category: selectedCategory,
           payload: `category=${selectedCategory}, focusArea=${focusArea || 'none'}, timePeriod=${timePeriod}`,

@@ -24,3 +24,32 @@ Stage Summary:
 - Frontend displays: Stage badge, Backend message prominently, Error class, Full stack trace in debug section
 - classifyError possibleReason fields now include stage name and original error snippet instead of "An unexpected error occurred"
 - The "encountered an unexpected error" string no longer exists anywhere in the codebase
+
+---
+Task ID: 2
+Agent: main
+Task: Fix double [API_ERROR] prefix bug, rate limit masking, 502 misclassification, and frontend double-classification
+
+Work Log:
+- Diagnosed root cause: User error [API_ERROR] [API_ERROR] HTTP 502 was caused by (a) classifyError adding prefix to already-prefixed message, and (b) frontend re-classifying errors in onError handler due to stale React state closure
+- Fixed classifyError: Added alreadyClassified regex check to detect already-prefixed error messages and skip adding another prefix
+- Added 502 Bad Gateway detection in classifyError
+- Added createErrorResponse helper function that preserves original message/stack/stage
+- Fixed scan route: Added rate limit tracking to distinguish between no results and rate limited
+- Fixed scan route: Added early break when some search results found
+- Fixed scan route: Added final search query list logging before execution
+- Fixed frontend scanner-panel.tsx: Use backend moduleError directly, avoid double-prefixing
+- Fixed frontend scanner-panel.tsx: Added scanErrorSetByMutation state flag to prevent re-classification
+- Fixed frontend opportunities-panel.tsx, gap-analysis-panel.tsx, trends-compare-panel.tsx with same pattern
+- Fixed trends route: Added rate limit tracking with 429-specific error response
+- Fixed trends route: Added final search query list logging before execution
+- Fixed analyze route: Changed 502 status to 500 for all-failed error
+- All lint checks pass cleanly
+
+Stage Summary:
+- Double [API_ERROR] prefix bug FIXED
+- Rate limit masking FIXED - scan and trends routes now track and report 429 failures specifically
+- Frontend double-classification FIXED in all 4 panels
+- 502 misclassification FIXED - analyze route returns 500; classifyError now has 502 detection
+- createErrorResponse helper added for consistent error response building
+- Search query logging added before execution in scan and trends routes

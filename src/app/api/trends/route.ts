@@ -194,17 +194,23 @@ async function handleDetectTrends(effectiveCategory: string, originalCategory: s
     `${effectiveCategory} industry trend analysis latest`,
   ];
 
-  console.log(`[${MODULE_NAME}] [SEARCH QUERIES]`, searchQueries);
+  console.log(`[${MODULE_NAME}] [SEARCH QUERIES] Final query list before execution:`, JSON.stringify(searchQueries));
   console.log(`[${MODULE_NAME}] Starting sequential search with ${searchQueries.length} queries...`);
 
   let allResults: Record<string, unknown>[] = [];
   const seenUrls = new Set<string>();
+
+  // Track rate limit failures to distinguish from "no results"
+  let rateLimitFailures = 0;
+  let totalSearchAttempts = 0;
+  let lastRateLimitMessage = '';
 
   logStageStart(MODULE_NAME, 'WEB_SEARCH', `Searching with ${searchQueries.length} queries`);
 
   for (let i = 0; i < searchQueries.length; i++) {
     const query = searchQueries[i];
     console.log(`[${MODULE_NAME}] Search attempt ${i + 1}/${searchQueries.length}: "${query}"`);
+    totalSearchAttempts++;
 
     try {
       const results = await retryWithBackoff(
@@ -212,7 +218,15 @@ async function handleDetectTrends(effectiveCategory: string, originalCategory: s
         { maxRetries: 1 },
         MODULE_NAME
       ).catch((err) => {
-        logError(MODULE_NAME, err, { step: 'webSearch', query, attempt: i + 1 });
+        // Track rate limit failures specifically
+        const errMsg = err instanceof Error ? err.message : String(err);
+        if (errMsg.includes('429') || errMsg.toLowerCase().includes('rate limit') || errMsg.toLowerCase().includes('too many')) {
+          rateLimitFailures++;
+          lastRateLimitMessage = errMsg;
+          console.warn(`[${MODULE_NAME}] Rate limit hit on query "${query}": ${errMsg}`);
+        } else {
+          logError(MODULE_NAME, err, { step: 'webSearch', query, attempt: i + 1 });
+        }
         return [];
       });
 
@@ -245,8 +259,8 @@ async function handleDetectTrends(effectiveCategory: string, originalCategory: s
       logStageError(MODULE_NAME, 'WEB_SEARCH', err, { query, attempt: i + 1 });
     }
   }
-  logStageEnd(MODULE_NAME, 'WEB_SEARCH', `Found ${allResults.length} results`);
-  console.log(`[${MODULE_NAME}] Web search returned ${allResults.length} results`);
+  logStageEnd(MODULE_NAME, 'WEB_SEARCH', `Found ${allResults.length} results`, { rateLimitFailures });
+  console.log(`[${MODULE_NAME}] Web search returned ${allResults.length} results. Rate limit failures: ${rateLimitFailures}/${totalSearchAttempts}`);
 
   const searchContext = allResults
     .map(
@@ -256,6 +270,27 @@ async function handleDetectTrends(effectiveCategory: string, originalCategory: s
     .join('\n\n');
 
   if (!searchContext.trim()) {
+    // Distinguish between rate-limited and genuinely empty results
+    if (rateLimitFailures > 0 && rateLimitFailures >= totalSearchAttempts - 1) {
+      return NextResponse.json(
+        {
+          error: `All ${totalSearchAttempts} web search queries were rate limited (429). Last error: ${lastRateLimitMessage}. Wait 60 seconds before retrying.`,
+          moduleError: {
+            module: MODULE_NAME,
+            category: 'rate_limit',
+            message: 'Web search rate limited during trend detection',
+            detail: `All ${totalSearchAttempts} search queries were rate limited (429) when searching for "${effectiveCategory}" trends. Last error: ${lastRateLimitMessage}`,
+            possibleReason: 'Too many search requests were sent in a short period. Wait 60 seconds before retrying.',
+            retryable: true,
+            stage: 'TRENDS_WEB_SEARCH',
+            timestamp: new Date().toISOString(),
+            endpoint: '/api/trends',
+            requestCategory: effectiveCategory,
+          }
+        },
+        { status: 429 }
+      );
+    }
     return NextResponse.json(
       {
         error: 'No search results found for trend detection. Try a different category.',

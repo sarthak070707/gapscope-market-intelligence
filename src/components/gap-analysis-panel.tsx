@@ -710,6 +710,7 @@ function SaturationEntry({ sat, delay = 0 }: { sat: MarketSaturation; delay?: nu
 export function GapAnalysisPanel() {
   const [gapTypeFilter, setGapTypeFilter] = useState<GapType | 'all'>('all')
   const [analysisError, setAnalysisError] = useState<ModuleError | null>(null)
+  const [errorSetByMutation, setErrorSetByMutation] = useState(false)
 
   const selectedCategory = useAppStore((s) => s.selectedCategory)
   const setSelectedCategory = useAppStore((s) => s.setSelectedCategory)
@@ -725,6 +726,7 @@ export function GapAnalysisPanel() {
   const analyzeMutation = useMutation({
     mutationFn: async () => {
       setAnalysisError(null)
+      setErrorSetByMutation(false)
       const res = await fetch('/api/analyze', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -734,16 +736,22 @@ export function GapAnalysisPanel() {
         let moduleError: ModuleError
         try {
           const errorBody = await res.json()
-          moduleError = errorBody.moduleError || classifyError(new Error(errorBody.error || `HTTP ${res.status}`), 'Gap Analysis', '/api/analyze', {
-            category: selectedCategory,
-            payload: `category=${selectedCategory}, analysisType=full, timePeriod=${timePeriod}`,
-            backendMessage: errorBody.error,
-          })
-          moduleError.statusCode = res.status
-          // Enrich with frontend request context if missing from backend error
-          if (!moduleError.requestCategory) moduleError.requestCategory = selectedCategory
-          if (!moduleError.requestPayload) moduleError.requestPayload = `category=${selectedCategory}, analysisType=full, timePeriod=${timePeriod}`
-          if (!moduleError.backendMessage && errorBody.error) moduleError.backendMessage = errorBody.error
+          if (errorBody.moduleError && typeof errorBody.moduleError === 'object') {
+            moduleError = errorBody.moduleError as ModuleError
+            moduleError.statusCode = res.status
+            if (!moduleError.requestCategory) moduleError.requestCategory = selectedCategory
+            if (!moduleError.requestPayload) moduleError.requestPayload = `category=${selectedCategory}, analysisType=full, timePeriod=${timePeriod}`
+            if (!moduleError.backendMessage && errorBody.error) moduleError.backendMessage = errorBody.error
+          } else {
+            moduleError = classifyError(new Error(errorBody.error || `HTTP ${res.status}`), 'Gap Analysis', '/api/analyze', {
+              category: selectedCategory,
+              payload: `category=${selectedCategory}, analysisType=full, timePeriod=${timePeriod}`,
+              backendMessage: errorBody.error,
+            })
+            moduleError.statusCode = res.status
+            if (!moduleError.requestCategory) moduleError.requestCategory = selectedCategory
+            if (!moduleError.requestPayload) moduleError.requestPayload = `category=${selectedCategory}, analysisType=full, timePeriod=${timePeriod}`
+          }
         } catch {
           moduleError = classifyError(new Error(`HTTP ${res.status}`), 'Gap Analysis', '/api/analyze', {
             category: selectedCategory,
@@ -752,6 +760,7 @@ export function GapAnalysisPanel() {
           moduleError.statusCode = res.status
         }
         setAnalysisError(moduleError)
+        setErrorSetByMutation(true)
         throw new Error(moduleError.message)
       }
       return res.json() as Promise<{
@@ -800,7 +809,7 @@ export function GapAnalysisPanel() {
       }
     },
     onError: (err) => {
-      if (!analysisError) {
+      if (!errorSetByMutation) {
         setAnalysisError(classifyError(err, 'Gap Analysis', '/api/analyze', {
           category: selectedCategory,
           payload: `category=${selectedCategory}, analysisType=full, timePeriod=${timePeriod}`,
