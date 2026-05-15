@@ -66,6 +66,7 @@ export interface ScannedProduct {
   comments: string[];
   reviewScore: number;
   sourceUrl: string;
+  dataSource?: 'web_search' | 'cached' | 'database' | 'ai_knowledge' | 'seed';
 }
 
 // ─── Evidence Layer ───────────────────────────────────────────────

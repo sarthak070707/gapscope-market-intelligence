@@ -24,6 +24,7 @@ model Product {
   comments     String   @default("[]") // JSON string of comment summaries
   reviewScore  Float    @default(0)
   sourceUrl    String   @default("")
+  dataSource   String   @default("web_search") // web_search | cached | database | ai_knowledge | seed
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 

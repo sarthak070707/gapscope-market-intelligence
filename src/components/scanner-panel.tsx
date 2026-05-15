@@ -3,7 +3,7 @@
 import { useState, useRef, useCallback, useEffect } from 'react'
 import { useMutation } from '@tanstack/react-query'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Search, Loader2, ExternalLink, ChevronUp, ChevronDown, Clock, ShieldAlert, Timer } from 'lucide-react'
+import { Search, Loader2, ExternalLink, ChevronUp, ChevronDown, Clock, ShieldAlert, Timer, Database, Brain, Globe, RefreshCw } from 'lucide-react'
 import { toast } from 'sonner'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -17,7 +17,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import {
   Table,
   TableBody,
@@ -33,14 +32,46 @@ import { classifyError, type ModuleError } from '@/lib/error-handler'
 import { handleFetchError } from '@/lib/fetch-error'
 import { useRateLimitCooldown, formatCooldownTime } from '@/hooks/use-rate-limit-cooldown'
 
-// ─── Stage labels for progress display ──────────────────────────────
+// ─── Stage labels for progress display (with new fallback stages) ────
 const STAGE_LABELS: Record<string, string> = {
   INITIALIZING: 'Initializing scan...',
+  DB_CHECK: 'Checking existing products...',
+  CACHE_CHECK: 'Checking search cache...',
   WEB_SEARCH: 'Searching Product Hunt...',
   READ_PAGES: 'Reading Product Hunt pages...',
   LLM_EXTRACT: 'AI extracting product data...',
+  LLM_KNOWLEDGE_FALLBACK: 'Generating from AI knowledge (rate limit fallback)...',
   SAVE_PRODUCTS: 'Saving products to database...',
   COMPLETED: 'Scan complete!',
+}
+
+// ─── Data source badge config ────────────────────────────────────────
+const DATA_SOURCE_CONFIG: Record<string, { label: string; icon: React.ReactNode; badgeClass: string }> = {
+  web_search: {
+    label: 'Live',
+    icon: <Globe className="h-2.5 w-2.5" />,
+    badgeClass: 'bg-green-50 text-green-700 border-green-200 dark:bg-green-950/40 dark:text-green-400 dark:border-green-900/60',
+  },
+  cached: {
+    label: 'Cached',
+    icon: <Database className="h-2.5 w-2.5" />,
+    badgeClass: 'bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-950/40 dark:text-blue-400 dark:border-blue-900/60',
+  },
+  database: {
+    label: 'Database',
+    icon: <Database className="h-2.5 w-2.5" />,
+    badgeClass: 'bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-950/40 dark:text-amber-400 dark:border-amber-900/60',
+  },
+  ai_knowledge: {
+    label: 'AI Knowledge',
+    icon: <Brain className="h-2.5 w-2.5" />,
+    badgeClass: 'bg-purple-50 text-purple-700 border-purple-200 dark:bg-purple-950/40 dark:text-purple-400 dark:border-purple-900/60',
+  },
+  seed: {
+    label: 'Sample',
+    icon: <Database className="h-2.5 w-2.5" />,
+    badgeClass: 'bg-gray-50 text-gray-600 border-gray-200 dark:bg-gray-800/40 dark:text-gray-400 dark:border-gray-700/60',
+  },
 }
 
 // ─── Polling hook for job-based scan results ────────────────────────
@@ -135,15 +166,12 @@ export function ScannerPanel() {
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc')
   const [searchInput, setSearchInput] = useState('')
   const [showSuggestions, setShowSuggestions] = useState(false)
+  const [isLoadingExisting, setIsLoadingExisting] = useState(false)
 
   const [scanError, setScanError] = useState<ModuleError | null>(null)
   const [isScanning, setIsScanning] = useState(false)
 
   // Ref to track whether scanError was already set in mutationFn.
-  // This prevents onError from overwriting the carefully-constructed ModuleError
-  // (with retryAfterSeconds, providerMessage, etc.) with a re-classified error
-  // that loses those fields. The closure value of scanError is stale by the time
-  // onError runs because React state updates are async.
   const scanErrorSetRef = useRef(false)
 
   const scanResults = useAppStore((s) => s.scanResults)
@@ -160,6 +188,30 @@ export function ScannerPanel() {
     enterCooldown,
     clearCooldown,
   } = useRateLimitCooldown(effectiveCategory, period)
+
+  // ─── Load existing products from DB when category changes ───
+  useEffect(() => {
+    async function loadExisting() {
+      if (scanResults.length > 0 || isScanning || isPolling) return
+
+      setIsLoadingExisting(true)
+      try {
+        const res = await fetch(`/api/scan?category=${encodeURIComponent(effectiveCategory)}`)
+        if (res.ok) {
+          const data = await res.json()
+          if (data.products?.length > 0) {
+            setScanResults(data.products)
+          }
+        }
+      } catch {
+        // Silently fail — not critical
+      } finally {
+        setIsLoadingExisting(false)
+      }
+    }
+
+    loadExisting()
+  }, [effectiveCategory, scanResults.length, isScanning, isPolling, setScanResults])
 
   const scanMutation = useMutation({
     mutationFn: async () => {
@@ -195,11 +247,10 @@ export function ScannerPanel() {
       const res = await fetch('/api/scan', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ category: selectedCategory, period }),
+        body: JSON.stringify({ category: selectedCategory, period, forceRefresh: true }),
       })
 
       if (!res.ok) {
-        // The POST itself failed — this could be a 429 (cooldown rejection) or other error
         const moduleError = await handleFetchError(res, {
           moduleName: 'Product Hunt Scanner',
           endpoint: '/api/scan',
@@ -207,7 +258,6 @@ export function ScannerPanel() {
           payload: `category=${selectedCategory}, period=${period}`,
         })
 
-        // If it's a rate-limit error with retryAfterSeconds, enter cooldown
         if (moduleError.category === 'rate_limit' && moduleError.retryAfterSeconds) {
           enterCooldown(moduleError)
         }
@@ -219,7 +269,12 @@ export function ScannerPanel() {
 
       const jobData = await res.json()
 
-      // If the response already contains products (backward compat), return them directly
+      // If the response already contains products (synchronous DB fallback), return them directly
+      if (jobData.products && Array.isArray(jobData.products) && jobData.status === 'completed') {
+        return jobData.products as ScannedProduct[]
+      }
+
+      // If the response is an array (backward compat), return directly
       if (Array.isArray(jobData)) {
         return jobData as ScannedProduct[]
       }
@@ -230,12 +285,10 @@ export function ScannerPanel() {
 
         // Check if the result is an error
         if ('category' in result && 'message' in result && !('name' in result)) {
-          // This is a ModuleError, not a ScannedProduct[]
           const moduleError = result as ModuleError
           setScanError(moduleError)
           scanErrorSetRef.current = true
 
-          // If it's a rate-limit error, enter cooldown
           if (moduleError.category === 'rate_limit') {
             enterCooldown(moduleError)
           }
@@ -257,20 +310,12 @@ export function ScannerPanel() {
     },
     onError: (err) => {
       setIsScanning(false)
-      // Only set error if not already set in mutationFn.
-      // We use a ref because the scanError closure value is stale — React
-      // state updates are async, so by the time onError runs, scanError
-      // still holds the value from the previous render, not the value set
-      // in mutationFn. This was causing onError to overwrite the carefully-
-      // constructed ModuleError (with retryAfterSeconds, providerMessage,
-      // etc.) with a re-classified error that loses those fields.
       if (!scanErrorSetRef.current) {
         const classifiedError = classifyError(err, 'Product Hunt Scanner', '/api/scan', {
           category: selectedCategory,
           payload: `category=${selectedCategory}, period=${period}`,
         })
 
-        // If it's a rate-limit error, enter cooldown
         if (classifiedError.category === 'rate_limit') {
           enterCooldown(classifiedError)
         }
@@ -336,7 +381,7 @@ export function ScannerPanel() {
 
   // Stage progress bar for polling
   const stageProgress = (() => {
-    const stages = ['INITIALIZING', 'WEB_SEARCH', 'READ_PAGES', 'LLM_EXTRACT', 'SAVE_PRODUCTS', 'COMPLETED']
+    const stages = ['INITIALIZING', 'DB_CHECK', 'CACHE_CHECK', 'WEB_SEARCH', 'READ_PAGES', 'LLM_EXTRACT', 'LLM_KNOWLEDGE_FALLBACK', 'SAVE_PRODUCTS', 'COMPLETED']
     const idx = stages.indexOf(currentStage)
     if (idx < 0) return 0
     return Math.round(((idx + 1) / stages.length) * 100)
@@ -461,14 +506,24 @@ export function ScannerPanel() {
                     {STAGE_LABELS[currentStage] || `Processing: ${currentStage}...`}
                   </p>
                   <p className="text-xs text-muted-foreground mt-0.5">
-                    This may take 60-120 seconds. The scan runs in the background — no gateway timeout!
+                    {currentStage === 'LLM_KNOWLEDGE_FALLBACK'
+                      ? 'Search API is rate-limited — using AI knowledge as fallback'
+                      : currentStage === 'DB_CHECK'
+                      ? 'Checking if we already have products for this category'
+                      : currentStage === 'CACHE_CHECK'
+                      ? 'Looking for cached search results'
+                      : 'This may take 60-120 seconds. The scan runs in the background — no gateway timeout!'}
                   </p>
                 </div>
               </div>
               {/* Progress bar */}
               <div className="w-full bg-muted rounded-full h-2 overflow-hidden">
                 <motion.div
-                  className="bg-orange-500 h-full rounded-full"
+                  className={`h-full rounded-full ${
+                    currentStage === 'LLM_KNOWLEDGE_FALLBACK'
+                      ? 'bg-purple-500'
+                      : 'bg-orange-500'
+                  }`}
                   initial={{ width: 0 }}
                   animate={{ width: `${stageProgress}%` }}
                   transition={{ duration: 0.5, ease: 'easeOut' }}
@@ -533,7 +588,7 @@ export function ScannerPanel() {
                     </p>
                   )}
                   <p className="mt-1 text-xs text-rose-600/70 dark:text-rose-400/60">
-                    The scan button is disabled during cooldown to prevent repeated 429 failures.
+                    The scanner can still return results from the database or AI knowledge during cooldown.
                   </p>
                 </div>
               </div>
@@ -567,18 +622,41 @@ export function ScannerPanel() {
                 <CardDescription>
                   {scanResults.length > 0
                     ? `${scanResults.length} products found`
+                    : isLoadingExisting
+                    ? 'Loading existing products...'
                     : 'Run a scan to see results'}
                 </CardDescription>
               </div>
               {scanResults.length > 0 && (
-                <Badge variant="secondary" className="bg-orange-100 text-orange-700 dark:bg-orange-950/40 dark:text-orange-400">
-                  {scanResults.length} products
-                </Badge>
+                <div className="flex items-center gap-2">
+                  {/* Data source summary */}
+                  {(() => {
+                    const sources = new Set(scanResults.map(p => p.dataSource).filter(Boolean))
+                    if (sources.size > 0) {
+                      return (
+                        <div className="hidden sm:flex items-center gap-1">
+                          {Array.from(sources).map(source => {
+                            const config = DATA_SOURCE_CONFIG[source || 'web_search']
+                            return config ? (
+                              <Badge key={source} variant="outline" className={`text-[10px] ${config.badgeClass}`}>
+                                {config.icon} {config.label}
+                              </Badge>
+                            ) : null
+                          })}
+                        </div>
+                      )
+                    }
+                    return null
+                  })()}
+                  <Badge variant="secondary" className="bg-orange-100 text-orange-700 dark:bg-orange-950/40 dark:text-orange-400">
+                    {scanResults.length} products
+                  </Badge>
+                </div>
               )}
             </div>
           </CardHeader>
           <CardContent>
-            {isLoading && (
+            {(isLoading || isLoadingExisting) && (
               <div className="space-y-3">
                 {Array.from({ length: 5 }).map((_, i) => (
                   <div key={i} className="flex items-center gap-4">
@@ -592,10 +670,11 @@ export function ScannerPanel() {
               </div>
             )}
 
-            {!isLoading && scanResults.length === 0 && (
+            {!isLoading && !isLoadingExisting && scanResults.length === 0 && (
               <div className="flex flex-col items-center justify-center py-12 text-muted-foreground">
                 <Search className="h-12 w-12 mb-4 opacity-30" />
                 <p className="text-sm">No scan results yet. Configure and run a scan above.</p>
+                <p className="text-xs mt-1 text-muted-foreground/60">Sample data will auto-populate on first scan.</p>
                 <div className="mt-4 flex flex-wrap gap-2 justify-center max-w-lg">
                   {SEARCH_SUGGESTIONS.slice(0, 5).map((suggestion) => (
                     <button
@@ -611,7 +690,7 @@ export function ScannerPanel() {
             )}
 
             <AnimatePresence>
-              {!isLoading && scanResults.length > 0 && (
+              {!isLoading && !isLoadingExisting && scanResults.length > 0 && (
                 <motion.div
                   initial={{ opacity: 0 }}
                   animate={{ opacity: 1 }}
@@ -650,50 +729,70 @@ export function ScannerPanel() {
                             {renderSortIcon('launchDate')}
                           </span>
                         </TableHead>
+                        <TableHead className="hidden xl:table-cell">Source</TableHead>
                         <TableHead className="hidden xl:table-cell">Link</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {sortedResults.map((product, i) => (
-                        <motion.tr
-                          key={product.name + i}
-                          initial={{ opacity: 0, x: -10 }}
-                          animate={{ opacity: 1, x: 0 }}
-                          transition={{ delay: i * 0.03 }}
-                          className="hover:bg-muted/50 border-b transition-colors"
-                        >
-                          <TableCell className="font-medium max-w-[160px] truncate">
-                            {product.name}
-                          </TableCell>
-                          <TableCell className="hidden md:table-cell max-w-[240px] truncate text-muted-foreground">
-                            {product.tagline}
-                          </TableCell>
-                          <TableCell>
-                            <Badge variant="outline" className="text-xs">{product.category}</Badge>
-                          </TableCell>
-                          <TableCell className="font-semibold text-orange-600 dark:text-orange-400">
-                            {product.upvotes.toLocaleString()}
-                          </TableCell>
-                          <TableCell className="hidden sm:table-cell">
-                            {product.reviewScore}/10
-                          </TableCell>
-                          <TableCell className="hidden lg:table-cell text-muted-foreground">
-                            {formatDate(product.launchDate)}
-                          </TableCell>
-                          <TableCell className="hidden xl:table-cell">
-                            {product.url && (
-                              <a
-                                href={product.url}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="inline-flex items-center gap-1 text-sm text-orange-600 dark:text-orange-400 hover:underline"
-                              >
-                                <ExternalLink className="h-3 w-3" />View
-                              </a>
-                            )}
-                          </TableCell>
-                        </motion.tr>
-                      ))}
+                      {sortedResults.map((product, i) => {
+                        const sourceConfig = DATA_SOURCE_CONFIG[product.dataSource || 'web_search']
+                        return (
+                          <motion.tr
+                            key={product.name + i}
+                            initial={{ opacity: 0, x: -10 }}
+                            animate={{ opacity: 1, x: 0 }}
+                            transition={{ delay: i * 0.03 }}
+                            className="hover:bg-muted/50 border-b transition-colors"
+                          >
+                            <TableCell className="font-medium max-w-[160px] truncate">
+                              {product.name}
+                            </TableCell>
+                            <TableCell className="hidden md:table-cell max-w-[240px] truncate text-muted-foreground">
+                              {product.tagline}
+                            </TableCell>
+                            <TableCell>
+                              <div className="flex items-center gap-1 flex-wrap">
+                                <Badge variant="outline" className="text-xs">{product.category}</Badge>
+                                {product.dataSource && product.dataSource !== 'web_search' && sourceConfig && (
+                                  <Badge variant="outline" className={`text-[10px] ${sourceConfig.badgeClass}`}>
+                                    {sourceConfig.icon} {sourceConfig.label}
+                                  </Badge>
+                                )}
+                              </div>
+                            </TableCell>
+                            <TableCell className="font-semibold text-orange-600 dark:text-orange-400">
+                              {product.upvotes.toLocaleString()}
+                            </TableCell>
+                            <TableCell className="hidden sm:table-cell">
+                              {product.reviewScore}/10
+                            </TableCell>
+                            <TableCell className="hidden lg:table-cell text-muted-foreground">
+                              {formatDate(product.launchDate)}
+                            </TableCell>
+                            <TableCell className="hidden xl:table-cell">
+                              {sourceConfig ? (
+                                <Badge variant="outline" className={`text-[10px] ${sourceConfig.badgeClass}`}>
+                                  {sourceConfig.icon} {sourceConfig.label}
+                                </Badge>
+                              ) : (
+                                <span className="text-xs text-muted-foreground">—</span>
+                              )}
+                            </TableCell>
+                            <TableCell className="hidden xl:table-cell">
+                              {product.url && (
+                                <a
+                                  href={product.url}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="inline-flex items-center gap-1 text-sm text-orange-600 dark:text-orange-400 hover:underline"
+                                >
+                                  <ExternalLink className="h-3 w-3" />View
+                                </a>
+                              )}
+                            </TableCell>
+                          </motion.tr>
+                        )
+                      })}
                     </TableBody>
                   </Table>
                 </motion.div>
