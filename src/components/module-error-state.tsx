@@ -10,6 +10,8 @@ import {
   ChevronDown,
   Bug,
   Server,
+  ShieldAlert,
+  Timer,
 } from 'lucide-react'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -30,6 +32,10 @@ interface ModuleErrorStateProps {
   onRetry?: () => void
   isRetrying?: boolean
   compact?: boolean
+  /** If true, the retry button is disabled because a rate-limit cooldown is active */
+  isRateLimitCooldown?: boolean
+  /** Seconds remaining in the rate-limit cooldown (for display) */
+  cooldownRemainingSeconds?: number
 }
 
 // ─── Category Config ────────────────────────────────────────────────
@@ -109,6 +115,16 @@ const CATEGORY_CONFIG: Record<ErrorCategory | 'unknown', CategoryConfig> = {
 
 // ─── Helpers ────────────────────────────────────────────────────────
 
+function formatCooldownSecs(seconds: number): string {
+  if (seconds <= 0) return '0s'
+  const mins = Math.floor(seconds / 60)
+  const secs = seconds % 60
+  if (mins > 0) {
+    return secs > 0 ? `${mins}m ${secs}s` : `${mins}m`
+  }
+  return `${secs}s`
+}
+
 function formatTimestamp(iso: string): string {
   try {
     const date = new Date(iso)
@@ -157,6 +173,8 @@ export function ModuleErrorState({
   onRetry,
   isRetrying = false,
   compact = false,
+  isRateLimitCooldown = false,
+  cooldownRemainingSeconds,
 }: ModuleErrorStateProps) {
   const [debugOpen, setDebugOpen] = useState(false)
 
@@ -197,15 +215,19 @@ export function ModuleErrorState({
                 size="icon"
                 className="h-7 w-7 shrink-0"
                 onClick={onRetry}
-                disabled={isRetrying}
-                aria-label="Retry"
+                disabled={isRetrying || isRateLimitCooldown}
+                aria-label={isRateLimitCooldown ? 'Retry disabled during cooldown' : 'Retry'}
               >
-                <RefreshCw
-                  className={cn(
-                    'h-3.5 w-3.5',
-                    isRetrying && 'animate-spin'
-                  )}
-                />
+                {isRateLimitCooldown ? (
+                  <Timer className="h-3.5 w-3.5 text-rose-500" />
+                ) : (
+                  <RefreshCw
+                    className={cn(
+                      'h-3.5 w-3.5',
+                      isRetrying && 'animate-spin'
+                    )}
+                  />
+                )}
               </Button>
             )}
           </CardContent>
@@ -304,7 +326,25 @@ export function ModuleErrorState({
               </span>
             </div>
 
-            {error.retryable && onRetry && (
+            {isRateLimitCooldown && error.category === 'rate_limit' ? (
+              <div className="flex items-center gap-2">
+                <div className="flex items-center gap-1.5 text-xs text-rose-600 dark:text-rose-400">
+                  <Timer className="h-3.5 w-3.5" />
+                  <span className="font-medium tabular-nums">
+                    Retry in {cooldownRemainingSeconds != null ? formatCooldownSecs(cooldownRemainingSeconds) : '...'}
+                  </span>
+                </div>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-8 gap-1.5 text-xs opacity-50 cursor-not-allowed"
+                  disabled
+                >
+                  <Timer className="h-3.5 w-3.5" />
+                  Cooldown
+                </Button>
+              </div>
+            ) : error.retryable && onRetry ? (
               <Button
                 variant="outline"
                 size="sm"
@@ -320,7 +360,7 @@ export function ModuleErrorState({
                 />
                 {isRetrying ? 'Retrying…' : 'Retry'}
               </Button>
-            )}
+            ) : null}
           </div>
 
           {/* Debug info (collapsible) */}
@@ -408,6 +448,18 @@ export function ModuleErrorState({
                       <div>
                         <span className="text-foreground/70">Backend Message:</span>{' '}
                         <span className="break-all text-orange-600 dark:text-orange-400">{error.backendMessage}</span>
+                      </div>
+                    )}
+                    {error.retryAfterSeconds != null && (
+                      <div>
+                        <span className="text-foreground/70">Retry After:</span>{' '}
+                        <span className="text-rose-600 dark:text-rose-400 font-semibold">{formatCooldownSecs(error.retryAfterSeconds)}</span>
+                      </div>
+                    )}
+                    {error.providerMessage && (
+                      <div>
+                        <span className="text-foreground/70">Provider Message:</span>{' '}
+                        <span className="break-all text-rose-600 dark:text-rose-400">{error.providerMessage}</span>
                       </div>
                     )}
                     <div>

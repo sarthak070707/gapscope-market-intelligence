@@ -21,3 +21,36 @@ Stage Summary:
 - 429 errors no longer retried immediately — they fail fast and trigger longer cooldown before next query
 - This prevents the pattern where all 4 queries get 429'd because they're sent too quickly
 - Both /api/scan and /api/trends now have consistent rate limit handling
+
+---
+Task ID: 2
+Agent: Main Agent
+Task: Implement strict rate-limit lockout for Product Hunt Scanner
+
+Work Log:
+- Added `retryAfterSeconds` and `providerMessage` fields to ModuleError interface in error-handler.ts
+- Created in-memory cooldown store in /api/scan/route.ts with CooldownEntry interface tracking: cooldownUntil, durationMs, stage, endpoint, category, period, providerMessage, escalationCount
+- Cooldown is keyed by `${category}:${period}:/api/scan` — scoped to specific scan configurations
+- Initial cooldown: 120 seconds; escalated cooldown: 300 seconds (after repeated 429)
+- Backend POST handler now checks cooldown BEFORE creating scan job — returns 429 with full ModuleError + retryAfterSeconds
+- Web search loop now stops on FIRST 429 — does NOT try remaining queries
+- On first 429: enters cooldown, throws error with __cooldownMeta attached
+- Catch block in executeScanBackground preserves __cooldownMeta on the ModuleError (retryAfterSeconds, providerMessage, stage, statusCode)
+- Created `/src/hooks/use-rate-limit-cooldown.ts` hook with: isCooldownActive, remainingSeconds, cooldownState, enterCooldown, clearCooldown
+- Hook uses shared global Map with 1-second interval for countdown updates
+- Updated ScannerPanel to use the cooldown hook — blocks scan during cooldown, disables Scan button, shows cooldown time
+- Added dedicated cooldown banner UI between progress and error states with: shield icon, countdown timer, progress bar, provider message, escalation badge
+- Updated ModuleErrorState to accept isRateLimitCooldown and cooldownRemainingSeconds props
+- ModuleErrorState replaces Retry button with "Cooldown" button + countdown when rate-limited
+- ModuleErrorState debug info now shows retryAfterSeconds and providerMessage fields
+- Updated handleFetchError in fetch-error.ts to preserve retryAfterSeconds and providerMessage from backend 429 responses
+- Scan button shows "Cooldown (2m 30s)" when active; Enter key also blocked during cooldown
+- Cooldown is cleared on successful scan completion
+- Lint passes cleanly with no errors
+
+Stage Summary:
+- Complete rate-limit lockout system implemented end-to-end
+- Backend: rejects requests during cooldown (429), stops on first 429, enters 120s/300s cooldown
+- Frontend: disables Retry + Scan buttons, shows countdown timer, cooldown banner with escalation info
+- Debug info preserved: stage, endpoint, category, retryAfterSeconds, providerMessage, escalationCount
+- Cooldown scoped by category + period + endpoint to prevent cross-configuration blocking

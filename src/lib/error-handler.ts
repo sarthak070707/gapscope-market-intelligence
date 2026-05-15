@@ -45,6 +45,8 @@ export interface ModuleError {
   stage?: string;           // The stage where the error occurred (e.g., "SCAN_WEB_SEARCH", "ANALYZE_GAPS_LLM")
   originalStack?: string;   // The original error's stack trace (for debugging)
   originalName?: string;    // The original error's constructor name (e.g., "TypeError", "RangeError")
+  retryAfterSeconds?: number; // For rate_limit errors: seconds until the cooldown expires
+  providerMessage?: string;   // The original message from the rate-limited provider (e.g., "Too many requests, please try again later")
 }
 
 // ─── Classify Error ──────────────────────────────────────────────

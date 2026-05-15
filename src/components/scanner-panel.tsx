@@ -3,7 +3,7 @@
 import { useState, useRef, useCallback, useEffect } from 'react'
 import { useMutation } from '@tanstack/react-query'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Search, Loader2, ExternalLink, ChevronUp, ChevronDown, Clock } from 'lucide-react'
+import { Search, Loader2, ExternalLink, ChevronUp, ChevronDown, Clock, ShieldAlert, Timer } from 'lucide-react'
 import { toast } from 'sonner'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -31,6 +31,7 @@ import { CATEGORIES, SEARCH_SUGGESTIONS, type Category, type ScannedProduct } fr
 import { ModuleErrorState } from '@/components/module-error-state'
 import { classifyError, type ModuleError } from '@/lib/error-handler'
 import { handleFetchError } from '@/lib/fetch-error'
+import { useRateLimitCooldown, formatCooldownTime } from '@/hooks/use-rate-limit-cooldown'
 
 // ─── Stage labels for progress display ──────────────────────────────
 const STAGE_LABELS: Record<string, string> = {
@@ -143,10 +144,43 @@ export function ScannerPanel() {
 
   const { isPolling, pollingStage, startPolling, stopPolling } = useScanPolling()
 
+  // ─── Rate-limit cooldown state ───
+  const effectiveCategory = selectedCategory === 'all' ? 'AI Tools' : selectedCategory
+  const {
+    isCooldownActive,
+    remainingSeconds,
+    cooldownState,
+    enterCooldown,
+    clearCooldown,
+  } = useRateLimitCooldown(effectiveCategory, period)
+
   const scanMutation = useMutation({
     mutationFn: async () => {
       setScanError(null)
       setIsScanning(true)
+
+      // ─── Block scan during cooldown ───
+      if (isCooldownActive) {
+        const blockedError: ModuleError = {
+          module: 'Product Hunt Scanner',
+          category: 'rate_limit',
+          message: `[RATE_LIMIT] Scanner is in cooldown. Try again in ${remainingSeconds} seconds.`,
+          detail: `Cannot start a new scan for "${effectiveCategory}" (${period}) while the rate-limit cooldown is active.`,
+          possibleReason: `The search API returned HTTP 429 (Too Many Requests). The scanner entered a cooldown to prevent repeated failures. Wait ${formatCooldownTime(remainingSeconds)} before retrying.`,
+          retryable: true,
+          timestamp: new Date().toISOString(),
+          endpoint: '/api/scan',
+          statusCode: 429,
+          stage: cooldownState?.stage || 'SCAN_WEB_SEARCH',
+          requestCategory: effectiveCategory,
+          requestPayload: `category=${effectiveCategory}, period=${period}`,
+          providerMessage: cooldownState?.providerMessage || '',
+          retryAfterSeconds: remainingSeconds,
+        }
+        setScanError(blockedError)
+        setIsScanning(false)
+        throw new Error(blockedError.message)
+      }
 
       // Step 1: Start the scan job (returns immediately with jobId)
       const res = await fetch('/api/scan', {
@@ -156,13 +190,19 @@ export function ScannerPanel() {
       })
 
       if (!res.ok) {
-        // The POST itself failed — this is a real error (not a gateway timeout)
+        // The POST itself failed — this could be a 429 (cooldown rejection) or other error
         const moduleError = await handleFetchError(res, {
           moduleName: 'Product Hunt Scanner',
           endpoint: '/api/scan',
           category: selectedCategory,
           payload: `category=${selectedCategory}, period=${period}`,
         })
+
+        // If it's a rate-limit error with retryAfterSeconds, enter cooldown
+        if (moduleError.category === 'rate_limit' && moduleError.retryAfterSeconds) {
+          enterCooldown(moduleError)
+        }
+
         setScanError(moduleError)
         throw new Error(moduleError.message)
       }
@@ -181,8 +221,15 @@ export function ScannerPanel() {
         // Check if the result is an error
         if ('category' in result && 'message' in result && !('name' in result)) {
           // This is a ModuleError, not a ScannedProduct[]
-          setScanError(result as ModuleError)
-          throw new Error((result as ModuleError).message)
+          const moduleError = result as ModuleError
+          setScanError(moduleError)
+
+          // If it's a rate-limit error, enter cooldown
+          if (moduleError.category === 'rate_limit') {
+            enterCooldown(moduleError)
+          }
+
+          throw new Error(moduleError.message)
         }
 
         return result as ScannedProduct[]
@@ -194,16 +241,24 @@ export function ScannerPanel() {
     onSuccess: (data) => {
       setIsScanning(false)
       setScanResults(data)
+      clearCooldown() // Clear cooldown on success
       toast.success(`Scan complete! Found ${data.length} products.`)
     },
     onError: (err) => {
       setIsScanning(false)
       // Only set error if not already set in mutationFn
       if (!scanError) {
-        setScanError(classifyError(err, 'Product Hunt Scanner', '/api/scan', {
+        const classifiedError = classifyError(err, 'Product Hunt Scanner', '/api/scan', {
           category: selectedCategory,
           payload: `category=${selectedCategory}, period=${period}`,
-        }))
+        })
+
+        // If it's a rate-limit error, enter cooldown
+        if (classifiedError.category === 'rate_limit') {
+          enterCooldown(classifiedError)
+        }
+
+        setScanError(classifiedError)
       }
       toast.error('Scan failed. Please try again.')
     },
@@ -330,7 +385,7 @@ export function ScannerPanel() {
                   onBlur={() => setTimeout(() => setShowSuggestions(false), 200)}
                   className="w-full sm:w-52"
                   onKeyDown={(e) => {
-                    if (e.key === 'Enter' && searchInput.trim()) {
+                    if (e.key === 'Enter' && searchInput.trim() && !isCooldownActive) {
                       scanMutation.mutate()
                     }
                   }}
@@ -357,11 +412,13 @@ export function ScannerPanel() {
 
               <Button
                 onClick={() => scanMutation.mutate()}
-                disabled={isLoading}
-                className="w-full sm:w-auto bg-orange-600 hover:bg-orange-700 text-white"
+                disabled={isLoading || isCooldownActive}
+                className="w-full sm:w-auto bg-orange-600 hover:bg-orange-700 text-white disabled:opacity-50"
               >
                 {isLoading ? (
                   <><Loader2 className="h-4 w-4 animate-spin" />Scanning...</>
+                ) : isCooldownActive ? (
+                  <><Timer className="h-4 w-4" />Cooldown ({formatCooldownTime(remainingSeconds)})</>
                 ) : (
                   <><Search className="h-4 w-4" />Scan Product Hunt</>
                 )}
@@ -409,12 +466,73 @@ export function ScannerPanel() {
         </motion.div>
       )}
 
+      {/* Rate-limit cooldown banner */}
+      {isCooldownActive && !isLoading && (
+        <motion.div
+          initial={{ opacity: 0, y: 8 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.3 }}
+        >
+          <Card className="border-rose-200 dark:border-rose-900/60 bg-rose-50/50 dark:bg-rose-950/10">
+            <CardContent className="p-4 sm:p-6">
+              <div className="flex items-start gap-3">
+                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-rose-100 dark:bg-rose-950/30">
+                  <ShieldAlert className="h-5 w-5 text-rose-600 dark:text-rose-400" />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <h3 className="text-sm font-semibold text-rose-800 dark:text-rose-300">
+                      Search API Rate Limit Reached
+                    </h3>
+                    <Badge
+                      variant="outline"
+                      className="bg-rose-100 text-rose-700 border-rose-200 dark:bg-rose-950/40 dark:text-rose-400 dark:border-rose-900/60 text-[10px]"
+                    >
+                      Cooldown Active
+                    </Badge>
+                    {cooldownState?.escalationCount && cooldownState.escalationCount > 1 && (
+                      <Badge
+                        variant="outline"
+                        className="bg-amber-100 text-amber-700 border-amber-200 dark:bg-amber-950/40 dark:text-amber-400 dark:border-amber-900/60 text-[10px]"
+                      >
+                        Escalated (#{cooldownState.escalationCount})
+                      </Badge>
+                    )}
+                  </div>
+                  <p className="mt-1 text-sm text-rose-700 dark:text-rose-400">
+                    Retry available in <span className="font-bold tabular-nums">{formatCooldownTime(remainingSeconds)}</span>
+                  </p>
+                  <div className="mt-2 w-full bg-rose-200/50 dark:bg-rose-900/30 rounded-full h-1.5 overflow-hidden">
+                    <motion.div
+                      className="bg-rose-500 h-full rounded-full"
+                      initial={{ width: '100%' }}
+                      animate={{ width: `${Math.max(0, (remainingSeconds / (cooldownState?.remainingSeconds || 120)) * 100)}%` }}
+                      transition={{ duration: 1, ease: 'linear' }}
+                    />
+                  </div>
+                  {cooldownState?.providerMessage && (
+                    <p className="mt-2 text-xs text-rose-600/70 dark:text-rose-400/60">
+                      Provider: {cooldownState.providerMessage}
+                    </p>
+                  )}
+                  <p className="mt-1 text-xs text-rose-600/70 dark:text-rose-400/60">
+                    The scan button is disabled during cooldown to prevent repeated 429 failures.
+                  </p>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        </motion.div>
+      )}
+
       {/* Error State */}
       {scanError && !isLoading && (
         <ModuleErrorState
           error={scanError}
           onRetry={() => scanMutation.mutate()}
           isRetrying={isLoading}
+          isRateLimitCooldown={isCooldownActive && scanError.category === 'rate_limit'}
+          cooldownRemainingSeconds={isCooldownActive && scanError.category === 'rate_limit' ? remainingSeconds : undefined}
         />
       )}
 

@@ -63,6 +63,20 @@ export async function handleFetchError(
           moduleError.backendMessage = String(errorBody.debug.originalError);
         }
       }
+      // Preserve rate-limit cooldown metadata from the backend
+      if (errorBody.debug?.retryAfterSeconds && !moduleError.retryAfterSeconds) {
+        moduleError.retryAfterSeconds = errorBody.debug.retryAfterSeconds;
+      }
+      if (errorBody.debug?.providerMessage && !moduleError.providerMessage) {
+        moduleError.providerMessage = errorBody.debug.providerMessage;
+      }
+      // Also check moduleError-level fields from the backend 429 response
+      if (errorBody.moduleError.retryAfterSeconds && !moduleError.retryAfterSeconds) {
+        moduleError.retryAfterSeconds = errorBody.moduleError.retryAfterSeconds;
+      }
+      if (errorBody.moduleError.providerMessage && !moduleError.providerMessage) {
+        moduleError.providerMessage = errorBody.moduleError.providerMessage;
+      }
       return moduleError;
     }
 

@@ -14,6 +14,91 @@ const RATE_LIMIT_COOLDOWN_MS = 12_000; // 12s pause after a 429 before the next 
 const PRE_SEARCH_DELAY_MS = 1_500; // 1.5s initial delay before first search to let rate limits cool
 const CURRENT_YEAR = new Date().getFullYear();
 
+// ─── Rate-Limit Lockout System ────────────────────────────────────
+// When a 429 is received, we enter a cooldown period during which:
+// - All scan requests are rejected with 429 + retryAfterSeconds
+// - The frontend disables Retry and shows a countdown timer
+// - Repeated 429s escalate the cooldown from 120s → 300s
+
+const COOLDOWN_INITIAL_MS = 120_000;  // 120 seconds initial cooldown
+const COOLDOWN_ESCALATED_MS = 300_000; // 300 seconds (5 min) after repeated 429
+
+interface CooldownEntry {
+  cooldownUntil: number;   // Timestamp (ms) when cooldown expires
+  durationMs: number;      // How long the cooldown lasts
+  stage: string;           // The stage where the 429 occurred
+  endpoint: string;        // The endpoint that was rate-limited
+  category: string;        // The category that triggered the rate limit
+  period: string;          // The period that triggered the rate limit
+  providerMessage: string; // The original message from the rate-limited provider
+  escalationCount: number; // How many times this key has been rate-limited
+}
+
+// Key: `${category}:${period}:${endpoint}`
+const cooldownStore = new Map<string, CooldownEntry>();
+
+/**
+ * Build a cooldown key from category, period, and endpoint.
+ * This ensures cooldowns are scoped to specific scan configurations.
+ */
+function cooldownKey(category: string, period: string): string {
+  return `${category}:${period}:/api/scan`;
+}
+
+/**
+ * Check if a cooldown is active for the given key.
+ * Returns the CooldownEntry if active, null otherwise.
+ * Also cleans up expired entries.
+ */
+function getActiveCooldown(category: string, period: string): CooldownEntry | null {
+  const key = cooldownKey(category, period);
+  const entry = cooldownStore.get(key);
+  if (!entry) return null;
+
+  // Check if cooldown has expired
+  if (Date.now() >= entry.cooldownUntil) {
+    cooldownStore.delete(key);
+    return null;
+  }
+
+  return entry;
+}
+
+/**
+ * Enter a cooldown for the given key.
+ * If a cooldown already exists, escalate the duration.
+ */
+function enterCooldown(
+  category: string,
+  period: string,
+  stage: string,
+  providerMessage: string,
+): CooldownEntry {
+  const key = cooldownKey(category, period);
+  const existing = cooldownStore.get(key);
+  const escalationCount = (existing?.escalationCount || 0) + 1;
+
+  // Escalate: 2nd+ 429 → 300s, 1st → 120s
+  const durationMs = escalationCount > 1 ? COOLDOWN_ESCALATED_MS : COOLDOWN_INITIAL_MS;
+  const cooldownUntil = Date.now() + durationMs;
+
+  const entry: CooldownEntry = {
+    cooldownUntil,
+    durationMs,
+    stage,
+    endpoint: '/api/scan',
+    category,
+    period,
+    providerMessage,
+    escalationCount,
+  };
+
+  cooldownStore.set(key, entry);
+  console.warn(`[${MODULE_NAME}] RATE LIMIT COOLDOWN entered for "${key}": ${durationMs / 1000}s (escalation #${escalationCount}). Cooldown until: ${new Date(cooldownUntil).toISOString()}`);
+
+  return entry;
+}
+
 // ─── In-memory job tracking for background processing ──────────────
 // This prevents the gateway from timing out — POST returns immediately
 // with a jobId, and the frontend polls GET for results.
@@ -196,6 +281,47 @@ export const POST = withErrorHandler(MODULE_NAME, '/api/scan', async (request: N
     const effectiveCategory = category === 'all' ? 'AI Tools' : category;
     console.log(`[${MODULE_NAME}] Using effective category: ${effectiveCategory} (original: ${category})`);
 
+    // ─── Cooldown check: reject if rate-limit cooldown is active ───
+    const cooldown = getActiveCooldown(effectiveCategory, period as string);
+    if (cooldown) {
+      const remainingSeconds = Math.ceil((cooldown.cooldownUntil - Date.now()) / 1000);
+      console.warn(`[${MODULE_NAME}] REJECTED: Cooldown active for "${effectiveCategory}:${period}". ${remainingSeconds}s remaining.`);
+      return NextResponse.json(
+        {
+          error: `Scanner is cooling down. Try again in ${remainingSeconds} seconds.`,
+          moduleError: {
+            module: MODULE_NAME,
+            category: 'rate_limit',
+            message: `[RATE_LIMIT] Scanner is cooling down. Try again in ${remainingSeconds} seconds.`,
+            detail: `A previous scan for "${effectiveCategory}" (${period}) was rate limited by the search API. The scanner is in cooldown to prevent repeated 429 failures.`,
+            possibleReason: `The search API returned HTTP 429 (Too Many Requests). The scanner entered a ${cooldown.durationMs / 1000}s cooldown to prevent hammering the API. This is escalation #${cooldown.escalationCount}. Wait ${remainingSeconds}s before retrying.`,
+            retryable: true,
+            timestamp: new Date().toISOString(),
+            endpoint: '/api/scan',
+            statusCode: 429,
+            stage: cooldown.stage,
+            requestCategory: effectiveCategory,
+            requestPayload: `category=${effectiveCategory}, period=${period}`,
+            backendMessage: cooldown.providerMessage,
+            providerMessage: cooldown.providerMessage,
+            retryAfterSeconds: remainingSeconds,
+            escalationCount: cooldown.escalationCount,
+          },
+          debug: {
+            stage: cooldown.stage,
+            endpoint: '/api/scan',
+            category: effectiveCategory,
+            retryAfterSeconds: remainingSeconds,
+            escalationCount: cooldown.escalationCount,
+            providerMessage: cooldown.providerMessage,
+            cooldownUntil: new Date(cooldown.cooldownUntil).toISOString(),
+            originalError: cooldown.providerMessage,
+          },
+        },
+        { status: 429 }
+      );
+    }
+
     // Pre-flight: check database connection
     console.log(`[${MODULE_NAME}] Checking database connection...`);
     const dbHealth = await checkDatabaseConnection();
@@ -232,7 +358,7 @@ export const POST = withErrorHandler(MODULE_NAME, '/api/scan', async (request: N
     // ─── Fire-and-forget background processing ───
     // This runs asynchronously — POST returns immediately with the jobId.
     // The frontend polls GET /api/scan?jobId=xxx for status updates.
-    executeScanBackground(scanJob.id, effectiveCategory, category).catch((err) => {
+    executeScanBackground(scanJob.id, effectiveCategory, category, period as string).catch((err) => {
       console.error(`[${MODULE_NAME}] Background scan CRASHED for job ${scanJob.id}:`, err);
     });
 
@@ -271,7 +397,7 @@ export const POST = withErrorHandler(MODULE_NAME, '/api/scan', async (request: N
 
 // ─── Background Scan Execution ──────────────────────────────────────
 
-async function executeScanBackground(scanJobId: string, category: string, originalCategory: string): Promise<void> {
+async function executeScanBackground(scanJobId: string, category: string, originalCategory: string, period: string): Promise<void> {
   const activeScan = activeScans.get(scanJobId);
   if (!activeScan) return;
 
@@ -312,9 +438,9 @@ async function executeScanBackground(scanJobId: string, category: string, origin
     let phUrls: string[] = [];
     const seenUrls = new Set<string>();
 
-    let rateLimitFailures = 0;
+    let rateLimitHit = false;
     let totalSearchAttempts = 0;
-    let lastRateLimitMessage = '';
+    let firstRateLimitMessage = '';
 
     for (let i = 0; i < searchQueries.length; i++) {
       const query = searchQueries[i];
@@ -323,7 +449,7 @@ async function executeScanBackground(scanJobId: string, category: string, origin
 
       try {
         // For web search, don't use retryWithBackoff on 429s — rate limits need time, not retries.
-        // Instead, we let the query fail fast on 429 and wait longer before the next query.
+        // Instead, we let the query fail fast on 429 and STOP immediately (enter cooldown).
         const results = await retryWithBackoff(
           () => webSearch(query, 10),
           {
@@ -338,23 +464,27 @@ async function executeScanBackground(scanJobId: string, category: string, origin
         ).catch((err) => {
           const errMsg = err instanceof Error ? err.message : String(err);
           if (errMsg.includes('429') || errMsg.toLowerCase().includes('rate limit') || errMsg.toLowerCase().includes('too many')) {
-            rateLimitFailures++;
-            lastRateLimitMessage = errMsg;
-            console.warn(`[${MODULE_NAME}] Rate limit hit on query "${query}" (attempt ${i + 1}): ${errMsg}`);
+            rateLimitHit = true;
+            firstRateLimitMessage = errMsg;
+            console.warn(`[${MODULE_NAME}] RATE LIMIT HIT on query "${query}" (attempt ${i + 1}): ${errMsg}`);
+            console.warn(`[${MODULE_NAME}] STOPPING search immediately — first 429 received, entering cooldown.`);
           } else {
             logStageError(MODULE_NAME, 'WEB_SEARCH', err, { query, attempt: i + 1 });
           }
           return null;
         });
 
+        // ─── CRITICAL: If the first query returned 429, STOP IMMEDIATELY ───
+        // Do NOT try the remaining queries — they will also fail with 429.
+        // Enter cooldown instead.
+        if (rateLimitHit) {
+          break;
+        }
+
         if (!results || !Array.isArray(results)) {
           console.warn(`[${MODULE_NAME}] webSearch returned non-array for query "${query}": ${typeof results}`);
-          // After a 429, wait much longer before the next query to let rate limits reset
-          if (rateLimitFailures > 0 && i < searchQueries.length - 1) {
-            console.log(`[${MODULE_NAME}] Rate limited — waiting ${RATE_LIMIT_COOLDOWN_MS / 1000}s before next query to let limits reset...`);
-            await new Promise((r) => setTimeout(r, RATE_LIMIT_COOLDOWN_MS));
-          } else if (i < searchQueries.length - 1) {
-            // Normal inter-query delay for non-rate-limit failures
+          // Non-rate-limit failure — wait and try next query
+          if (i < searchQueries.length - 1) {
             await new Promise((r) => setTimeout(r, 3000));
           }
           continue;
@@ -406,11 +536,27 @@ async function executeScanBackground(scanJobId: string, category: string, origin
 
     phUrls = phUrls.slice(0, 3);
 
-    console.log(`[${MODULE_NAME}] Step 1 complete: found ${uniqueResults.length} unique results (${phUrls.length} PH URLs) in ${Date.now() - searchStart}ms. Rate limit failures: ${rateLimitFailures}/${totalSearchAttempts}`);
-    logStageEnd(MODULE_NAME, 'WEB_SEARCH', `${uniqueResults.length} results`, { phUrlCount: phUrls.length, durationMs: Date.now() - searchStart, rateLimitFailures });
+    console.log(`[${MODULE_NAME}] Step 1 complete: found ${uniqueResults.length} unique results (${phUrls.length} PH URLs) in ${Date.now() - searchStart}ms. Rate limit hit: ${rateLimitHit}`);
+    logStageEnd(MODULE_NAME, 'WEB_SEARCH', `${uniqueResults.length} results`, { phUrlCount: phUrls.length, durationMs: Date.now() - searchStart, rateLimitHit });
 
-    if (uniqueResults.length === 0 && rateLimitFailures > 0 && rateLimitFailures >= totalSearchAttempts - 1) {
-      throw new Error(`[SCAN_WEB_SEARCH] All ${totalSearchAttempts} web search queries were rate limited (429). The search API is throttling requests. Last rate limit error: ${lastRateLimitMessage}. Wait 60 seconds before retrying. Rate limits reset quickly, so a retry after a short wait should succeed.`);
+    // ─── If rate limited, enter cooldown and throw with full debug info ───
+    if (rateLimitHit && uniqueResults.length === 0) {
+      const cooldownEntry = enterCooldown(category, period, 'SCAN_WEB_SEARCH', firstRateLimitMessage);
+      const retryAfterSeconds = Math.ceil((cooldownEntry.cooldownUntil - Date.now()) / 1000);
+
+      const rateLimitError = new Error(
+        `[SCAN_WEB_SEARCH] Search API rate limit reached. The first web search query returned HTTP 429. Remaining queries were NOT executed to avoid repeated failures. Scanner is now in cooldown for ${retryAfterSeconds} seconds. Provider message: ${firstRateLimitMessage}`
+      );
+      // Attach cooldown metadata to the error for the catch block to use
+      (rateLimitError as any).__cooldownMeta = {
+        stage: 'SCAN_WEB_SEARCH',
+        endpoint: '/api/scan',
+        category,
+        retryAfterSeconds,
+        providerMessage: firstRateLimitMessage,
+        escalationCount: cooldownEntry.escalationCount,
+      };
+      throw rateLimitError;
     }
 
     // Step 2: Read top Product Hunt pages in parallel with concurrency limit
@@ -477,8 +623,9 @@ async function executeScanBackground(scanJobId: string, category: string, origin
             .join('\n\n');
 
     if (!rawContent.trim()) {
-      if (rateLimitFailures > 0) {
-        throw new Error(`[SCAN_WEB_SEARCH] Product Hunt fetch returned no results due to rate limiting. ${rateLimitFailures} of ${totalSearchAttempts} search queries were rate limited (429). Last error: ${lastRateLimitMessage}. Wait 60 seconds before retrying.`);
+      if (rateLimitHit) {
+        // Should have been caught above, but as a safety net
+        throw new Error(`[SCAN_WEB_SEARCH] Product Hunt fetch returned no results due to rate limiting. Provider message: ${firstRateLimitMessage}. The scanner has entered cooldown — do not retry immediately.`);
       }
       throw new Error(`[SCAN_WEB_SEARCH] Product Hunt fetch returned no results. Tried ${searchQueries.length} different search queries for "${category}" products on Product Hunt but got no usable content. The category may be too niche or Product Hunt may not have recent launches in this area. Try "AI Tools" or "Productivity" which have more listings.`);
     }
@@ -631,6 +778,20 @@ If you cannot find any products, return an empty array.`,
       category,
       backendMessage: error instanceof Error ? error.message : String(error),
     });
+
+    // ─── Preserve cooldown metadata from rate-limit errors ───
+    // If the error was thrown with __cooldownMeta (from our rate-limit handler),
+    // attach it to the ModuleError so the frontend can display the countdown.
+    if (error instanceof Error && (error as any).__cooldownMeta) {
+      const meta = (error as any).__cooldownMeta;
+      moduleError.retryAfterSeconds = meta.retryAfterSeconds;
+      moduleError.providerMessage = meta.providerMessage;
+      moduleError.stage = meta.stage || moduleError.stage;
+      moduleError.statusCode = 429;
+      if (!moduleError.backendMessage) {
+        moduleError.backendMessage = meta.providerMessage;
+      }
+    }
 
     // Update scan job as failed
     try {
