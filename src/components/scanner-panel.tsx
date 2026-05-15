@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useRef } from 'react'
 import { useMutation } from '@tanstack/react-query'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Search, Loader2, ExternalLink, ChevronUp, ChevronDown, Clock } from 'lucide-react'
@@ -45,14 +45,15 @@ export function ScannerPanel() {
   const scanResults = useAppStore((s) => s.scanResults)
   const setScanResults = useAppStore((s) => s.setScanResults)
 
-  // Use a ref to track if scanError was already set in the mutationFn,
-  // because React state updates are async and the closure may see stale null
-  const [scanErrorSetByMutation, setScanErrorSetByMutation] = useState(false)
+  // Use a ref to track if scanError was already set in the mutationFn.
+  // CRITICAL: useRef is synchronous and not subject to stale closure issues
+  // that caused the double-classification bug ([BAD_GATEWAY] [BAD_GATEWAY] HTTP 502).
+  const scanErrorSetRef = useRef(false)
 
   const scanMutation = useMutation({
     mutationFn: async () => {
       setScanError(null)
-      setScanErrorSetByMutation(false)
+      scanErrorSetRef.current = false
       const res = await fetch('/api/scan', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -85,7 +86,15 @@ export function ScannerPanel() {
           }
         } catch {
           // JSON parse failed (gateway returned HTML or non-JSON error)
-          moduleError = classifyError(new Error(`HTTP ${res.status}`), 'Product Hunt Scanner', '/api/scan', {
+          // Provide better context for common gateway errors
+          const statusMsg = res.status === 502
+            ? 'Gateway returned 502 Bad Gateway. The backend server may be too slow or temporarily unavailable. The scan takes time — try again in a moment.'
+            : res.status === 504
+              ? 'Gateway timeout (504). The scan took too long and the gateway closed the connection. Try again — the second attempt is usually faster.'
+              : res.status === 503
+                ? 'Service unavailable (503). The server is temporarily overloaded. Wait a moment and try again.'
+                : `HTTP ${res.status}`
+          moduleError = classifyError(new Error(statusMsg), 'Product Hunt Scanner', '/api/scan', {
             category: selectedCategory,
             payload: `category=${selectedCategory}, period=${period}`,
           })
@@ -94,7 +103,7 @@ export function ScannerPanel() {
           if (!moduleError.requestPayload) moduleError.requestPayload = `category=${selectedCategory}, period=${period}`
         }
         setScanError(moduleError)
-        setScanErrorSetByMutation(true)
+        scanErrorSetRef.current = true  // Synchronous — no stale closure
         throw new Error(moduleError.message)
       }
       return res.json() as Promise<ScannedProduct[]>
@@ -104,9 +113,10 @@ export function ScannerPanel() {
       toast.success(`Scan complete! Found ${data.length} products.`)
     },
     onError: (err) => {
-      // Only re-classify if the mutationFn didn't already set scanError
-      // (prevents double-classification which causes [API_ERROR] [API_ERROR] ... prefix)
-      if (!scanErrorSetByMutation) {
+      // Only re-classify if the mutationFn didn't already set scanError.
+      // Using ref (synchronous) instead of state (async) to avoid stale closure bug
+      // that caused double-classification: [BAD_GATEWAY] [BAD_GATEWAY] HTTP 502
+      if (!scanErrorSetRef.current) {
         setScanError(classifyError(err, 'Product Hunt Scanner', '/api/scan', {
           category: selectedCategory,
           payload: `category=${selectedCategory}, period=${period}`,

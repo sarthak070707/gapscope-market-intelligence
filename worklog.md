@@ -53,3 +53,48 @@ Stage Summary:
 - 502 misclassification FIXED - analyze route returns 500; classifyError now has 502 detection
 - createErrorResponse helper added for consistent error response building
 - Search query logging added before execution in scan and trends routes
+
+---
+Task ID: 2-b
+Agent: sub-agent
+Task: Fix stale closure bugs in 3 frontend panels (double error classification)
+
+Work Log:
+- Identified root cause: useState(false) for error-set-by-mutation flags suffers from stale closure — React state updates are async, so the onError callback reads the stale `false` value and calls classifyError a second time on an already-classified error, producing double-prefixed messages like `[BAD_GATEWAY] [BAD_GATEWAY] HTTP 502`
+- Fixed gap-analysis-panel.tsx: Changed `useState(false)` → `useRef(false)` for `errorSetByMutation`; updated all references (`.current` for reads/writes); added `useRef` to React import
+- Fixed opportunities-panel.tsx: Same pattern — `useState(false)` → `useRef(false)` for `errorSetByMutation`; updated all references; added `useRef` to React import
+- Fixed trends-compare-panel.tsx: Changed both `trendErrorSetByMutation` and `compareErrorSetByMutation` from `useState(false)` → `useRef(false)`; updated all 6 references; added `useRef` to React import
+- Verified: No remaining `setErrorSetByMutation`, `setTrendErrorSetByMutation`, or `setCompareErrorSetByMutation` setter calls in the codebase
+- Verified: TypeScript compilation passes with no new errors in the 3 modified files
+- Verified: All other `useState(false)` usages in the codebase are unrelated (UI toggles, not mutation guards)
+
+Stage Summary:
+- Stale closure bug fixed in all 3 panels by replacing useState with useRef for mutation error-tracking flags
+- useRef is synchronous — .current writes are immediately visible to onError callbacks, eliminating the double-classification race condition
+- No other logic changed; only the state tracking mechanism was swapped
+
+---
+Task ID: 3
+Agent: main
+Task: Fix [BAD_GATEWAY] [BAD_GATEWAY] HTTP 502 double-prefix bug, reduce rate limit failures, improve gateway timeout handling
+
+Work Log:
+- Diagnosed full error chain: 502 from Caddy proxy → HTML body → frontend JSON parse fails → classifyError(new Error('HTTP 502')) → [BAD_GATEWAY] HTTP 502 → stale closure causes second classifyError call → [BAD_GATEWAY] [BAD_GATEWAY] HTTP 502
+- Fixed classifyError: Added early alreadyClassified check BEFORE all specific pattern checks (502, 429, etc.) to prevent double-prefixing. If message already starts with [PREFIX], return it as-is without re-wrapping.
+- Fixed scanner-panel.tsx: Replaced useState(false) with useRef(false) for mutation error tracking (synchronous, no stale closure)
+- Fixed scanner-panel.tsx: Added specific gateway error messages for 502, 503, 504 status codes instead of bare "HTTP 502"
+- Fixed scan route: Reduced search queries from 10 to 4 strategic queries to reduce rate limit risk and total scan time
+- Fixed scan route: Increased inter-query delay from 1s to 3s to respect API rate limits
+- Fixed scan route: Added 5s backoff when rate limited before trying next query
+- Fixed trends route: Reduced search queries from 10 to 4 strategic queries
+- Fixed trends route: Increased inter-query delay from 1s to 3s
+- Fixed Caddyfile: Added transport http block with read_timeout 180s, write_timeout 180s, dial_timeout 30s
+- Fixed gap-analysis-panel.tsx, opportunities-panel.tsx, trends-compare-panel.tsx: Same useState → useRef fix via subagent
+- All lint checks pass cleanly
+
+Stage Summary:
+- [BAD_GATEWAY] [BAD_GATEWAY] double-prefix bug FIXED at both source (classifyError) and trigger (stale closure)
+- Scan time reduced from ~56s to ~20s by reducing queries from 10→4 with 3s delays
+- Rate limit protection improved with 5s backoff on 429 errors
+- Gateway error messages now explain what 502/503/504 means instead of bare "HTTP 502"
+- Caddy timeout extended to 180s (from default ~30s) to prevent premature 502s

@@ -133,17 +133,13 @@ async function executeScan(category: string, scanJobId: string, originalCategory
   logStageStart(MODULE_NAME, 'WEB_SEARCH', `category=${category}`);
   const searchStart = Date.now();
 
+  // Use 4 strategic queries instead of 10 to reduce rate limit risk.
+  // Order: most specific first, then broader fallbacks.
   const searchQueries = [
-    `site:producthunt.com/products ${category} tools`,
-    `site:producthunt.com/posts ${category} Product Hunt`,
-    `latest ${category} Product Hunt launches this month`,
-    `Product Hunt ${category} weekly launches`,
-    `recent ${category} startups Product Hunt`,
-    `best ${category} products Product Hunt`,
-    `new ${category} artificial intelligence tools Product Hunt`,
-    `trending ${category} Product Hunt ${CURRENT_YEAR}`,
-    `${category} tools Product Hunt launches this week`,
-    `Product Hunt ${category} top products this month`,
+    `site:producthunt.com ${category} ${CURRENT_YEAR}`,
+    `Product Hunt ${category} launches this month`,
+    `latest ${category} tools Product Hunt`,
+    `trending ${category} startups Product Hunt ${CURRENT_YEAR}`,
   ];
 
   console.log(`[${MODULE_NAME}] [SEARCH QUERIES] Final query list before execution:`, JSON.stringify(searchQueries));
@@ -176,6 +172,11 @@ async function executeScan(category: string, scanJobId: string, originalCategory
 
       if (!results || !Array.isArray(results)) {
         console.warn(`[${MODULE_NAME}] webSearch returned non-array for query "${query}": ${typeof results}`);
+        // If rate limited, wait longer before next query
+        if (rateLimitFailures > 0 && i < searchQueries.length - 1) {
+          console.log(`[${MODULE_NAME}] Rate limited — waiting 5s before next query...`);
+          await new Promise((r) => setTimeout(r, 5000));
+        }
         continue;
       }
 
@@ -208,9 +209,9 @@ async function executeScan(category: string, scanJobId: string, originalCategory
         break;
       }
 
-      // Small delay between search queries to avoid rate limits
+      // Delay between search queries to avoid rate limits (3s to respect API limits)
       if (i < searchQueries.length - 1) {
-        await new Promise((r) => setTimeout(r, 1000));
+        await new Promise((r) => setTimeout(r, 3000));
       }
     } catch (err) {
       logStageError(MODULE_NAME, 'WEB_SEARCH', err, { query, attempt: i + 1 });

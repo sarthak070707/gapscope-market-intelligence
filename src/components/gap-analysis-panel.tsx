@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useRef } from 'react'
 import { useMutation } from '@tanstack/react-query'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
@@ -710,7 +710,7 @@ function SaturationEntry({ sat, delay = 0 }: { sat: MarketSaturation; delay?: nu
 export function GapAnalysisPanel() {
   const [gapTypeFilter, setGapTypeFilter] = useState<GapType | 'all'>('all')
   const [analysisError, setAnalysisError] = useState<ModuleError | null>(null)
-  const [errorSetByMutation, setErrorSetByMutation] = useState(false)
+  const errorSetByMutation = useRef(false)
 
   const selectedCategory = useAppStore((s) => s.selectedCategory)
   const setSelectedCategory = useAppStore((s) => s.setSelectedCategory)
@@ -726,7 +726,7 @@ export function GapAnalysisPanel() {
   const analyzeMutation = useMutation({
     mutationFn: async () => {
       setAnalysisError(null)
-      setErrorSetByMutation(false)
+      errorSetByMutation.current = false
       const res = await fetch('/api/analyze', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -760,7 +760,7 @@ export function GapAnalysisPanel() {
           moduleError.statusCode = res.status
         }
         setAnalysisError(moduleError)
-        setErrorSetByMutation(true)
+        errorSetByMutation.current = true
         throw new Error(moduleError.message)
       }
       return res.json() as Promise<{
@@ -809,7 +809,7 @@ export function GapAnalysisPanel() {
       }
     },
     onError: (err) => {
-      if (!errorSetByMutation) {
+      if (!errorSetByMutation.current) {
         setAnalysisError(classifyError(err, 'Gap Analysis', '/api/analyze', {
           category: selectedCategory,
           payload: `category=${selectedCategory}, analysisType=full, timePeriod=${timePeriod}`,

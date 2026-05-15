@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useRef } from 'react'
 import { useMutation } from '@tanstack/react-query'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
@@ -436,8 +436,8 @@ export function TrendsComparePanel() {
   const [selectedProducts, setSelectedProducts] = useState<string[]>([])
   const [trendError, setTrendError] = useState<ModuleError | null>(null)
   const [compareError, setCompareError] = useState<ModuleError | null>(null)
-  const [trendErrorSetByMutation, setTrendErrorSetByMutation] = useState(false)
-  const [compareErrorSetByMutation, setCompareErrorSetByMutation] = useState(false)
+  const trendErrorSetByMutation = useRef(false)
+  const compareErrorSetByMutation = useRef(false)
 
   const trendResults = useAppStore((s) => s.trendResults)
   const setTrendResults = useAppStore((s) => s.setTrendResults)
@@ -539,7 +539,7 @@ export function TrendsComparePanel() {
   const trendMutation = useMutation({
     mutationFn: async () => {
       setTrendError(null)
-      setTrendErrorSetByMutation(false)
+      trendErrorSetByMutation.current = false
       const res = await fetch('/api/trends', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -573,7 +573,7 @@ export function TrendsComparePanel() {
           moduleError.statusCode = res.status
         }
         setTrendError(moduleError)
-        setTrendErrorSetByMutation(true)
+        trendErrorSetByMutation.current = true
         throw new Error(moduleError.message)
       }
       return res.json() as Promise<TrendData[]>
@@ -584,7 +584,7 @@ export function TrendsComparePanel() {
       toast.success(`Detected ${data.length} trends!`)
     },
     onError: (err) => {
-      if (!trendErrorSetByMutation) {
+      if (!trendErrorSetByMutation.current) {
         setTrendError(classifyError(err, 'Trend Detection', '/api/trends', {
           category: selectedCategory,
           payload: `action=detect, category=${selectedCategory}, timePeriod=${timePeriod}`,
@@ -620,7 +620,7 @@ export function TrendsComparePanel() {
   const compareMutation = useMutation({
     mutationFn: async () => {
       setCompareError(null)
-      setCompareErrorSetByMutation(false)
+      compareErrorSetByMutation.current = false
       const res = await fetch('/api/trends', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -654,7 +654,7 @@ export function TrendsComparePanel() {
           moduleError.statusCode = res.status
         }
         setCompareError(moduleError)
-        setCompareErrorSetByMutation(true)
+        compareErrorSetByMutation.current = true
         throw new Error(moduleError.message)
       }
       return res.json() as Promise<CompetitorComparison>
@@ -664,7 +664,7 @@ export function TrendsComparePanel() {
       toast.success('Comparison complete!')
     },
     onError: (err) => {
-      if (!compareErrorSetByMutation) {
+      if (!compareErrorSetByMutation.current) {
         setCompareError(classifyError(err, 'Product Comparison', '/api/trends', {
           category: selectedCategory,
           payload: `action=compare, products=${selectedProducts.join(',')}, category=${selectedCategory}`,

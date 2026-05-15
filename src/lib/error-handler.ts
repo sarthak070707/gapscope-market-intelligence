@@ -90,6 +90,43 @@ export function classifyError(
   if (error instanceof Error) {
     const msg = error.message.toLowerCase();
 
+    // ── CRITICAL: Prevent double-prefixing ──
+    // If the error message already starts with a classification prefix like [BAD_GATEWAY],
+    // [RATE_LIMIT], [TIMEOUT], etc., do NOT add another prefix.
+    // This prevents the bug where classifyError is called twice on the same error
+    // (e.g., in mutationFn + onError) and produces [BAD_GATEWAY] [BAD_GATEWAY] HTTP 502.
+    const alreadyClassified = /^\[([A-Z_]+)\]/.test(error.message);
+    if (alreadyClassified) {
+      // The message already has a classification prefix — return it as-is without re-wrapping.
+      // We still classify the category based on the content for the ModuleError object.
+      const prefixMatch = error.message.match(/^\[([A-Z_]+)\]/);
+      const existingPrefix = prefixMatch ? prefixMatch[1] : undefined;
+
+      // Determine category from the existing prefix or message content
+      let category: ErrorCategory = 'api';
+      if (existingPrefix === 'RATE_LIMIT' || msg.includes('429') || msg.includes('rate limit')) category = 'rate_limit';
+      else if (existingPrefix === 'TIMEOUT' || msg.includes('timeout') || msg.includes('timed out')) category = 'timeout';
+      else if (existingPrefix === 'AUTH' || msg.includes('unauthorized') || msg.includes('forbidden')) category = 'auth';
+      else if (existingPrefix === 'DATABASE' || existingPrefix === 'DATABASE_CONSTRAINT' || existingPrefix === 'DATABASE_SCHEMA') category = 'database';
+      else if (existingPrefix === 'PARSING' || existingPrefix === 'VALIDATION') category = 'parsing';
+      else if (existingPrefix === 'AI_RESPONSE') category = 'ai_response';
+      else if (existingPrefix === 'NOT_FOUND') category = 'api';
+      else if (existingPrefix === 'BAD_GATEWAY' || existingPrefix === 'SERVER_ERROR' || existingPrefix === 'SERVICE_UNAVAILABLE' || existingPrefix === 'NETWORK') category = 'api';
+
+      return {
+        module,
+        category,
+        message: error.message, // Preserve original — no re-wrapping
+        detail: error.message,
+        possibleReason: `Error at stage ${extractedStage || existingPrefix || 'unknown'}: ${error.message.substring(0, 150)}. Check Debug Info for full stack trace.`,
+        retryable: category !== 'auth' && category !== 'validation',
+        timestamp,
+        endpoint,
+        ...errorOrigin,
+        ...ctx,
+      };
+    }
+
     // ── TypeError / ReferenceError classification (common JS runtime errors) ──
     // These are often caused by null/undefined DB results or malformed LLM responses
     if (error instanceof TypeError || error instanceof ReferenceError) {
@@ -520,14 +557,11 @@ export function classifyError(
 
     // ── Generic error with message — fallback to 'api' instead of 'unknown' ──
     // NEVER replace original error message with generic text
-    // CRITICAL: If the error message already has a classification prefix like [API_ERROR],
-    // [RATE_LIMIT], [TIMEOUT], etc., do NOT add another prefix (prevents double-wrapping)
-    const alreadyClassified = /^[A-Z_]{2,}\]/.test(error.message);
-    const finalMessage = alreadyClassified ? error.message : `[API_ERROR] ${error.message}`;
+    // Note: Already-classified errors are caught at the top of this function.
     return {
       module,
       category: 'api',
-      message: finalMessage,
+      message: `[API_ERROR] ${error.message}`,
       detail: `[${error.constructor.name}] ${error.message}`,
       possibleReason: `Error at stage ${extractedStage || 'unknown'} (${error.constructor.name}): ${error.message.substring(0, 150)}. Check Debug Info for full stack trace.`,
       retryable: true,

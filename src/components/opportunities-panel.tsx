@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { useMutation } from '@tanstack/react-query'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
@@ -719,7 +719,7 @@ export function OpportunitiesPanel() {
   const [showSuggestions, setShowSuggestions] = useState(false)
   const [loadingSaved, setLoadingSaved] = useState(false)
   const [generationError, setGenerationError] = useState<ModuleError | null>(null)
-  const [errorSetByMutation, setErrorSetByMutation] = useState(false)
+  const errorSetByMutation = useRef(false)
   const [cooldownSeconds, setCooldownSeconds] = useState(0)
 
   const opportunities = useAppStore((s) => s.opportunities)
@@ -800,7 +800,7 @@ export function OpportunitiesPanel() {
   const generateMutation = useMutation({
     mutationFn: async () => {
       setGenerationError(null)
-      setErrorSetByMutation(false)
+      errorSetByMutation.current = false
       const res = await fetch('/api/opportunities', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -840,7 +840,7 @@ export function OpportunitiesPanel() {
           if (res.status === 429) setCooldownSeconds(60)
         }
         setGenerationError(moduleError)
-        setErrorSetByMutation(true)
+        errorSetByMutation.current = true
         throw new Error(moduleError.message)
       }
       return res.json() as Promise<OpportunitySuggestion[]>
@@ -851,7 +851,7 @@ export function OpportunitiesPanel() {
       toast.success(`Generated ${data.length} opportunities!`)
     },
     onError: (err) => {
-      if (!errorSetByMutation) {
+      if (!errorSetByMutation.current) {
         setGenerationError(classifyError(err, 'Opportunity Generator', '/api/opportunities', {
           category: selectedCategory,
           payload: `category=${selectedCategory}, focusArea=${focusArea || 'none'}, timePeriod=${timePeriod}`,

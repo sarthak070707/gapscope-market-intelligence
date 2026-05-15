@@ -181,17 +181,12 @@ async function handleDetectTrends(effectiveCategory: string, originalCategory: s
   console.log(`[${MODULE_NAME}] handleDetectTrends: starting for "${effectiveCategory}"...`);
   
   // Search for trending products and categories on Product Hunt (sequential fallback)
+  // Use 4 strategic queries instead of 10 to reduce rate limit risk
   const searchQueries = [
     `Product Hunt ${effectiveCategory} trending products this month`,
+    `site:producthunt.com ${effectiveCategory} ${CURRENT_YEAR}`,
     `latest ${effectiveCategory} Product Hunt launches`,
-    `site:producthunt.com/posts ${effectiveCategory}`,
-    `site:producthunt.com/products ${effectiveCategory} artificial intelligence`,
-    `${effectiveCategory} market trends growth latest`,
-    `recent ${effectiveCategory} startups Product Hunt this week`,
-    `trending ${effectiveCategory} tools Product Hunt ${CURRENT_YEAR}`,
-    `new ${effectiveCategory} products launched this month`,
-    `Product Hunt ${effectiveCategory} top launches recently`,
-    `${effectiveCategory} industry trend analysis latest`,
+    `${effectiveCategory} market trends growth ${CURRENT_YEAR}`,
   ];
 
   console.log(`[${MODULE_NAME}] [SEARCH QUERIES] Final query list before execution:`, JSON.stringify(searchQueries));
@@ -253,7 +248,7 @@ async function handleDetectTrends(effectiveCategory: string, originalCategory: s
       }
 
       if (i < searchQueries.length - 1) {
-        await new Promise((r) => setTimeout(r, 1000));
+        await new Promise((r) => setTimeout(r, 3000));
       }
     } catch (err) {
       logStageError(MODULE_NAME, 'WEB_SEARCH', err, { query, attempt: i + 1 });
