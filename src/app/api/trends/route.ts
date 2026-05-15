@@ -9,6 +9,8 @@ const LLM_TIMEOUT_MS = 90_000;
 const WEBSEARCH_TIMEOUT_MS = 30_000;
 const MAX_RETRIES = 2;
 const INTER_CALL_DELAY_MS = 2000;
+const RATE_LIMIT_COOLDOWN_MS = 12_000; // 12s pause after a 429 before the next web search query
+const PRE_SEARCH_DELAY_MS = 1_500; // 1.5s initial delay before first search to let rate limits cool
 const MODULE_NAME = 'Trend Detection';
 const CURRENT_YEAR = new Date().getFullYear();
 
@@ -192,6 +194,10 @@ async function handleDetectTrends(effectiveCategory: string, originalCategory: s
   console.log(`[${MODULE_NAME}] [SEARCH QUERIES] Final query list before execution:`, JSON.stringify(searchQueries));
   console.log(`[${MODULE_NAME}] Starting sequential search with ${searchQueries.length} queries...`);
 
+  // Pre-search delay: wait a bit to let any previous rate limits cool down
+  console.log(`[${MODULE_NAME}] Pre-search cooldown: waiting ${PRE_SEARCH_DELAY_MS}ms before first query...`);
+  await new Promise((r) => setTimeout(r, PRE_SEARCH_DELAY_MS));
+
   let allResults: Record<string, unknown>[] = [];
   const seenUrls = new Set<string>();
 
@@ -208,9 +214,16 @@ async function handleDetectTrends(effectiveCategory: string, originalCategory: s
     totalSearchAttempts++;
 
     try {
+      // Don't use retryWithBackoff on 429s — rate limits need cooldown time, not retries.
       const results = await retryWithBackoff(
         () => withTimeout(() => webSearch(query, 10), WEBSEARCH_TIMEOUT_MS, MODULE_NAME),
-        { maxRetries: 1 },
+        {
+          maxRetries: 0, // Don't retry 429s — they need cooldown time, not immediate retries
+          shouldRetry: (err) => {
+            const msg = err instanceof Error ? err.message : String(err);
+            return !msg.includes('429') && !msg.toLowerCase().includes('rate limit');
+          },
+        },
         MODULE_NAME
       ).catch((err) => {
         // Track rate limit failures specifically
@@ -218,7 +231,7 @@ async function handleDetectTrends(effectiveCategory: string, originalCategory: s
         if (errMsg.includes('429') || errMsg.toLowerCase().includes('rate limit') || errMsg.toLowerCase().includes('too many')) {
           rateLimitFailures++;
           lastRateLimitMessage = errMsg;
-          console.warn(`[${MODULE_NAME}] Rate limit hit on query "${query}": ${errMsg}`);
+          console.warn(`[${MODULE_NAME}] Rate limit hit on query "${query}" (attempt ${i + 1}): ${errMsg}`);
         } else {
           logError(MODULE_NAME, err, { step: 'webSearch', query, attempt: i + 1 });
         }
@@ -227,6 +240,13 @@ async function handleDetectTrends(effectiveCategory: string, originalCategory: s
 
       if (!results || !Array.isArray(results)) {
         console.warn(`[${MODULE_NAME}] webSearch returned non-array for query "${query}": ${typeof results}`);
+        // After a 429, wait much longer before the next query to let rate limits reset
+        if (rateLimitFailures > 0 && i < searchQueries.length - 1) {
+          console.log(`[${MODULE_NAME}] Rate limited — waiting ${RATE_LIMIT_COOLDOWN_MS / 1000}s before next query to let limits reset...`);
+          await new Promise((r) => setTimeout(r, RATE_LIMIT_COOLDOWN_MS));
+        } else if (i < searchQueries.length - 1) {
+          await new Promise((r) => setTimeout(r, 3000));
+        }
         continue;
       }
 
@@ -247,8 +267,10 @@ async function handleDetectTrends(effectiveCategory: string, originalCategory: s
         break;
       }
 
+      // Normal inter-query delay when we got no results (but no rate limit hit)
       if (i < searchQueries.length - 1) {
-        await new Promise((r) => setTimeout(r, 3000));
+        console.log(`[${MODULE_NAME}] No results yet — waiting 4s before next query...`);
+        await new Promise((r) => setTimeout(r, 4000));
       }
     } catch (err) {
       logStageError(MODULE_NAME, 'WEB_SEARCH', err, { query, attempt: i + 1 });

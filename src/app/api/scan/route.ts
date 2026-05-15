@@ -10,6 +10,8 @@ const LLM_TIMEOUT_MS = 90_000;
 const MAX_RETRIES = 2;
 const MAX_CONCURRENT_READS = 3;
 const INTER_CALL_DELAY_MS = 2000; // 2s pause between LLM calls to avoid rate limits
+const RATE_LIMIT_COOLDOWN_MS = 12_000; // 12s pause after a 429 before the next web search query
+const PRE_SEARCH_DELAY_MS = 1_500; // 1.5s initial delay before first search to let rate limits cool
 const CURRENT_YEAR = new Date().getFullYear();
 
 // ─── In-memory job tracking for background processing ──────────────
@@ -302,6 +304,10 @@ async function executeScanBackground(scanJobId: string, category: string, origin
 
     console.log(`[${MODULE_NAME}] [SEARCH QUERIES] Final query list before execution:`, JSON.stringify(searchQueries));
 
+    // Pre-search delay: wait a bit to let any previous rate limits cool down
+    console.log(`[${MODULE_NAME}] Pre-search cooldown: waiting ${PRE_SEARCH_DELAY_MS}ms before first query...`);
+    await new Promise((r) => setTimeout(r, PRE_SEARCH_DELAY_MS));
+
     let allResults: Record<string, unknown>[] = [];
     let phUrls: string[] = [];
     const seenUrls = new Set<string>();
@@ -316,21 +322,40 @@ async function executeScanBackground(scanJobId: string, category: string, origin
       totalSearchAttempts++;
 
       try {
-        const results = await retryWithBackoff(() => webSearch(query, 10), { maxRetries: 1 }, MODULE_NAME).catch((err) => {
+        // For web search, don't use retryWithBackoff on 429s — rate limits need time, not retries.
+        // Instead, we let the query fail fast on 429 and wait longer before the next query.
+        const results = await retryWithBackoff(
+          () => webSearch(query, 10),
+          {
+            maxRetries: 0, // Don't retry 429s — they need cooldown time, not immediate retries
+            shouldRetry: (err) => {
+              // Only retry non-rate-limit errors (timeouts, network glitches)
+              const msg = err instanceof Error ? err.message : String(err);
+              return !msg.includes('429') && !msg.toLowerCase().includes('rate limit');
+            },
+          },
+          MODULE_NAME
+        ).catch((err) => {
           const errMsg = err instanceof Error ? err.message : String(err);
           if (errMsg.includes('429') || errMsg.toLowerCase().includes('rate limit') || errMsg.toLowerCase().includes('too many')) {
             rateLimitFailures++;
             lastRateLimitMessage = errMsg;
-            console.warn(`[${MODULE_NAME}] Rate limit hit on query "${query}": ${errMsg}`);
+            console.warn(`[${MODULE_NAME}] Rate limit hit on query "${query}" (attempt ${i + 1}): ${errMsg}`);
+          } else {
+            logStageError(MODULE_NAME, 'WEB_SEARCH', err, { query, attempt: i + 1 });
           }
           return null;
         });
 
         if (!results || !Array.isArray(results)) {
           console.warn(`[${MODULE_NAME}] webSearch returned non-array for query "${query}": ${typeof results}`);
+          // After a 429, wait much longer before the next query to let rate limits reset
           if (rateLimitFailures > 0 && i < searchQueries.length - 1) {
-            console.log(`[${MODULE_NAME}] Rate limited — waiting 5s before next query...`);
-            await new Promise((r) => setTimeout(r, 5000));
+            console.log(`[${MODULE_NAME}] Rate limited — waiting ${RATE_LIMIT_COOLDOWN_MS / 1000}s before next query to let limits reset...`);
+            await new Promise((r) => setTimeout(r, RATE_LIMIT_COOLDOWN_MS));
+          } else if (i < searchQueries.length - 1) {
+            // Normal inter-query delay for non-rate-limit failures
+            await new Promise((r) => setTimeout(r, 3000));
           }
           continue;
         }
@@ -360,8 +385,10 @@ async function executeScanBackground(scanJobId: string, category: string, origin
           break;
         }
 
+        // Normal inter-query delay when we got no results (but no rate limit hit)
         if (i < searchQueries.length - 1) {
-          await new Promise((r) => setTimeout(r, 3000));
+          console.log(`[${MODULE_NAME}] No results yet — waiting 4s before next query...`);
+          await new Promise((r) => setTimeout(r, 4000));
         }
       } catch (err) {
         logStageError(MODULE_NAME, 'WEB_SEARCH', err, { query, attempt: i + 1 });

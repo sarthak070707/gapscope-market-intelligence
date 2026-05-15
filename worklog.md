@@ -1,23 +1,23 @@
 ---
 Task ID: 1
-Agent: main
-Task: Fix GapScope 502 Bad Gateway error on Product Hunt Scanner + comprehensive error handling overhaul
+Agent: Main Agent
+Task: Fix rate limiting in /api/scan and /api/trends — increase delays, add pre-search cooldown, avoid retrying 429s
 
 Work Log:
-- Analyzed entire error pipeline: frontend → gateway → backend → SDK
-- Root cause: `/api/scan` ran synchronously for 60-120 seconds, causing Caddy gateway to return 502
-- Converted `/api/scan` to job-based architecture: POST returns immediately with jobId, background processing, GET polls for results
-- Updated ScanJob schema with `stage` and `productIds` fields
-- Rewrote `/api/scan/route.ts` with fire-and-forget background processing
-- Added GET endpoint for polling scan job status and results
-- Updated `fetch-error.ts` with better 502/gateway error handling (preserves backend stage, infers likely stage)
-- Updated `scanner-panel.tsx` with polling hook, progress bar, stage tracking
-- All error messages now include stage prefixes and original error details
-- Dynamic year `CURRENT_YEAR` used instead of hardcoded "2025"
+- Added `RATE_LIMIT_COOLDOWN_MS = 12_000` (12s) and `PRE_SEARCH_DELAY_MS = 1_500` (1.5s) constants to /api/scan/route.ts
+- Changed web search retry logic: `maxRetries: 0` for 429s (don't waste retries on rate limits — they need cooldown time, not immediate retries)
+- Added `shouldRetry` filter that only retries non-rate-limit errors (timeouts, network glitches)
+- Added pre-search cooldown delay before first query to let rate limits from previous requests cool down
+- After a 429, the code now waits 12 seconds before the next query (instead of 5s)
+- After a non-429 failure, waits 4s before next query (instead of 3s)
+- Applied the same fix to /api/trends/route.ts handleDetectTrends function
+- Verified lint passes with no errors
+- Verified all API endpoints return 200
+- Verified /api/analyze already never returns 'unknown' error category (classifyError handles it)
 
 Stage Summary:
-- POST /api/scan now returns in ~81ms instead of 60-120 seconds — **502 gateway timeout eliminated**
-- Frontend shows real-time progress bar with stage names (WEB_SEARCH, LLM_EXTRACT, etc.)
-- All errors preserve original message, stack trace, and stage name
-- Gateway errors now include inferred stage based on endpoint
-- Polling endpoint handles interrupted jobs gracefully
+- Rate limit cooldown between sequential web search queries increased from 5s → 12s
+- Pre-search delay of 1.5s added before first query
+- 429 errors no longer retried immediately — they fail fast and trigger longer cooldown before next query
+- This prevents the pattern where all 4 queries get 429'd because they're sent too quickly
+- Both /api/scan and /api/trends now have consistent rate limit handling
