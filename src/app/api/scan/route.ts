@@ -545,7 +545,7 @@ async function executeScanBackground(scanJobId: string, category: string, origin
       const retryAfterSeconds = Math.ceil((cooldownEntry.cooldownUntil - Date.now()) / 1000);
 
       const rateLimitError = new Error(
-        `[SCAN_WEB_SEARCH] Search API rate limit reached. The first web search query returned HTTP 429. Remaining queries were NOT executed to avoid repeated failures. Scanner is now in cooldown for ${retryAfterSeconds} seconds. Provider message: ${firstRateLimitMessage}`
+        `[SCAN_WEB_SEARCH] Search API rate limit reached. The first web search query returned HTTP 429 — remaining queries were NOT executed to avoid repeated failures. Scanner is now in cooldown for ${retryAfterSeconds} seconds.`
       );
       // Attach cooldown metadata to the error for the catch block to use
       (rateLimitError as any).__cooldownMeta = {
@@ -625,7 +625,7 @@ async function executeScanBackground(scanJobId: string, category: string, origin
     if (!rawContent.trim()) {
       if (rateLimitHit) {
         // Should have been caught above, but as a safety net
-        throw new Error(`[SCAN_WEB_SEARCH] Product Hunt fetch returned no results due to rate limiting. Provider message: ${firstRateLimitMessage}. The scanner has entered cooldown — do not retry immediately.`);
+        throw new Error(`[SCAN_WEB_SEARCH] Product Hunt fetch returned no results due to rate limiting. Scanner has entered cooldown — do not retry immediately.`);
       }
       throw new Error(`[SCAN_WEB_SEARCH] Product Hunt fetch returned no results. Tried ${searchQueries.length} different search queries for "${category}" products on Product Hunt but got no usable content. The category may be too niche or Product Hunt may not have recent launches in this area. Try "AI Tools" or "Productivity" which have more listings.`);
     }

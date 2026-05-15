@@ -54,3 +54,22 @@ Stage Summary:
 - Frontend: disables Retry + Scan buttons, shows countdown timer, cooldown banner with escalation info
 - Debug info preserved: stage, endpoint, category, retryAfterSeconds, providerMessage, escalationCount
 - Cooldown scoped by category + period + endpoint to prevent cross-configuration blocking
+
+---
+Task ID: 3
+Agent: Main Agent
+Task: Fix Debug Info missing fields + onError overwriting scanError + possibleReason truncation
+
+Work Log:
+- Fixed critical bug: `onError` callback was overwriting `scanError` with a re-classified error that loses `retryAfterSeconds`, `providerMessage`, `backendMessage`, and `statusCode` fields. Root cause: `scanError` closure value is stale when `onError` runs (React state updates are async), so `if (!scanError)` was always true even after mutationFn set it.
+- Fix: Added `scanErrorSetRef` ref to track whether scanError was already set in mutationFn. All `setScanError()` calls in mutationFn now also set `scanErrorSetRef.current = true`. The `onError` callback checks the ref instead of the stale closure.
+- Fixed "Possible reason" truncation: increased `substring(0, 150)` → `substring(0, 300)` in the `alreadyClassified` branch, and `substring(0, 100)` → `substring(0, 200)` in all other branches of classifyError.
+- Fixed `statusCode` missing from `alreadyClassified` branch of classifyError: now includes `statusCode` for rate_limit (429), auth (401/403), not_found (404), bad_gateway (502), server_error (500), service_unavailable (503) prefixes.
+- Cleaned up rate-limit error message: removed inline provider message from the thrown error (it's already available as `providerMessage` on the ModuleError). Message now reads: "Search API rate limit reached. The first web search query returned HTTP 429 — remaining queries were NOT executed..."
+- Lint passes cleanly.
+
+Stage Summary:
+- Debug Info now correctly shows: Status, Backend Message, Provider Message, Retry After fields
+- onError no longer overwrites the carefully-constructed ModuleError from mutationFn
+- possibleReason no longer truncated at 150 chars
+- Error message less verbose — provider message shown separately, not embedded inline

@@ -139,6 +139,13 @@ export function ScannerPanel() {
   const [scanError, setScanError] = useState<ModuleError | null>(null)
   const [isScanning, setIsScanning] = useState(false)
 
+  // Ref to track whether scanError was already set in mutationFn.
+  // This prevents onError from overwriting the carefully-constructed ModuleError
+  // (with retryAfterSeconds, providerMessage, etc.) with a re-classified error
+  // that loses those fields. The closure value of scanError is stale by the time
+  // onError runs because React state updates are async.
+  const scanErrorSetRef = useRef(false)
+
   const scanResults = useAppStore((s) => s.scanResults)
   const setScanResults = useAppStore((s) => s.setScanResults)
 
@@ -157,6 +164,7 @@ export function ScannerPanel() {
   const scanMutation = useMutation({
     mutationFn: async () => {
       setScanError(null)
+      scanErrorSetRef.current = false
       setIsScanning(true)
 
       // ─── Block scan during cooldown ───
@@ -178,6 +186,7 @@ export function ScannerPanel() {
           retryAfterSeconds: remainingSeconds,
         }
         setScanError(blockedError)
+        scanErrorSetRef.current = true
         setIsScanning(false)
         throw new Error(blockedError.message)
       }
@@ -204,6 +213,7 @@ export function ScannerPanel() {
         }
 
         setScanError(moduleError)
+        scanErrorSetRef.current = true
         throw new Error(moduleError.message)
       }
 
@@ -223,6 +233,7 @@ export function ScannerPanel() {
           // This is a ModuleError, not a ScannedProduct[]
           const moduleError = result as ModuleError
           setScanError(moduleError)
+          scanErrorSetRef.current = true
 
           // If it's a rate-limit error, enter cooldown
           if (moduleError.category === 'rate_limit') {
@@ -246,8 +257,14 @@ export function ScannerPanel() {
     },
     onError: (err) => {
       setIsScanning(false)
-      // Only set error if not already set in mutationFn
-      if (!scanError) {
+      // Only set error if not already set in mutationFn.
+      // We use a ref because the scanError closure value is stale — React
+      // state updates are async, so by the time onError runs, scanError
+      // still holds the value from the previous render, not the value set
+      // in mutationFn. This was causing onError to overwrite the carefully-
+      // constructed ModuleError (with retryAfterSeconds, providerMessage,
+      // etc.) with a re-classified error that loses those fields.
+      if (!scanErrorSetRef.current) {
         const classifiedError = classifyError(err, 'Product Hunt Scanner', '/api/scan', {
           category: selectedCategory,
           payload: `category=${selectedCategory}, period=${period}`,
